@@ -1,0 +1,57 @@
+# Local / generated / raw contest inputs (do not push official materials)
+/resources/*
+!/resources/.gitkeep
+/data/raw/*
+!/data/raw/.gitkeep
+/data/templates/*
+!/data/templates/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+/outputs/*
+!/outputs/.gitkeep
+/dist/*
+!/dist/.gitkeep
+/paper/build/*
+!/paper/build/.gitkeep
+/paper/generated/*
+!/paper/generated/.gitkeep
+/local/*
+!/local/.gitkeep
+
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+# LaTeX transient
+paper/*.aux
+paper/*.bbl
+paper/*.bcf
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.log
+paper/*.out
+paper/*.run.xml
+paper/*.synctex.gz
+paper/*.toc
+paper/*.xdv
+paper/*.pdf
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.Zone.Identifier
+.idea/
+.vscode/
+*.swp
+*~
+
+.uv-cache/
+
+.uv-python/
+
+.tmp/

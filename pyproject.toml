@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "microgrid"
+version = "0.0.1"
+description = "CUMCM 2026 C Stage 0 engineering scaffold"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = []
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "openpyxl>=3.1",
+  "matplotlib>=3.8",
+  "pypdf>=4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.6",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+  "integration: requires local official data; skipped unless explicitly selected",
+  "latex: requires a local TeX toolchain",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["data", "resources", "outputs", "dist", "paper", "local"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

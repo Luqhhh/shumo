@@ -1,0 +1,67 @@
+schema_version = 1
+status_values = ["pending", "approved", "rejected"]
+instructions = "status 是唯一机器读取来源。confirmed_by/confirmed_at 只能由参赛队人工填写。"
+
+[decisions.D_TIME]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第1-3页；附件1/2/4首尾时间；附件5/result1.xlsx!计划购电量!A2,A145；result2.xlsx!计划购电量!B1,EO1"
+
+[decisions.D_EFF]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第2页附录1；效率原文及 0.9"
+
+[decisions.D_STATE]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第2页附录1、第3页附件5说明；2025-02-01 前的1月衔接"
+
+[decisions.D_INFO]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第1-2页 Q1-Q3；附件2/3/4可获得时点"
+
+[decisions.D_RESAMPLE]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第2页 Q3；附件3的1-24小时预报与10分钟决策粒度"
+
+[decisions.D_SETTLE]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第1-2页 Q2、Q3；计划/调整/紧急费用与余电处理"
+
+[decisions.D_MODEL]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第1-3页 Q1-Q4；目标、变量、约束、方法与求解器"
+
+[decisions.D_EVAL]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "C题 PDF 第3页；比较设计、验证设计与证据边界"

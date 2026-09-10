@@ -1,0 +1,53 @@
+\documentclass[12pt,a4paper,fontset=fandol]{ctexart}
+\usepackage{geometry}
+\geometry{a4paper, left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\hypersetup{pdfauthor={}, pdftitle={AI 工具使用详情（草稿）}}
+\pagestyle{plain}
+
+\begin{document}
+
+\begin{center}
+  {\LARGE\bfseries AI 工具使用详情（草稿）\par}
+  \vspace{0.5em}
+  {\large 人工核验状态：pending；不得作为最终核验结论\par}
+\end{center}
+
+\section*{1. 所用 AI 工具名称、版本或型号}
+\begin{itemize}[leftmargin=2em]
+  \item 工具名称：AI 工程执行 Agent（当前会话执行环境）。
+  \item 版本/型号：未记录。缺少可靠型号证据，不编造具体版本。
+\end{itemize}
+
+\section*{2. 具体使用目的和环节}
+\begin{itemize}[leftmargin=2em]
+  \item 生成 Stage 0 工程脚手架，包括 CLI、数据读取、时间标签解析、smoke、测试和预检接口。
+  \item 整理题包结构、附件时间列观测和论文草稿框架。
+  \item 生成并运行工程测试；未用于选择数学模型、求解器、费用公式或正式实验结论。
+\end{itemize}
+
+\section*{3. 主要提示方式与使用过程说明}
+使用者提供了 2026 年 C 题任务书、题面 PDF、附件清单与工程约束，并要求：
+\begin{enumerate}[leftmargin=2em]
+  \item 不实现模型、不替参赛队选择建模方案；
+  \item 原始附件只读、合成数据必须标注；
+  \item 正式发布入口应被缺失决策、缺失结果和占位内容阻断；
+  \item 记录所有实际执行的命令、退出码和产物。
+\end{enumerate}
+Agent 按任务书分批创建文件、运行本地命令并修复工程错误；关键交互以本说明为摘要，原始长对话保存在本地 `local/`（不提交）。
+
+\section*{4. 对 AI 输出的采纳、人工修改和核验}
+\begin{itemize}[leftmargin=2em]
+  \item 采纳情况：工程脚手架和测试输出已被本地执行验证；是否最终采纳由参赛队决定。
+  \item 人工修改：参赛队可修改代码、文档、论文和配置；修改后须重新运行对应用例。
+  \item 核验状态：pending。核心建模、费用口径、物理约束与论文结论必须由参赛队人工审查。
+\end{itemize}
+
+\section*{5. 未使用范围}
+本阶段未使用 AI 选择或实施 Q1--Q4 的模型、预测方法、优化求解器、储能状态方程或正式对照实验。
+
+\vfill
+\noindent 版本：Stage 0 草稿。最终支撑材料文件名应为官方规定字面：\texttt{AI 工具使用详情.pdf}。
+
+\end{document}

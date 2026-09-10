@@ -1,0 +1,10 @@
+schema_version = 1
+selection_status = "pending"
+note = "正式论文资产必须通过显式 run_id 选择；禁止默认使用 outputs 下最新目录。"
+
+[runs]
+# q1 = ""
+# q2 = ""
+# q3 = ""
+# q4_2 = ""
+# q4_3 = ""

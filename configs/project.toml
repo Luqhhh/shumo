@@ -1,0 +1,7 @@
+schema_version = 1
+project_slug = "cumcm2026-c"
+package_name = "microgrid"
+paper_title = "微网与外部电网电力调控策略"
+competition = "CUMCM 2026 C"
+primary_timezone = "Asia/Shanghai"
+notes = "Stage 0 engineering scaffold only; models and formal results are not implemented."
