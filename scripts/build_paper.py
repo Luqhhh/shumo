@@ -53,6 +53,22 @@ def _log_has_errors(log: str) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+def _emit_ci_error_annotations(errors: list[str], tex_log: str, latexmk_log: Path) -> None:
+    """Surface LaTeX failure context through GitHub Actions annotations."""
+
+    import os
+
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    messages = list(errors[:12])
+    if tex_log:
+        tail = [line.strip() for line in tex_log.splitlines() if line.strip()][-12:]
+        messages.extend(tail)
+    for message in messages:
+        escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::error file={latexmk_log.as_posix()}::{escaped}")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     repo = Path(args.repo).resolve()
@@ -103,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         for error in combined_errors[:40]:
             print(f"  error: {error}")
         print(f"log: {latexmk_log}")
+        _emit_ci_error_annotations(combined_errors, tex_log, latexmk_log)
         return 1
 
     if warnings:

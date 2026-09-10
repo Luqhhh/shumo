@@ -55,3 +55,9 @@ Thumbs.db
 .uv-python/
 
 .tmp/
+
+.texmf/
+
+.texmf-config/
+
+.texmf-var/

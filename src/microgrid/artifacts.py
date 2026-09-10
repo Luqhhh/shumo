@@ -28,6 +28,16 @@ def git_info(repo_root: str | Path) -> dict[str, Any]:
     repo = Path(repo_root)
     out: dict[str, Any] = {"commit": None, "dirty": None, "status_short": None, "remote": None}
     try:
+        top = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if Path(top).resolve() != repo.resolve():
+            # A temporary or unrelated directory must not inherit a parent
+            # repository's commit / dirty state.
+            return out
         commit = subprocess.run(
             ["git", "-C", str(repo), "rev-parse", "HEAD"],
             capture_output=True,
