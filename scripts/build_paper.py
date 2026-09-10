@@ -53,6 +53,14 @@ def _log_has_errors(log: str) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+def _clean_build_artifacts(build_dir: Path, target_base: str) -> None:
+    """Remove stale aux files so a fallback/biblatex switch cannot poison a build."""
+
+    for path in build_dir.glob(f"{target_base}.*"):
+        if path.is_file():
+            path.unlink()
+
+
 def _emit_ci_error_annotations(errors: list[str], tex_log: str, latexmk_log: Path) -> None:
     """Surface LaTeX failure context through GitHub Actions annotations."""
 
@@ -86,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         return 5
 
     generate_draft_assets(repo)
+    _clean_build_artifacts(build_dir, target_base)
 
     for tool in ("xelatex", "latexmk"):
         if shutil.which(tool) is None:

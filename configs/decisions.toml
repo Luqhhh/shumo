@@ -50,13 +50,45 @@ confirmed_by = ""
 confirmed_at = ""
 source = "C题 PDF 第1-2页 Q2、Q3；计划/调整/紧急费用与余电处理"
 
-[decisions.D_MODEL]
+[decisions.D_MODEL_Q1]
 status = "pending"
 choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第1-3页 Q1-Q4；目标、变量、约束、方法与求解器"
+source = "按 case 拆分：Q1 单日模型批准；共享语义继续由 D_TIME/D_EFF/D_STATE 承担"
+
+[decisions.D_MODEL_Q2]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "按 case 拆分：Q2 基础模型批准；Q4-2 复用时另行扩展批准"
+
+[decisions.D_MODEL_Q3]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "按 case 拆分：Q3 预报调整模型批准；依赖 D_INFO/D_RESAMPLE/D_SETTLE"
+
+[decisions.D_MODEL_Q4_2]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "按 case 拆分：波动电价下重算 Q2；批准需覆盖 Q2 基础模型与价格信息条件扩展；不依赖 D_RESAMPLE"
+
+[decisions.D_MODEL_Q4_3]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "按 case 拆分：波动电价下重算 Q3；批准需覆盖 Q3 基础模型与价格信息条件扩展"
 
 [decisions.D_EVAL]
 status = "pending"

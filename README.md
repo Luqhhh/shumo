@@ -11,15 +11,17 @@
 - 未选择模型、求解器、储能方程、结算公式、预测方法或对照实验；
 - 未产生正式结果。
 
-### Stage 1 — active
+### Stage 1 — active（pre-division）
 
-- `microgrid run --case ...` 现在经过 dispatcher：
+- `microgrid run --case ...` 经过 dispatcher：
   - required decisions 仍有 pending：`PendingDecisionError`；
   - 全部 approved：调用 `src/microgrid/problem/q*.py`；
   - runner 尚未实现：`ModelNotImplementedError`。
-- Agent 未经批准不得实现决策相关模型。
-- 已经批准的 decision：Agent 可以严格按批准 contract 实现，不得自行扩展口径。
-- `configs/decisions.toml` 的 approved 状态只能由参赛队人工修改。
+- 模型 gate 按 case 拆分：`D_MODEL_Q1`、`D_MODEL_Q2`、`D_MODEL_Q3`、`D_MODEL_Q4_2`、`D_MODEL_Q4_3`。
+- 共享物理语义仍由 `D_TIME`、`D_EFF`、`D_STATE`、`D_INFO` 承担。
+- Q4-2 是波动电价下重算 Q2，**不依赖 `D_RESAMPLE`**；Q4-3 保持 Q3 预报信息边界。
+- `src/microgrid/problem/contracts.py` 已建立 TimeGrid / BatteryState / BatteryAction / InfoSet / PurchasePlan / CostBreakdown 等领域 contract；这些 contract 按团队提供的 pre-division 语义实现，但 decisions.toml 仍保持 pending，等待正式人工批准。
+- 模型 runner 只产生统一 `CaseResult` / domain results，不直接写 Excel；官方模板映射由 `excel_export.py` 负责。
 - release guard 不再使用“Stage 0 永久阻断”常量，而是检查显式选择的正式 run artifacts。
 
 ## 常用命令

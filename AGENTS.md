@@ -4,7 +4,7 @@
 
 1. **不得修改原始附件**：`data/raw/`、`data/templates/`、`resources/` 中的原件只读；所有处理输出到 `data/processed/`、`outputs/` 或 `dist/`。
 2. **不得把合成数据当结果**：任何 `is_synthetic=true` 的产物不得进入 `dist/`，不得用于论文正式数值。
-3. **未经批准的 decision 不得实现**：`configs/decisions.toml` 中 pending 的事项只能由参赛队人工批准；Agent 只可整理证据。
+3. **未经批准的 decision 不得实现**：`configs/decisions.toml` 中 pending 的事项只能由参赛队人工批准；Agent 只可整理证据。模型 gate 按 case 拆分，不得用一个全局 D_MODEL 代替五个 case 的批准范围。
 4. **已批准的 decision 可以严格实现**：Agent 可以按 approved 的 `choice/rationale/source` 实现对应 contract；不得自行补充或改写批准口径。
 5. **不得自行修改 decisions.toml 的 approved 状态**：不得把 pending 改成 approved，不得代填 `confirmed_by` / `confirmed_at`。
 6. **不得伪造结果**：未实现 case 必须抛出 `ModelNotImplementedError` 或 `PendingDecisionError`，不得返回 0、optimal、空结果冒充解。

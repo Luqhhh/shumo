@@ -97,7 +97,7 @@ export TMPDIR="$PWD/.tmp"
 - D-INFO：各决策时刻实际可见信息；
 - D-RESAMPLE：小时预报到 10 分钟输入的转换与边界；
 - D-SETTLE：计划/调整/紧急费用结算与余电处理；
-- D-MODEL：目标、变量、约束、方法和求解器；
+- D_MODEL_Q1/Q2/Q3/Q4_2/Q4_3：按 case 拆分的模型 gate；
 - D-EVAL：正式比较、验证设计与证据标准。
 
 ## 交接建议

@@ -14,6 +14,7 @@ from .schemas import PendingDecisionError
 
 SOURCE_FILES = [
     "tests/test_ai_usage.py",
+    "tests/test_shared_contracts.py",
     "src/microgrid/__init__.py",
     "src/microgrid/__main__.py",
     "src/microgrid/artifacts.py",
@@ -154,10 +155,10 @@ def generate_final_assets(
 ) -> dict[str, Path]:
     if not selection or not selection.get("runs"):
         raise PendingDecisionError(
-            ["D_MODEL", "D_EVAL"],
+            ["D_MODEL_Q1", "D_MODEL_Q2", "D_MODEL_Q3", "D_MODEL_Q4_2", "D_MODEL_Q4_3", "D_EVAL"],
             "final paper assets require an explicit selected-run catalogue and approved decisions",
         )
     raise PendingDecisionError(
-        ["D_MODEL", "D_EVAL"],
+        ["D_MODEL_Q1", "D_MODEL_Q2", "D_MODEL_Q3", "D_MODEL_Q4_2", "D_MODEL_Q4_3", "D_EVAL"],
         "Stage 0 intentionally does not generate final assets",
     )

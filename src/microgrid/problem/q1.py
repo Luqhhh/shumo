@@ -2,7 +2,7 @@
 
 Stage 1 dispatcher target.  The model is intentionally not implemented here:
 its objective, variables, constraints, settlement rules and solver require
-human-approved decisions (especially D-MODEL and the case-specific decisions).
+human-approved decisions (this case gate: D_MODEL_Q1, plus shared D_TIME/D_EFF/D_STATE/D_INFO as applicable).
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from ..schemas import ModelNotImplementedError
 from .contracts import CaseContext, CaseResult
 
 CASE_ID = "q1"
+MODEL_DECISION_ID = "D_MODEL_Q1"
 
 
 def run(context: CaseContext) -> CaseResult:

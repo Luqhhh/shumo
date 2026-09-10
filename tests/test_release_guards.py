@@ -21,7 +21,11 @@ DECISION_IDS = (
     "D_INFO",
     "D_RESAMPLE",
     "D_SETTLE",
-    "D_MODEL",
+    "D_MODEL_Q1",
+    "D_MODEL_Q2",
+    "D_MODEL_Q3",
+    "D_MODEL_Q4_2",
+    "D_MODEL_Q4_3",
     "D_EVAL",
 )
 
@@ -128,6 +132,18 @@ def test_pending_decision_blocks_case(tmp_path):
     with pytest.raises(PendingDecisionError) as excinfo:
         run_case("q1", repo)
     assert "D-TIME" in excinfo.value.decision_ids
+
+
+def test_case_dependency_graph_splits_model_gates_and_q4_2_has_no_resample():
+    from microgrid.cases import CASE_DECISIONS
+
+    assert "D_MODEL_Q1" in CASE_DECISIONS["q1"]
+    assert "D_MODEL_Q2" in CASE_DECISIONS["q2"]
+    assert "D_MODEL_Q3" in CASE_DECISIONS["q3"]
+    assert "D_MODEL_Q4_2" in CASE_DECISIONS["q4_2"]
+    assert "D_MODEL_Q4_3" in CASE_DECISIONS["q4_3"]
+    assert "D_MODEL" not in CASE_DECISIONS["q1"]
+    assert "D_RESAMPLE" not in CASE_DECISIONS["q4_2"]
 
 
 def test_approved_decisions_dispatch_to_unimplemented_runner(tmp_path):
