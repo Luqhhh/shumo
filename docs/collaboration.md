@@ -25,10 +25,22 @@
 - C：Q3 / Q4-3。
 - 共享单点 owner：
   - `configs/decisions.toml`、`configs/selected_runs.toml`：A 为 primary owner；
-  - `src/microgrid/schemas.py`、`src/microgrid/problem/contracts.py`、`src/microgrid/problem/common.py`：A 为 primary owner；
+  - `src/microgrid/schemas.py`、`src/microgrid/approvals.py`、`src/microgrid/problem/contracts.py`、`src/microgrid/problem/common.py`、`src/microgrid/problem/validation.py`、`src/microgrid/problem/result_io.py`：A 为 primary owner；
   - `pyproject.toml`、`uv.lock`：A 为 primary owner；
   - 修改共享 contract 至少需要另一名成员 review。
 - `src/microgrid/dataio.py`、`src/microgrid/timekeys.py` 默认冻结；除非有可复现 bug，并且由 A 审核。
+
+## A shared-core handoff
+
+A 的第一批共享交付（不依赖 Q1 求解器完成）包括：
+
+- 统一审批检查：`src/microgrid/approvals.py`；
+- 递归源码指纹、运行指纹与输入来源检查：`src/microgrid/artifacts.py`；
+- 结果载体验证：`CaseResult` / `IntervalResult`、`problem/validation.py`；
+- 结果序列化：`problem/result_io.py`；
+- B/C 接入说明：`docs/shared_api.md`。
+
+B/C 可以从共享交付合并后的 main 同步并接入这些接口。共享物理语义 decision 未 approved 前，可以接入接口和写测试，但不得实现正式模型。接口细节以 `docs/shared_api.md` 为准。
 
 ## Decision 门槛
 

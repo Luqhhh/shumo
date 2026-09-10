@@ -25,6 +25,7 @@
 - `src/microgrid/problem/contracts.py` 已建立 TimeGrid / BatteryState / BatteryAction / InfoSet / PurchasePlan / CostBreakdown 等领域 contract；这些 contract 按团队提供的 pre-division 语义实现，但 decisions.toml 仍为 pending/proposed，等待正式人工批准。
 - 模型 runner 只产生统一 `CaseResult` / `IntervalResult`，不直接写 Excel；官方模板映射由 `excel_export.py` 负责，并受 `D_TIME_TEMPLATE_EXPORT` 独立门槛控制。
 - `InfoSet.from_raw` 只保留 `available_at <= decision_time` 的可见项，计划器不能通过原始容器读取未来 actual。
+- A 组 shared-core 交付说明见 `docs/shared_api.md` 与 `docs/a_handoff.md`；B/C 接入接口，但在共享 decisions 未批准前不得实现正式模型。
 - release guard 不再使用“Stage 0 永久阻断”常量，而是检查显式选择的正式 run artifacts。
 
 ## 常用命令

@@ -39,6 +39,15 @@ CHARGE_EFFICIENCY = 0.9
 DISCHARGE_EFFICIENCY = 0.9
 ROUND_TRIP_EFFICIENCY = CHARGE_EFFICIENCY * DISCHARGE_EFFICIENCY
 INITIAL_SOC_KWH = 6_000.0
+ENERGY_ABS_TOL_KWH = 1e-6
+ENERGY_REL_TOL = 0.0  # explicit policy: absolute kWh tolerance only
+
+
+def _require_finite(name: str, value: float) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a real number")
+    if not math.isfinite(float(value)):
+        raise ValueError(f"{name} must be finite, got {value!r}")
 
 
 @dataclass(frozen=True)
@@ -102,6 +111,11 @@ class TimeInterval:
     def __post_init__(self) -> None:
         if not 0 <= self.index < STEPS_PER_DAY:
             raise ValueError(f"interval index must be in [0, {STEPS_PER_DAY})")
+        expected_start = _dt.datetime.combine(self.day, _dt.time()) + _dt.timedelta(
+            minutes=STEP_MINUTES * self.index
+        )
+        if self.start != expected_start:
+            raise ValueError("interval start is not aligned with its day and slot index")
         if self.end - self.start != _dt.timedelta(minutes=STEP_MINUTES):
             raise ValueError("interval duration must be exactly ten minutes")
 
@@ -168,6 +182,7 @@ class TimeGrid:
     def power_to_energy_kwh(power_kw: float, minutes: int = STEP_MINUTES) -> float:
         if minutes <= 0:
             raise ValueError("minutes must be positive")
+        _require_finite("power_kw", power_kw)
         return float(power_kw) * minutes / 60.0
 
 
@@ -181,6 +196,8 @@ class BatteryState:
     max_energy_kwh: float = SOC_MAX_KWH
 
     def __post_init__(self) -> None:
+        for name in ("energy_kwh", "capacity_kwh", "min_energy_kwh", "max_energy_kwh"):
+            _require_finite(name, getattr(self, name))
         if self.capacity_kwh <= 0:
             raise ValueError("capacity_kwh must be positive")
         if self.min_energy_kwh < 0:
@@ -216,6 +233,8 @@ class BatteryAction:
     max_bus_energy_kwh: float = MAX_BUS_ENERGY_KWH
 
     def __post_init__(self) -> None:
+        for name in ("charge_kwh", "discharge_kwh", "max_bus_energy_kwh"):
+            _require_finite(name, getattr(self, name))
         if self.charge_kwh < 0 or self.discharge_kwh < 0:
             raise ValueError("charge_kwh and discharge_kwh must be non-negative")
         if self.charge_kwh > self.max_bus_energy_kwh:
@@ -289,13 +308,36 @@ class IntervalResult:
     def __post_init__(self) -> None:
         if not 0 <= self.slot < STEPS_PER_DAY:
             raise ValueError(f"slot must be in [0, {STEPS_PER_DAY})")
+        for name in (
+            "load_kw",
+            "pv_kw",
+            "planned_purchase_kwh",
+            "adjusted_purchase_kwh",
+            "emergency_purchase_kwh",
+        ):
+            _require_finite(name, getattr(self, name))
         if self.load_kw < 0 or self.pv_kw < 0:
             raise ValueError("load_kw and pv_kw must be non-negative")
         for name in ("planned_purchase_kwh", "adjusted_purchase_kwh", "emergency_purchase_kwh"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be non-negative")
+        if (
+            self.state_start.capacity_kwh,
+            self.state_start.min_energy_kwh,
+            self.state_start.max_energy_kwh,
+        ) != (
+            self.state_end.capacity_kwh,
+            self.state_end.min_energy_kwh,
+            self.state_end.max_energy_kwh,
+        ):
+            raise ValueError("state_start and state_end must use the same battery parameters")
         expected = apply_battery_action(self.state_start, self.action)
-        if not math.isclose(expected.energy_kwh, self.state_end.energy_kwh, abs_tol=1e-6):
+        if not math.isclose(
+            expected.energy_kwh,
+            self.state_end.energy_kwh,
+            rel_tol=ENERGY_REL_TOL,
+            abs_tol=ENERGY_ABS_TOL_KWH,
+        ):
             raise ValueError("state_end is inconsistent with the shared battery transition")
 
     @property
@@ -356,6 +398,8 @@ class PurchasePlan:
     emergency_kwh: float = 0.0
 
     def __post_init__(self) -> None:
+        for name in ("planned_kwh", "adjusted_kwh", "emergency_kwh"):
+            _require_finite(name, getattr(self, name))
         if self.planned_kwh < 0 or self.adjusted_kwh < 0 or self.emergency_kwh < 0:
             raise ValueError("purchase quantities must be non-negative")
 
@@ -373,6 +417,10 @@ class CostBreakdown:
     planned_cost_cny: float = 0.0
     adjustment_cost_cny: float = 0.0
     emergency_cost_cny: float = 0.0
+
+    def __post_init__(self) -> None:
+        for name in ("planned_cost_cny", "adjustment_cost_cny", "emergency_cost_cny"):
+            _require_finite(name, getattr(self, name))
 
     @property
     def total_cost_cny(self) -> float:

@@ -13,8 +13,11 @@ from .dataio import ensure_dir
 from .schemas import PendingDecisionError
 
 SOURCE_FILES = [
+    "tests/test_approvals.py",
     "tests/test_ai_usage.py",
+    "tests/test_result_io.py",
     "tests/test_shared_contracts.py",
+    "src/microgrid/approvals.py",
     "src/microgrid/__init__.py",
     "src/microgrid/__main__.py",
     "src/microgrid/artifacts.py",
@@ -30,6 +33,8 @@ SOURCE_FILES = [
     "src/microgrid/ai_usage.py",
     "scripts/aggregate_ai_usage.py",
     "src/microgrid/problem/__init__.py",
+    "src/microgrid/problem/result_io.py",
+    "src/microgrid/problem/validation.py",
     "src/microgrid/problem/contracts.py",
     "src/microgrid/problem/common.py",
     "src/microgrid/problem/q1.py",
