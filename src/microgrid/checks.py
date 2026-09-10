@@ -16,6 +16,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from .approvals import FINAL_REQUIRED_DECISION_IDS, DecisionIssue, decision_issues
 from .schemas import ReleaseBlockedError
 
 REQUIRED_CASES = ("q1", "q2", "q3", "q4_2", "q4_3")
@@ -43,20 +44,14 @@ PAPER_PLACEHOLDER_MARKERS = (
 )
 
 
-def load_decisions(repo_root: str | Path) -> dict[str, dict[str, Any]]:
-    path = Path(repo_root) / "configs" / "decisions.toml"
-    if not path.exists():
-        return {}
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    return {key.replace("_", "-"): value for key, value in data.get("decisions", {}).items()}
-
-
 def pending_decision_ids(repo_root: str | Path) -> list[str]:
-    return [
-        key
-        for key, value in load_decisions(repo_root).items()
-        if str(value.get("status", "pending")) != "approved"
-    ]
+    return [issue.decision_id for issue in decision_issues(repo_root, FINAL_REQUIRED_DECISION_IDS)]
+
+
+def _format_decision_issue(issue: DecisionIssue) -> str:
+    if issue.status is not None and issue.status != "approved":
+        return f"decision {issue.decision_id} is {issue.status}"
+    return f"decision {issue.decision_id}: {issue.reason}"
 
 
 def load_selected_runs(repo_root: str | Path) -> tuple[dict[str, str], str]:
@@ -175,17 +170,10 @@ def collect_blockers(repo_root: str | Path, *, mode: str = "final") -> list[str]
     repo = Path(repo_root)
     blockers: list[str] = []
 
-    decisions = load_decisions(repo)
-    if not decisions:
-        blockers.append("decisions.toml is missing or empty")
-    for key, value in decisions.items():
-        if str(value.get("status", "pending")) != "approved":
-            blockers.append(f"decision {key} is {value.get('status', 'pending')}")
-        else:
-            if not str(value.get("confirmed_by", "")).strip():
-                blockers.append(f"decision {key} approved without confirmed_by")
-            if not str(value.get("confirmed_at", "")).strip():
-                blockers.append(f"decision {key} approved without confirmed_at")
+    blockers.extend(
+        _format_decision_issue(issue)
+        for issue in decision_issues(repo, FINAL_REQUIRED_DECISION_IDS)
+    )
 
     if mode == "final":
         selection, selection_status = load_selected_runs(repo)

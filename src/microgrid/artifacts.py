@@ -14,13 +14,15 @@ from pathlib import Path
 from typing import Any
 
 from .dataio import ensure_dir, sha256_file, utc_now
-from .schemas import RunManifest
+from .schemas import InputError, RunManifest
 
 CODE_GLOBS = [
     "pyproject.toml",
+    ".python-version",
+    "uv.lock",
     "configs/*.toml",
-    "src/microgrid/*.py",
-    "scripts/*.py",
+    "src/microgrid/**/*.py",
+    "scripts/**/*.py",
 ]
 
 
@@ -69,15 +71,23 @@ def git_info(repo_root: str | Path) -> dict[str, Any]:
     return out
 
 
+def _source_paths(repo_root: str | Path) -> list[Path]:
+    repo = Path(repo_root)
+    paths: set[Path] = set()
+    for pattern in CODE_GLOBS:
+        for path in repo.glob(pattern):
+            if not path.is_file():
+                continue
+            if "__pycache__" in path.parts or ".egg-info" in str(path):
+                continue
+            paths.add(path)
+    return sorted(paths, key=lambda path: path.relative_to(repo).as_posix())
+
+
 def source_tree_hash(repo_root: str | Path) -> str:
     repo = Path(repo_root)
     digest = hashlib.sha256()
-    files: list[Path] = []
-    for pattern in CODE_GLOBS:
-        files.extend(sorted(repo.glob(pattern)))
-    for path in files:
-        if not path.is_file():
-            continue
+    for path in _source_paths(repo):
         rel = path.relative_to(repo).as_posix()
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
@@ -132,6 +142,44 @@ def input_hashes(repo_root: str | Path) -> dict[str, str]:
     return hashes
 
 
+def verify_imported_inputs(repo_root: str | Path) -> list[str]:
+    """Compare current files against the ingest manifest without rewriting it."""
+
+    repo = Path(repo_root)
+    manifest_path = repo / "records" / "inputs_manifest.json"
+    if not manifest_path.exists():
+        return ["inputs_manifest.json is missing"]
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    issues: list[str] = []
+    for item in data.get("items", []):
+        rel = item.get("repository_path")
+        expected = item.get("sha256")
+        if not rel or not expected:
+            continue
+        path = repo / rel
+        if not path.is_file():
+            issues.append(f"imported input is missing: {rel}")
+            continue
+        actual = sha256_file(path)
+        if actual != expected:
+            issues.append(
+                f"imported input hash changed: {rel} "
+                f"(expected {str(expected)[:12]}, actual {actual[:12]})"
+            )
+    return issues
+
+
+def run_dir_for(repo_root: str | Path, case_id: str, run_id: str) -> Path:
+    return Path(repo_root) / "outputs" / "runs" / case_id / run_id
+
+
+def ensure_run_id_available(repo_root: str | Path, case_id: str, run_id: str) -> Path:
+    run_dir = run_dir_for(repo_root, case_id, run_id)
+    if run_dir.exists() and any(run_dir.iterdir()):
+        raise InputError(f"run_id already exists and is not empty: {case_id}/{run_id}")
+    return run_dir
+
+
 def new_run_id(prefix: str, repo_root: str | Path) -> str:
     return f"{prefix}-{utc_now().replace(':', '').replace('+00:00', 'Z')}-{source_tree_hash(repo_root)[:8]}"
 
@@ -148,6 +196,7 @@ def build_manifest(
     random_seed: int | None = None,
     result_files: dict[str, str] | None = None,
     result_sha256: dict[str, str] | None = None,
+    verify_inputs: bool = False,
 ) -> dict[str, Any]:
     repo = Path(repo_root)
     git = git_info(repo)
@@ -168,13 +217,18 @@ def build_manifest(
         model_status=model_status,
         result_files=dict(result_files or {}),
         result_sha256=dict(result_sha256 or {}),
+        input_verification_issues=verify_imported_inputs(repo) if verify_inputs else [],
     )
     return manifest.to_dict()
 
 
-def write_manifest(run_dir: str | Path, manifest: dict[str, Any]) -> Path:
+def write_manifest(
+    run_dir: str | Path, manifest: dict[str, Any], *, overwrite: bool = False
+) -> Path:
     directory = ensure_dir(run_dir)
     path = directory / "manifest.json"
+    if path.exists() and not overwrite:
+        raise InputError(f"manifest already exists: {path}")
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 

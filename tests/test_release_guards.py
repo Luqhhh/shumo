@@ -166,6 +166,34 @@ def test_proposed_decision_still_blocks_dispatch(tmp_path):
     assert "decision D-TIME-INTERNAL is proposed" in blockers
 
 
+def _write_approved_subset(repo: Path, decision_ids: tuple[str, ...]) -> None:
+    (repo / "configs").mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for decision_id in decision_ids:
+        lines.extend(
+            [
+                f"[decisions.{decision_id}]",
+                'status = "approved"',
+                'choice = "test"',
+                'rationale = "test"',
+                'confirmed_by = "tester"',
+                'confirmed_at = "2026-09-10"',
+                'source = "test"',
+                "",
+            ]
+        )
+    (repo / "configs" / "decisions.toml").write_text("\n".join(lines), encoding="utf-8")
+
+
+def test_q1_approved_is_not_blocked_by_q3_or_export_pending(tmp_path):
+    from microgrid.cases import required_decisions
+
+    repo = tmp_path / "repo"
+    _write_approved_subset(repo, required_decisions("q1"))
+    with pytest.raises(ModelNotImplementedError):
+        run_case("q1", repo)
+
+
 def test_approved_decisions_dispatch_to_unimplemented_runner(tmp_path):
     repo = tmp_path / "repo"
     _write_decisions(repo, approved=True)

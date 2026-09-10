@@ -12,7 +12,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 
-from .checks import load_decisions
+from .approvals import require_approved_decisions
 from .dataio import ensure_dir
 from .problem.contracts import CaseResult
 from .schemas import InputError, PendingDecisionError
@@ -131,11 +131,6 @@ def copy_template_preview(repo_root: str | Path, case_id: str) -> Path:
 TEMPLATE_EXPORT_DECISION_ID = "D_TIME_TEMPLATE_EXPORT"
 
 
-def _template_export_decision(repo_root: str | Path) -> dict[str, object]:
-    decisions = load_decisions(repo_root)
-    return decisions.get(TEMPLATE_EXPORT_DECISION_ID.replace("_", "-"), {})
-
-
 def export_case_result(
     repo_root: str | Path,
     case_result: CaseResult,
@@ -149,16 +144,13 @@ def export_case_result(
     IntervalResult payload to the official workbook areas.
     """
 
-    decision = _template_export_decision(repo_root)
-    if (
-        decision.get("status") != "approved"
-        or not str(decision.get("confirmed_by", "")).strip()
-        or not str(decision.get("confirmed_at", "")).strip()
-    ):
+    try:
+        require_approved_decisions(repo_root, (TEMPLATE_EXPORT_DECISION_ID,))
+    except PendingDecisionError as exc:
         raise PendingDecisionError(
             [TEMPLATE_EXPORT_DECISION_ID],
             "formal result-template export requires fully approved D_TIME_TEMPLATE_EXPORT",
-        )
+        ) from exc
     if case_result.case_id not in EXPECTED_SHEETS:
         raise InputError(f"unknown result case_id: {case_result.case_id!r}")
     if output_path is not None and Path(output_path).exists():

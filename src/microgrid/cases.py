@@ -10,9 +10,9 @@ The dispatcher must never synthesize a solution when a runner is missing.
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
+from .approvals import decision_issues, unapproved_decision_ids
 from .problem import CASE_RUNNERS
 from .problem.contracts import CaseContext, CaseResult
 from .schemas import InputError, PendingDecisionError
@@ -57,17 +57,6 @@ CASE_DESCRIPTIONS = {
 }
 
 
-def decision_statuses(repo_root: str | Path) -> dict[str, str]:
-    path = Path(repo_root) / "configs" / "decisions.toml"
-    if not path.exists():
-        return {}
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    statuses: dict[str, str] = {}
-    for key, value in data.get("decisions", {}).items():
-        statuses[key.replace("_", "-")] = str(value.get("status", "pending"))
-    return statuses
-
-
 def required_decisions(case_id: str) -> tuple[str, ...]:
     if case_id not in CASE_IDS:
         raise InputError(f"unknown case {case_id!r}; expected one of {', '.join(CASE_IDS)}")
@@ -75,14 +64,7 @@ def required_decisions(case_id: str) -> tuple[str, ...]:
 
 
 def pending_decisions(repo_root: str | Path, case_id: str) -> list[str]:
-    required = required_decisions(case_id)
-    statuses = decision_statuses(repo_root)
-    pending = []
-    for key in required:
-        normalized = key.replace("_", "-")
-        if statuses.get(normalized, "pending") != "approved":
-            pending.append(normalized)
-    return pending
+    return unapproved_decision_ids(repo_root, required_decisions(case_id))
 
 
 def run_case(
@@ -96,11 +78,12 @@ def run_case(
     if case_id not in CASE_IDS:
         raise InputError(f"unknown case {case_id!r}; expected one of {', '.join(CASE_IDS)}")
 
-    pending = pending_decisions(repo_root, case_id)
-    if pending:
+    issues = decision_issues(repo_root, required_decisions(case_id))
+    if issues:
         raise PendingDecisionError(
-            pending,
-            f"{CASE_DESCRIPTIONS[case_id]} requires human decisions before implementation",
+            [issue.decision_id for issue in issues],
+            f"{CASE_DESCRIPTIONS[case_id]} requires fully approved human decisions: "
+            + "; ".join(f"{issue.decision_id}: {issue.reason}" for issue in issues),
         )
 
     runner = CASE_RUNNERS.get(case_id)
