@@ -11,14 +11,14 @@
 | unit_tests | pass | `uv run --locked pytest -q`：24 passed |
 | ruff | pass | `uv run --locked ruff check .`、`ruff format --check .` |
 | synthetic_smoke | pass | `outputs/smoke/smoke-2026-09-10T122347+0000-f808ddd9/`；is_synthetic=true；model_status=not_implemented |
-| latex_draft | pass | `paper/build/main.pdf`，75 页（正文开始于第 2 页；正文结束标记在第 7 页，附录另计） |
+| latex_draft | pass | `paper/build/main.pdf`，本机最新构建 79 页（正文开始于第 2 页；正文结束标记在第 7 页，附录另计） |
 | ai_details_draft | pass | `paper/build/AI 工具使用详情.pdf`，2 页；仍标 pending 人工核验 |
-| ci_config | configured_not_run | `.github/workflows/ci.yml` 已写入；因推送被阻断，GitHub Actions 未实际执行 |
+| ci_config | pass | GitHub Actions `stage0-ci` run 34477892523 success（commit 6d8bd12） |
 | template_time_mapping | pending_human_decision | D-TIME 等 8 项 pending |
 | model_implementation | not_implemented | `microgrid run --case ...` 非零退出 |
 | formal_experiments | not_started | 无正式 run、无选中的结果快照 |
 | final_submission | blocked | `prepare_submission.py --mode final` 与 `build_paper.py --mode final` 均退出 5 |
-| push_to_github | blocked | remote 实际可见性与用户假设不一致，且无认证凭据 |
+| push_to_github | pass | 用户确认 public 可推送后，已用 SSH 认证执行 `git push origin main` |
 
 ## 环境与执行说明
 
@@ -51,6 +51,7 @@ export TMPDIR="$PWD/.tmp"
 | `uv run --locked python scripts/build_paper.py --mode final` | 5（预期失败） | `outputs/quality/build_final_block.log` |
 | `uv run --locked python scripts/prepare_submission.py --mode final` | 5（预期失败） | `outputs/quality/final_block.log` |
 | `uv run --locked python scripts/check_submission.py --paper paper/build/main.pdf --support outputs/quality/empty_support.zip` | 1（预期失败） | 验证候选包缺少五个正式结果和 AI 详情 PDF 时被阻断 |
+| `git push origin main` | 0 | remote HEAD `6d8bd12`；CI run 34477892523 success |
 
 ## 原始数据保全
 
@@ -67,28 +68,24 @@ export TMPDIR="$PWD/.tmp"
 
 ## 环境缺口
 
-- `biber`、`biblatex`、`gb7714-2015` 当前本机未安装；主稿草稿使用内置 fallback 参考文献。若 CI/本机安装这些包，`preamble.tex` 会优先使用 biblatex。
-- `latexmk` 与 `xelatex` 可用；Fandol、ctex、fvextra 可用。
-- GitHub Actions 尚未实际运行；CI 中的 TeX 安装步骤只能算配置，不算已验证。
+- 本机系统默认 PATH 中仍没有 `biber`、`biblatex`、`gb7714-2015`；主稿草稿默认使用内置 fallback 参考文献。
+- 为验证 biblatex/Biber 路径，已在被忽略的 `.texmf/` 用户树中安装 biblatex、logreq、biblatex-gb7714-2015，并从历史 TeX Live 归档提取 `biber`；完整 biblatex + Biber 构建已在本机通过。CI 通过 apt 安装 TeX 包后也已通过。
+- `latexmk` 与 `xelatex` 可用；Fandol、ctex、fvextra 可用。CI 额外需要 `texlive-fonts-recommended` 提供 `pzdr.tfm`，否则 hyperref/xetex 会中止。
+- GitHub Actions 已实际运行并通过：run 34477892523。
 - 本机 Python 3.11.9 由 uv 下载到仓库内 `.uv-python/`；系统 Python 为 3.10。
 
 ## GitHub 推送状态
 
-用户给定的 remote 地址保存在本地 Git 配置中，不写入论文支撑材料。执行时通过 GitHub API 未认证读取到：
+初始任务假设 remote 为 private；GitHub API 实际返回 `private: false`。用户随后明确回复“是 public，没事的，你推送”，授权公开推送。
 
-```text
-private: false
-```
+- 使用本地 SSH key 认证（GitHub 提示 `Hi Luqhhh!`）；
+- push URL 使用 SSH，fetch URL 仍为 HTTPS；
+- `git push origin main` 成功；
+- remote `refs/heads/main` = `6d8bd12`；
+- 未强推，未创建镜像；
+- GitHub Actions `stage0-ci` run 34477892523 已通过。
 
-这与“private GitHub repo”的假设不一致。当前环境没有 `GH_TOKEN`、没有凭据 helper、`gh` 未登录。`git push --dry-run -u origin main` 退出 128：`could not read Username for 'https://github.com': terminal prompts disabled`。因此本轮**未 push、未创建 public 镜像、未开启 Actions**。按任务书“首次推送前核对 private 可见性”的要求，推送被正确阻断。
-
-若参赛队把 remote 改为 private 并提供可用认证，可在本地仓库重新执行：
-
-```bash
-git push -u origin main
-```
-
-不要强推，不要创建 public 镜像。实际 push 成功与否以当时的认证和仓库可见性为准。
+公开仓库中只提交了代码、配置、文档、论文骨架和哈希 manifest；`data/raw/`、`data/templates/`、`resources/`、`outputs/`、`dist/`、`local/` 中的实际内容均未提交。
 
 ## 待参赛队决策
 
@@ -107,5 +104,5 @@ git push -u origin main
 
 1. 先由参赛队人工核验 `records/ai_usage.jsonl` 并更新核验状态。
 2. 人工确认 D-TIME、D-EFF、D-STATE、D-INFO 后，再单独下达模型实现任务。
-3. 如需推送，先把用户指定 remote 的可见性和权限处理到参赛队确认的状态。
+3. 远程仓库已按用户确认的 public 状态推送；如后续改回 private，请重新核对 remote 与匿名要求。
 4. 任何 CI 运行、正式结果、结算公式和论文结论都必须重新人工验收。
