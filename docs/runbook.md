@@ -64,18 +64,36 @@ uv run --locked python scripts/build_paper.py --target ai-details --mode draft
 
 Linux 需要 `xelatex`、`latexmk`、`ctex`、Fandol；若安装 bib 相关包，则主稿使用 biblatex + Biber，否则使用内置的草稿参考文献 fallback。缺少 TeX 工具时退出码非零，并在 handoff 中记录 `latex_verified=false`。
 
-## 正式结果与发布（当前预期失败）
+## 正式运行与发布
 
 ```bash
 uv run --locked python -m microgrid run --case q1
 uv run --locked python scripts/prepare_submission.py --mode final
 ```
 
-Stage 0 中必须非零退出。
+Stage 1 行为：
 
-## 私密仓库与本地数据
+- required decisions 未批准：`microgrid run` 以 `PendingDecisionError` 非零退出；
+- decisions 已批准：dispatcher 调用 `src/microgrid/problem/q*.py`；runner 未实现时抛出 `ModelNotImplementedError`；
+- final submission 只有在决策 approved、`configs/selected_runs.toml` 显式指定五个 run_id、对应 run manifest 合法且非合成、五个 result 文件存在、论文无占位内容并具备 AI 详情 PDF 时才放行。
+
+正式 run 的约定目录：
+
+```text
+outputs/runs/<case_id>/<run_id>/
+├── manifest.json
+└── results/
+    └── resultN.xlsx
+```
+
+`manifest.json` 必须包含 `run_id`、`case_id`、`status="success"`、
+`is_synthetic=false`、`result_files`，可选的 `result_sha256` 会被校验。
+
+正式比较实验、求解器和论文结论仍由参赛队人工验收。
+
+## 远程与本地数据
 
 - 原始题包、附件、模板、`resources/`、`local/` 不提交。
-- 若 remote 是 public 或可见性无法确认，不推送。
-- 不运行模型训练、全年策略或正式实验。
+- remote 的可见性由参赛队确认；只提交代码、工程文档和哈希 manifest，不提交原始年度数据。
+- 不自动合并、不强推、不自动公开发布原始材料。
 - 任何提交前先看 `git status` 和 `git diff --stat`。

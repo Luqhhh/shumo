@@ -1,4 +1,4 @@
-name: stage0-ci
+name: ci
 
 on:
   push:
@@ -8,13 +8,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: stage0-ci-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,11 +42,30 @@ jobs:
       - name: Ruff format check
         run: uv run --locked ruff format --check .
 
-      - name: Pytest
+      - name: Pytest (includes decision/release guard tests)
         run: uv run --locked pytest -q
 
       - name: Synthetic smoke
         run: uv run --locked python -m microgrid smoke
+
+  paper:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.10.6"
+          enable-cache: true
 
       - name: Install TeX toolchain
         run: |
@@ -56,22 +75,11 @@ jobs:
             texlive-xetex texlive-lang-chinese texlive-latex-extra \
             texlive-bibtex-extra texlive-fonts-recommended
 
+      - name: Install locked dependencies
+        run: uv sync --locked
+
       - name: Build paper draft
         run: uv run --locked python scripts/build_paper.py --mode draft
 
       - name: Build AI details draft
         run: uv run --locked python scripts/build_paper.py --target ai-details --mode draft
-
-      - name: Formal run must be blocked
-        run: |
-          if uv run --locked python -m microgrid run --case q1; then
-            echo "expected q1 run to be blocked in Stage 0"
-            exit 1
-          fi
-
-      - name: Formal submission must be blocked
-        run: |
-          if uv run --locked python scripts/prepare_submission.py --mode final; then
-            echo "expected final submission to be blocked in Stage 0"
-            exit 1
-          fi

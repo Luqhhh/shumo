@@ -1,0 +1,22 @@
+"""Q3 formal runner entry.
+
+Stage 1 dispatcher target.  The model is intentionally not implemented here:
+its objective, variables, constraints, settlement rules and solver require
+human-approved decisions (especially D-MODEL and the case-specific decisions).
+"""
+
+from __future__ import annotations
+
+from ..schemas import ModelNotImplementedError
+from .contracts import CaseContext, CaseResult
+
+CASE_ID = "q3"
+
+
+def run(context: CaseContext) -> CaseResult:
+    """Fail loudly until the approved model implementation is supplied."""
+
+    raise ModelNotImplementedError(
+        context.case_id,
+        f"case {context.case_id}: runner exists but its approved model is not implemented yet",
+    )

@@ -1,20 +1,31 @@
-# CUMCM 2026 C — 微网与外部电网电力调控策略（Stage 0）
+# CUMCM 2026 C — 微网与外部电网电力调控策略
 
-本仓库是 **工程脚手架**，不是解题方案。它负责数据盘点、无损读取、时间标签解析、结果模板适配接口、运行记录、LaTeX 论文草稿、AI 使用记录、工程测试和提交预检。
+本仓库当前处于 **Stage 1 过渡期**。Stage 0 已完成：工程脚手架、数据层、时间标签解析、结果模板适配接口、运行记录、LaTeX 论文层、AI 使用记录、工程测试和提交预检。Stage 1 的工作是在人工批准 shared semantics 后实现正式模型。
 
-## Stage 0 明确不做什么
+## 阶段状态
 
-- 不实现 Q1/Q2/Q3/Q4 的预测、优化、调度或费用模型；
-- 不生成正式结果；
-- 不替参赛队选择模型、求解器、储能方程、结算公式、预测方法或对照实验；
-- 不执行全年策略、参数搜索或正式比较实验；
-- 不安装/默认使用 Gurobi、CPLEX、CVXPY、Pyomo、PyTorch 等未批准建模依赖；
-- 不自动发布、自动提交或自动合并。
+### Stage 0 — completed（保留历史）
 
-## 已实现命令
+- 建立了数据导入、无损读取、时间标签解析、模板契约、smoke、论文草稿和 release guards；
+- 未实现 Q1/Q2/Q3/Q4 的预测、优化、调度或费用模型；
+- 未选择模型、求解器、储能方程、结算公式、预测方法或对照实验；
+- 未产生正式结果。
+
+### Stage 1 — active
+
+- `microgrid run --case ...` 现在经过 dispatcher：
+  - required decisions 仍有 pending：`PendingDecisionError`；
+  - 全部 approved：调用 `src/microgrid/problem/q*.py`；
+  - runner 尚未实现：`ModelNotImplementedError`。
+- Agent 未经批准不得实现决策相关模型。
+- 已经批准的 decision：Agent 可以严格按批准 contract 实现，不得自行扩展口径。
+- `configs/decisions.toml` 的 approved 状态只能由参赛队人工修改。
+- release guard 不再使用“Stage 0 永久阻断”常量，而是检查显式选择的正式 run artifacts。
+
+## 常用命令
 
 ```bash
-# 仅首次初始化
+# 初始化
 uv lock
 uv sync --locked
 
@@ -32,28 +43,22 @@ uv run --locked python scripts/build_paper.py --mode draft
 uv run --locked python scripts/build_paper.py --target ai-details --mode draft
 ```
 
-## 预留且当前应当失败的命令
+## 正式运行与发布状态
 
 ```bash
 uv run --locked python -m microgrid run --case q1
-uv run --locked python -m microgrid run --case q2
-uv run --locked python -m microgrid run --case q3
-uv run --locked python -m microgrid run --case q4_2
-uv run --locked python -m microgrid run --case q4_3
 uv run --locked python scripts/prepare_submission.py --mode final
 ```
 
-这些失败是 Stage 0 的预期行为，原因包括：模型未实现、D-MODEL 等决策仍为 pending、五个正式结果尚未产生。它们 **不是** 成功状态。
+这两个命令的状态不是固定“永远失败”：
+
+- 决策未批准时，`run` 必须被 `PendingDecisionError` 阻断；
+- 决策批准后，dispatcher 会进入对应 runner；在模型实现前，runner 抛出 `ModelNotImplementedError`；
+- final submission 只有在决策 approved、五个 case 均有显式选中的正式 run、`selection_status=approved`、run manifest 合法且非合成、五个 result 文件存在、论文无占位内容并具备 AI 详情 PDF 时才可能放行。
 
 ## 数据保护
 
 原始题包、附件、模板和 `resources/` 不提交到 Git，也不进入 CI。请把官方附件放在本地对应目录或通过 `ingest` 导入。`records/inputs_manifest.json` 记录哈希，不记录可识别个人的绝对路径。
-
-## 当前环境状态（交付时更新）
-
-- 论文 TeX 工具：以 `uv run --locked python -m microgrid doctor` 的结果为准。
-- TeX 缺包时，`latex_draft` 只能记为 `fail` 或 `not_run`，不能写成“论文已通过”。详见 `docs/handoff.md`。
-- GitHub remote 的 private 可见性必须由有认证的参赛队核验后才能推送；本仓库不自动 push。
 
 ## 平台命令
 

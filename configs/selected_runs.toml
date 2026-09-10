@@ -2,6 +2,10 @@ schema_version = 1
 selection_status = "pending"
 note = "正式论文资产必须通过显式 run_id 选择；禁止默认使用 outputs 下最新目录。"
 
+# 每个 case 的 run_id 对应：
+#   outputs/runs/<case_id>/<run_id>/manifest.json
+# Release guard 会检查 manifest 的 status=success、is_synthetic=false、
+# case_id/run_id 匹配、result_files 存在且（若声明）SHA-256 匹配。
 [runs]
 # q1 = ""
 # q2 = ""

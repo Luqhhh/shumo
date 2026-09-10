@@ -146,6 +146,8 @@ def build_manifest(
     is_synthetic: bool,
     model_status: str = "not_implemented",
     random_seed: int | None = None,
+    result_files: dict[str, str] | None = None,
+    result_sha256: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     repo = Path(repo_root)
     git = git_info(repo)
@@ -164,6 +166,8 @@ def build_manifest(
         status=status,
         is_synthetic=is_synthetic,
         model_status=model_status,
+        result_files=dict(result_files or {}),
+        result_sha256=dict(result_sha256 or {}),
     )
     return manifest.to_dict()
 

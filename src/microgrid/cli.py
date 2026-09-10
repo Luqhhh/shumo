@@ -108,7 +108,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
     try:
-        run_case(args.case, repo)
+        result = run_case(args.case, repo, run_id=args.run_id)
     except PendingDecisionError as exc:
         print(f"case {args.case}: blocked by pending decisions: {', '.join(exc.decision_ids)}")
         print(str(exc))
@@ -116,9 +116,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     except MicrogridError as exc:
         print(f"case {args.case}: {exc}")
         return exc.exit_code
-    # run_case is defined never to return in Stage 0.
-    print(f"case {args.case}: internal error: run_case returned without a result", file=sys.stderr)
-    return 1
+    print(f"case {result.case_id}: status={result.status} run_id={result.run_id}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -144,8 +143,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_smoke = sub.add_parser("smoke", help="deterministic synthetic I/O smoke")
     p_smoke.set_defaults(func=cmd_smoke)
 
-    p_run = sub.add_parser("run", help="formal case entry (Stage 0: always fails)")
+    p_run = sub.add_parser(
+        "run", help="formal case entry (dispatcher; runners may be unimplemented)"
+    )
     p_run.add_argument("--case", choices=CASE_IDS, required=True, help=", ".join(CASE_IDS))
+    p_run.add_argument("--run-id", default=None, help="explicit run id for this execution")
     p_run.set_defaults(func=cmd_run)
 
     return parser

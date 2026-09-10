@@ -1,8 +1,11 @@
-"""Formal case entries.
+"""Formal case dispatcher.
 
-Stage 0 intentionally does not implement any model.  Every formal case must
-fail loudly, either because of a pending human decision or because the model
-entry point is not implemented.
+Stage 1 semantics:
+* pending required decisions  -> PendingDecisionError
+* all required decisions approved -> dispatch to problem/q*.py
+* runner not yet implemented -> ModelNotImplementedError
+
+The dispatcher must never synthesize a solution when a runner is missing.
 """
 
 from __future__ import annotations
@@ -10,7 +13,9 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from .schemas import ModelNotImplementedError, PendingDecisionError
+from .problem import CASE_RUNNERS
+from .problem.contracts import CaseContext, CaseResult
+from .schemas import InputError, PendingDecisionError
 
 CASE_IDS = ("q1", "q2", "q3", "q4_2", "q4_3")
 
@@ -42,8 +47,14 @@ def decision_statuses(repo_root: str | Path) -> dict[str, str]:
     return statuses
 
 
+def required_decisions(case_id: str) -> tuple[str, ...]:
+    if case_id not in CASE_IDS:
+        raise InputError(f"unknown case {case_id!r}; expected one of {', '.join(CASE_IDS)}")
+    return CASE_DECISIONS[case_id]
+
+
 def pending_decisions(repo_root: str | Path, case_id: str) -> list[str]:
-    required = CASE_DECISIONS.get(case_id, ("D_MODEL",))
+    required = required_decisions(case_id)
     statuses = decision_statuses(repo_root)
     pending = []
     for key in required:
@@ -53,17 +64,29 @@ def pending_decisions(repo_root: str | Path, case_id: str) -> list[str]:
     return pending
 
 
-def run_case(case_id: str, repo_root: str | Path = ".") -> None:
-    """Always fail in Stage 0; never returns a fake solution."""
+def run_case(
+    case_id: str,
+    repo_root: str | Path = ".",
+    *,
+    run_id: str | None = None,
+) -> CaseResult:
+    """Dispatch one formal case after decision gating."""
 
     if case_id not in CASE_IDS:
-        from .schemas import InputError
-
         raise InputError(f"unknown case {case_id!r}; expected one of {', '.join(CASE_IDS)}")
+
     pending = pending_decisions(repo_root, case_id)
     if pending:
         raise PendingDecisionError(
             pending,
             f"{CASE_DESCRIPTIONS[case_id]} requires human decisions before implementation",
         )
-    raise ModelNotImplementedError(case_id)
+
+    runner = CASE_RUNNERS.get(case_id)
+    if runner is None:
+        from .schemas import ModelNotImplementedError
+
+        raise ModelNotImplementedError(case_id, f"case {case_id}: no registered runner")
+
+    context = CaseContext(repo_root=Path(repo_root), case_id=case_id, run_id=run_id)
+    return runner(context)

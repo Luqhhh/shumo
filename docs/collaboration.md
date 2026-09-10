@@ -1,21 +1,47 @@
 # 协作约定
 
+## 阶段边界
+
+- **Stage 0 — completed**：数据层、时间标签、模板契约、smoke、论文层、release guards 已完成；不保留“模型永久不可实现”的常量阻断。
+- **Stage 1 — active**：在参赛队人工批准 shared semantics 后实现正式模型。
+- 未经批准的 decision 不得进入模型代码；已批准的 decision 只能按批准 contract 严格实现。
+
 ## 分支与 PR
 
 - `main` 保持可复现；不要强推。
-- 工程改动建议使用 `feat/stage0-*`、`fix/*`、`docs/*` 分支。
-- PR 必须写明：改动范围、实际执行的测试命令与结果、未解决事项、AI 使用记录是否更新。
+- Stage 1 常用分支：`infra/*`、`feat/q1-*`、`feat/q2-*`、`fix/*`、`docs/*`。
+- PR 必须写明：
+  - 改动范围和所依赖的 decision ID；
+  - 实际执行的测试命令与退出码；
+  - dispatch / release guard 是否受影响；
+  - 未解决事项与跳过项；
+  - AI 使用记录 segment 是否新增。
 - 参赛队决定是否接纳和合并；Agent 不自动合并。
+
+## Decision 门槛
+
+- `configs/decisions.toml` 的 `status/choice/rationale/confirmed_by/confirmed_at` 不得由工程 Agent 修改。
+- required decision 仍为 pending 时，对应 case 必须被 `PendingDecisionError` 阻断。
+- decision 已 approved 后，dispatcher 才允许调用 `src/microgrid/problem/q*.py`。
+- 尚未实现的 runner 必须明确抛出 `ModelNotImplementedError`，不得返回伪结果。
+
+## AI 使用记录
+
+- `records/ai_usage.jsonl` 是 Stage 0 历史，只读保留。
+- Stage 1 新记录写入 `records/ai_usage/entries/<contributor-or-session>.jsonl`，每行一个 JSON 对象。
+- 只追加自己的 segment，不修改他人的 segment；最后用 `scripts/aggregate_ai_usage.py` 聚合。
+- `human_review_status` 初始只能是 pending；只有参赛队实际核验后才能改为 confirmed 并补充 reviewed_by / reviewed_at。
 
 ## 远程仓库安全
 
-- 远程地址：`用户指定的私有 GitHub 仓库（实际地址保存在本地 .git/config，不写入论文支撑材料）`。
-- 首次推送前必须确认仓库为 private；remote 上不得包含原始题包、附件、模板、个人身份、绝对主目录、API 密钥或未筛选对话。
-- 若 remote 可见性无法确认，停止推送并交由参赛队处理。
-- 不创建 public 镜像，不开启自动发布，不把 CI 用于自动上传年度数据。
+- remote 可见性由参赛队确认；不要在未授权时改变可见性或创建镜像。
+- remote 上不得包含原始题包、附件、模板、个人身份、绝对主目录、API 密钥或未筛选对话。
+- 不自动公开发布原始材料；不把 CI 用于上传年度数据。
+- 推送前检查 `git status`、`git diff --stat` 和候选文件清单。
 
 ## CI 边界
 
-- CI 只运行：锁文件检查、ruff、pytest、合成 smoke、论文草稿与 AI 详情草稿编译、发布入口阻断测试。
-- 不运行模型训练、优化求解、全年策略或正式实验。
+- `quality` job：锁文件检查、ruff、pytest（含 decision/release guard 测试）、合成 smoke。
+- `paper` job：安装 TeX，编译 main.pdf 草稿和 AI 详情草稿。
+- CI 不运行模型训练、优化求解、全年策略或正式实验。
 - 真实数据集成检查只在本地显式执行。

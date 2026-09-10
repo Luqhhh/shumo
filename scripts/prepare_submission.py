@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
         print("FORMAL SUBMISSION BLOCKED:")
         for blocker in blockers:
             print(f"  - {blocker}")
-        print("No staging was produced.  This is expected in Stage 0.")
+        print("No staging was produced.  Resolve the blockers above and rerun.")
         return 5
 
     blockers = collect_blockers(repo, mode="draft")

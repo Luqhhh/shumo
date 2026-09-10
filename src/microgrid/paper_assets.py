@@ -1,6 +1,6 @@
 """Paper assets must come from one explicit result selection.
 
-Stage 0 has no formal results, so this module only emits clearly marked draft
+Until formal runs are selected, this module only emits clearly marked draft
 placeholders.  It never treats a synthetic run as a result.
 """
 
@@ -26,6 +26,16 @@ SOURCE_FILES = [
     "src/microgrid/schemas.py",
     "src/microgrid/smoke.py",
     "src/microgrid/timekeys.py",
+    "src/microgrid/ai_usage.py",
+    "scripts/aggregate_ai_usage.py",
+    "src/microgrid/problem/__init__.py",
+    "src/microgrid/problem/contracts.py",
+    "src/microgrid/problem/common.py",
+    "src/microgrid/problem/q1.py",
+    "src/microgrid/problem/q2.py",
+    "src/microgrid/problem/q3.py",
+    "src/microgrid/problem/q4_2.py",
+    "src/microgrid/problem/q4_3.py",
     "scripts/build_paper.py",
     "scripts/check_submission.py",
     "scripts/prepare_submission.py",

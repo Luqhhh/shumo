@@ -123,6 +123,8 @@ class RunManifest:
     status: str = "not_run"
     is_synthetic: bool = False
     model_status: str = "not_implemented"
+    result_files: dict[str, str] = field(default_factory=dict)
+    result_sha256: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
