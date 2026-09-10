@@ -13,7 +13,7 @@
 | synthetic_smoke | pass | `outputs/smoke/smoke-2026-09-10T122347+0000-f808ddd9/`；is_synthetic=true；model_status=not_implemented |
 | latex_draft | pass | `paper/build/main.pdf`，本机最新构建 79 页（正文开始于第 2 页；正文结束标记在第 7 页，附录另计） |
 | ai_details_draft | pass | `paper/build/AI 工具使用详情.pdf`，2 页；仍标 pending 人工核验 |
-| ci_config | pass | GitHub Actions `stage0-ci` run 34477892523 success（commit 6d8bd12） |
+| ci_config | pass | GitHub Actions `stage0-ci` run 34477892523 success（截至 commit ca4f007 的运行记录） |
 | template_time_mapping | pending_human_decision | D-TIME 等 8 项 pending |
 | model_implementation | not_implemented | `microgrid run --case ...` 非零退出 |
 | formal_experiments | not_started | 无正式 run、无选中的结果快照 |
@@ -51,7 +51,7 @@ export TMPDIR="$PWD/.tmp"
 | `uv run --locked python scripts/build_paper.py --mode final` | 5（预期失败） | `outputs/quality/build_final_block.log` |
 | `uv run --locked python scripts/prepare_submission.py --mode final` | 5（预期失败） | `outputs/quality/final_block.log` |
 | `uv run --locked python scripts/check_submission.py --paper paper/build/main.pdf --support outputs/quality/empty_support.zip` | 1（预期失败） | 验证候选包缺少五个正式结果和 AI 详情 PDF 时被阻断 |
-| `git push origin main` | 0 | remote HEAD `6d8bd12`；CI run 34477892523 success |
+| `git push origin main` | 0 | remote main 已推送；CI run 34478247114 success（commit ca4f007 记录） |
 
 ## 原始数据保全
 
@@ -81,9 +81,9 @@ export TMPDIR="$PWD/.tmp"
 - 使用本地 SSH key 认证（GitHub 提示 `Hi Luqhhh!`）；
 - push URL 使用 SSH，fetch URL 仍为 HTTPS；
 - `git push origin main` 成功；
-- remote `refs/heads/main` = `6d8bd12`；
+- remote `refs/heads/main` 已更新；精确 HEAD 以 GitHub 页面为准；
 - 未强推，未创建镜像；
-- GitHub Actions `stage0-ci` run 34477892523 已通过。
+- GitHub Actions `stage0-ci` run 34477892523 与 34478247114 曾先后通过；后续文档提交仍会触发 CI。
 
 公开仓库中只提交了代码、配置、文档、论文骨架和哈希 manifest；`data/raw/`、`data/templates/`、`resources/`、`outputs/`、`dist/`、`local/` 中的实际内容均未提交。
 
