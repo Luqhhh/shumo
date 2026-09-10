@@ -38,14 +38,15 @@
 
 ## 尚待人工批准
 
-以下 decision 仍为 pending，未修改任何 `status/choice/rationale/confirmed_by/confirmed_at`：
+以下 decision 均未达到 approved；`proposed` 只表示已有候选解释，仍然阻断：
 
-- `D_TIME`
-- `D_EFF`
-- `D_STATE`
-- `D_INFO`
-- `D_RESAMPLE`
-- `D_SETTLE`
+- `D_TIME_INTERNAL`（proposed）
+- `D_TIME_TEMPLATE_EXPORT`（pending）
+- `D_EFF`（proposed）
+- `D_STATE`（proposed）
+- `D_INFO`（proposed）
+- `D_RESAMPLE`（pending）
+- `D_SETTLE`（pending）
 - `D_MODEL_Q1`
 - `D_MODEL_Q2`
 - `D_MODEL_Q3`
@@ -53,7 +54,32 @@
 - `D_MODEL_Q4_3`
 - `D_EVAL`
 
-注意：`problem/contracts.py` 已按团队提供的 pre-division 语义编码，但 decision 状态仍为 pending；正式模型与正式导出仍需人工批准。
+注意：`problem/contracts.py` 按团队提供的 pre-division 语义编码；`proposed` 不是 `approved`，正式模型与正式导出仍需人工批准。
+
+## Follow-up：shared-result-gates
+
+后续工程分支继续收口：
+
+- 内部时间 `D_TIME_INTERNAL` 与正式模板导出 `D_TIME_TEMPLATE_EXPORT` 分开审批；
+- `excel_export.export_case_result` 在模板映射未批准前直接 `PendingDecisionError`；
+- `CaseResult` 通过统一 `IntervalResult` 承载逐区间购电、电池行动和储能轨迹；
+- `InfoSet.from_raw` 只保存可见项，不能通过 `.items` 绕过因果过滤。
+
+### Follow-up gate results (infra/shared-result-gates)
+
+| 检查 | 结果 |
+|---|---|
+| `uv lock --check` | pass |
+| `ruff check .` | pass |
+| `ruff format --check .` | pass |
+| `pytest -q` | 50 passed |
+| `python -m microgrid smoke` | pass |
+| `paper/main.pdf` draft | pass |
+| `AI 工具使用详情.pdf` draft | pass |
+| `run --case q4_2` | 预期退出 4；proposed/pending guard 仍阻断 |
+| `prepare_submission.py --mode final` | 预期退出 5 |
+
+本地日志：`outputs/quality/shared_result_gates.log`（忽略，不提交）。
 
 ## Gate 通过后的下一步
 

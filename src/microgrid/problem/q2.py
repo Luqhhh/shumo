@@ -2,7 +2,7 @@
 
 Stage 1 dispatcher target.  The model is intentionally not implemented here:
 its objective, variables, constraints, settlement rules and solver require
-human-approved decisions (this case gate: D_MODEL_Q2, plus shared D_TIME/D_EFF/D_STATE/D_INFO as applicable).
+human-approved decisions (this case gate: D_MODEL_Q2, plus shared D_TIME_INTERNAL/D_EFF/D_STATE/D_INFO as applicable).
 """
 
 from __future__ import annotations

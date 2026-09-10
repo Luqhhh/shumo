@@ -18,9 +18,11 @@ from microgrid.problem.contracts import (
     ROUND_TRIP_EFFICIENCY,
     BatteryAction,
     BatteryState,
+    CaseResult,
     CostBreakdown,
     InfoItem,
     InfoSet,
+    IntervalResult,
     PurchasePlan,
     TimeGrid,
     apply_battery_action,
@@ -139,10 +141,77 @@ def test_info_set_is_causal_and_can_exclude_unissued_forecasts():
         valid_time=dt.datetime(2025, 2, 1, 6, 0),
         value=120,
     )
-    info = InfoSet(decision_time=decision_time, items=(issued, future_actual))
-    assert info.visible_items() == (issued,)
+    info = InfoSet.from_raw(decision_time, (issued, future_actual))
+    assert info.visible_items == (issued,)
+    assert not hasattr(info, "items")
     assert info.is_visible(issued) is True
     assert info.is_visible(future_actual) is False
+    with pytest.raises(ValueError):
+        InfoSet(decision_time=decision_time, visible_items=(future_actual,))
+
+
+def _interval_result(
+    *, slot: int = 0, start_energy: float = INITIAL_SOC_KWH, charge: float = 100.0
+) -> IntervalResult:
+    start = BatteryState(start_energy)
+    action = BatteryAction(charge_kwh=charge)
+    end = apply_battery_action(start, action)
+    return IntervalResult(
+        day=dt.date(2025, 2, 1),
+        slot=slot,
+        load_kw=1_000.0,
+        pv_kw=0.0,
+        planned_purchase_kwh=900.0,
+        adjusted_purchase_kwh=950.0,
+        emergency_purchase_kwh=5.0,
+        action=action,
+        state_start=start,
+        state_end=end,
+    )
+
+
+def test_interval_result_carries_purchase_action_and_state_trajectory():
+    interval = _interval_result()
+    assert interval.interval_key == (dt.date(2025, 2, 1), 0)
+    assert interval.adjustment_delta_kwh == pytest.approx(50.0)
+    assert interval.state_start.energy_kwh == pytest.approx(6_000.0)
+    assert interval.state_end.energy_kwh == pytest.approx(6_090.0)
+    assert interval.action.charge_kwh == pytest.approx(100.0)
+
+
+def test_interval_result_rejects_inconsistent_state_end():
+    interval = _interval_result()
+    with pytest.raises(ValueError):
+        IntervalResult(
+            day=interval.day,
+            slot=interval.slot,
+            load_kw=interval.load_kw,
+            pv_kw=interval.pv_kw,
+            planned_purchase_kwh=interval.planned_purchase_kwh,
+            adjusted_purchase_kwh=interval.adjusted_purchase_kwh,
+            emergency_purchase_kwh=interval.emergency_purchase_kwh,
+            action=interval.action,
+            state_start=interval.state_start,
+            state_end=BatteryState(6_000.0),
+        )
+
+
+def test_case_result_requires_unique_ordered_interval_keys():
+    interval = _interval_result()
+    result = CaseResult(
+        case_id="q1",
+        run_id="run-1",
+        status="success",
+        intervals=(interval,),
+    )
+    assert result.intervals == (interval,)
+    with pytest.raises(ValueError):
+        CaseResult(
+            case_id="q1",
+            run_id="run-1",
+            status="success",
+            intervals=(interval, interval),
+        )
 
 
 def test_purchase_plan_keeps_adjusted_and_delta_separate():

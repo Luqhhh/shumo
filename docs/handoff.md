@@ -14,7 +14,7 @@
 | latex_draft | pass | `paper/build/main.pdf`，本机最新构建 79 页（正文开始于第 2 页；正文结束标记在第 7 页，附录另计） |
 | ai_details_draft | pass | `paper/build/AI 工具使用详情.pdf`，2 页；仍标 pending 人工核验 |
 | ci_config | pass | GitHub Actions `stage0-ci` run 34477892523 success（截至 commit ca4f007 的运行记录） |
-| template_time_mapping | pending_human_decision | D-TIME 等 8 项 pending |
+| template_time_mapping | pending_human_decision | D_TIME_TEMPLATE_EXPORT 等 decisions 非 approved |
 | model_implementation | not_implemented | `microgrid run --case ...` 非零退出 |
 | formal_experiments | not_started | 无正式 run、无选中的结果快照 |
 | final_submission | blocked | `prepare_submission.py --mode final` 与 `build_paper.py --mode final` 均退出 5 |
@@ -91,7 +91,8 @@ export TMPDIR="$PWD/.tmp"
 
 以下事项仍为 pending：
 
-- D-TIME：输入点值/区间量与模板 0:10、`+1` 映射；
+- D_TIME_INTERNAL：内部 144 区间与输入右端点对齐（proposed，未批准）；
+- D_TIME_TEMPLATE_EXPORT：正式 Excel 模板映射（pending）；
 - D-EFF：90% 效率含义与充放电量侧；
 - D-STATE：1 月到 2 月及 Q2–Q4 的跨日状态/终端条件；
 - D-INFO：各决策时刻实际可见信息；
@@ -103,6 +104,6 @@ export TMPDIR="$PWD/.tmp"
 ## 交接建议
 
 1. 先由参赛队人工核验 `records/ai_usage.jsonl` 并更新核验状态。
-2. 人工确认 D-TIME、D-EFF、D-STATE、D-INFO 后，再单独下达模型实现任务。
+2. 人工确认 D_TIME_INTERNAL、D_EFF、D_STATE、D_INFO 后，再单独下达模型实现任务；D_TIME_TEMPLATE_EXPORT 正式导出前仍需单独批准。
 3. 远程仓库已按用户确认的 public 状态推送；如后续改回 private，请重新核对 remote 与匿名要求。
 4. 任何 CI 运行、正式结果、结算公式和论文结论都必须重新人工验收。

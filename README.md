@@ -18,10 +18,13 @@
   - 全部 approved：调用 `src/microgrid/problem/q*.py`；
   - runner 尚未实现：`ModelNotImplementedError`。
 - 模型 gate 按 case 拆分：`D_MODEL_Q1`、`D_MODEL_Q2`、`D_MODEL_Q3`、`D_MODEL_Q4_2`、`D_MODEL_Q4_3`。
-- 共享物理语义仍由 `D_TIME`、`D_EFF`、`D_STATE`、`D_INFO` 承担。
+- 共享物理语义由 `D_TIME_INTERNAL`、`D_EFF`、`D_STATE`、`D_INFO` 承担。
+- 内部时间与正式导出分开审批：`D_TIME_TEMPLATE_EXPORT` 单独控制 `result*.xlsx` 数值导出。
+- `proposed` 表示已有候选解释但未批准，仍然阻断。
 - Q4-2 是波动电价下重算 Q2，**不依赖 `D_RESAMPLE`**；Q4-3 保持 Q3 预报信息边界。
-- `src/microgrid/problem/contracts.py` 已建立 TimeGrid / BatteryState / BatteryAction / InfoSet / PurchasePlan / CostBreakdown 等领域 contract；这些 contract 按团队提供的 pre-division 语义实现，但 decisions.toml 仍保持 pending，等待正式人工批准。
-- 模型 runner 只产生统一 `CaseResult` / domain results，不直接写 Excel；官方模板映射由 `excel_export.py` 负责。
+- `src/microgrid/problem/contracts.py` 已建立 TimeGrid / BatteryState / BatteryAction / InfoSet / PurchasePlan / CostBreakdown 等领域 contract；这些 contract 按团队提供的 pre-division 语义实现，但 decisions.toml 仍为 pending/proposed，等待正式人工批准。
+- 模型 runner 只产生统一 `CaseResult` / `IntervalResult`，不直接写 Excel；官方模板映射由 `excel_export.py` 负责，并受 `D_TIME_TEMPLATE_EXPORT` 独立门槛控制。
+- `InfoSet.from_raw` 只保留 `available_at <= decision_time` 的可见项，计划器不能通过原始容器读取未来 actual。
 - release guard 不再使用“Stage 0 永久阻断”常量，而是检查显式选择的正式 run artifacts。
 
 ## 常用命令

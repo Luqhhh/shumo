@@ -32,10 +32,12 @@
 
 ## Decision 门槛
 
-- `configs/decisions.toml` 的 `status/choice/rationale/confirmed_by/confirmed_at` 不得由工程 Agent 修改。
+- `configs/decisions.toml` 的 `status/choice/rationale/confirmed_by/confirmed_at` 只能由参赛队修改。
+- `status=proposed` 只表示已记录候选解释和理由，未经批准仍然阻断；只有 `approved` 且 confirmed 字段完整才放行。
 - 模型 gate 按 case 拆分：`D_MODEL_Q1`、`D_MODEL_Q2`、`D_MODEL_Q3`、`D_MODEL_Q4_2`、`D_MODEL_Q4_3`。
-- 共享物理语义由 `D_TIME`、`D_EFF`、`D_STATE`、`D_INFO` 承担；Q4-2 明确不依赖 `D_RESAMPLE`。
-- required decision 仍为 pending 时，对应 case 必须被 `PendingDecisionError` 阻断。
+- 共享物理语义由 `D_TIME_INTERNAL`、`D_EFF`、`D_STATE`、`D_INFO` 承担；Q4-2 明确不依赖 `D_RESAMPLE`。
+- 内部时间网格（`D_TIME_INTERNAL`）与正式 Excel 映射（`D_TIME_TEMPLATE_EXPORT`）分开审批；前者不自动放行后者。
+- required decision 非 approved 时，对应 case 必须被 `PendingDecisionError` 阻断。
 - decision 已 approved 后，dispatcher 才允许调用 `src/microgrid/problem/q*.py`。
 - 尚未实现的 runner 必须明确抛出 `ModelNotImplementedError`，不得返回伪结果。
 
@@ -55,9 +57,10 @@
 
 ## 模型与导出边界
 
-- `problem/q*.py` 只产生统一的 `CaseResult` / domain results；不得直接操作 Excel。
-- 官方 `result*.xlsx` 只能由 `excel_export.py` 从统一结果快照转换。
-- 禁止每个 case 分别返回 DataFrame、dict 和直接写 workbook 三套口径。
+- `problem/q*.py` 只产生统一的 `CaseResult` / `IntervalResult` domain results；不得直接操作 Excel。
+- 每个区间使用同一个 `IntervalResult` 载体：日期、slot、负载、光伏、计划/调整/紧急购电量、电池 action、起止储能，不允许把不同结构塞进 `metadata` 绕过。
+- 官方 `result*.xlsx` 只能由 `excel_export.py` 从统一结果快照转换；`export_case_result` 受 `D_TIME_TEMPLATE_EXPORT` 独立门槛控制。
+- `InfoSet.from_raw` 只保存 `available_at <= decision_time` 的可见项；禁止把包含未来 actual 的原始集合直接传给计划器。
 
 ## Formal run 最低契约
 

@@ -20,6 +20,7 @@ These contracts are engineering-level shared semantics, not a Q1-Q4 model.
 from __future__ import annotations
 
 import datetime as _dt
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -59,10 +60,12 @@ class CaseContext:
 
 @dataclass(frozen=True)
 class CaseResult:
-    """Formal case result metadata.
+    """Formal case result metadata plus a uniform interval-level payload.
 
     The actual result files are kept as paths so the release guard can verify
-    the selected run manifest and files independently of this object.
+    the selected run manifest and files independently of this object.  Model
+    code must put purchase, battery action and storage trajectory data into the
+    common ``IntervalResult`` sequence, not into ad-hoc ``metadata`` shapes.
     """
 
     case_id: str
@@ -70,7 +73,15 @@ class CaseResult:
     status: str
     is_synthetic: bool = False
     result_files: tuple[Path, ...] = ()
+    intervals: tuple[IntervalResult, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        keys = [(interval.day, interval.slot) for interval in self.intervals]
+        if keys != sorted(keys):
+            raise ValueError("intervals must be ordered by (day, slot)")
+        if len(keys) != len(set(keys)):
+            raise ValueError("intervals contain duplicate (day, slot) keys")
 
 
 class CaseRunner(Protocol):
@@ -128,7 +139,7 @@ class TimeGrid:
     def interval_from_right_endpoint(self, day: _dt.date, raw_label: str) -> TimeInterval:
         """Align an input label to the interval whose *right* endpoint it is.
 
-        Examples from the team's D-TIME decision::
+        Examples from the team's D_TIME_INTERNAL decision::
 
             0:10   -> [00:00, 00:10)
             0:20   -> [00:10, 00:20)
@@ -255,6 +266,48 @@ def apply_battery_action(
 
 
 @dataclass(frozen=True)
+class IntervalResult:
+    """One ten-minute result row on the shared natural-day grid.
+
+    This is the uniform carrier for planned/adjusted/emergency purchase,
+    bus-side battery action and the state trajectory.  It intentionally does
+    not prescribe an optimisation model.
+    """
+
+    day: _dt.date
+    slot: int
+    load_kw: float
+    pv_kw: float
+    planned_purchase_kwh: float
+    adjusted_purchase_kwh: float
+    emergency_purchase_kwh: float
+    action: BatteryAction
+    state_start: BatteryState
+    state_end: BatteryState
+    source_ref: str = ""
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.slot < STEPS_PER_DAY:
+            raise ValueError(f"slot must be in [0, {STEPS_PER_DAY})")
+        if self.load_kw < 0 or self.pv_kw < 0:
+            raise ValueError("load_kw and pv_kw must be non-negative")
+        for name in ("planned_purchase_kwh", "adjusted_purchase_kwh", "emergency_purchase_kwh"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must be non-negative")
+        expected = apply_battery_action(self.state_start, self.action)
+        if not math.isclose(expected.energy_kwh, self.state_end.energy_kwh, abs_tol=1e-6):
+            raise ValueError("state_end is inconsistent with the shared battery transition")
+
+    @property
+    def interval_key(self) -> tuple[_dt.date, int]:
+        return (self.day, self.slot)
+
+    @property
+    def adjustment_delta_kwh(self) -> float:
+        return self.adjusted_purchase_kwh - self.planned_purchase_kwh
+
+
+@dataclass(frozen=True)
 class InfoItem:
     """One information item with explicit availability and validity times."""
 
@@ -267,16 +320,31 @@ class InfoItem:
 
 @dataclass(frozen=True)
 class InfoSet:
-    """Causal information set: only items with available_at <= decision_time."""
+    """A causal *view* that cannot store future items.
+
+    Construct planner inputs with :meth:`from_raw`; it filters first and only
+    the visible subset is stored.  Direct construction with a future item is
+    rejected.  This is intentionally a stronger guarantee than a filtering
+    method on top of an object that still exposes all raw records.
+    """
 
     decision_time: _dt.datetime
-    items: tuple[InfoItem, ...] = ()
+    visible_items: tuple[InfoItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        for item in self.visible_items:
+            if item.available_at > self.decision_time:
+                raise ValueError(
+                    f"future item {item.kind!r} is not available at {self.decision_time}"
+                )
+
+    @classmethod
+    def from_raw(cls, decision_time: _dt.datetime, items: tuple[InfoItem, ...]) -> InfoSet:
+        visible = tuple(item for item in items if item.available_at <= decision_time)
+        return cls(decision_time=decision_time, visible_items=visible)
 
     def is_visible(self, item: InfoItem) -> bool:
         return item.available_at <= self.decision_time
-
-    def visible_items(self) -> tuple[InfoItem, ...]:
-        return tuple(item for item in self.items if self.is_visible(item))
 
 
 @dataclass(frozen=True)

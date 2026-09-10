@@ -19,14 +19,16 @@ from .schemas import InputError, PendingDecisionError
 
 CASE_IDS = ("q1", "q2", "q3", "q4_2", "q4_3")
 
-# Shared physical semantics stay in D_TIME / D_EFF / D_STATE / D_INFO.
-# Each case has its own model approval gate.  Q4-2 is the fluctuating-price
-# replay of Q2, so it deliberately does NOT depend on D_RESAMPLE.
+# Shared physical semantics stay in D_TIME_INTERNAL / D_EFF / D_STATE / D_INFO.
+# D_TIME_TEMPLATE_EXPORT is intentionally not a model-input decision: it gates
+# only formal Excel export.  Each case has its own model approval gate.  Q4-2
+# is the fluctuating-price replay of Q2, so it deliberately does NOT depend on
+# D_RESAMPLE.
 CASE_DECISIONS: dict[str, tuple[str, ...]] = {
-    "q1": ("D_TIME", "D_EFF", "D_STATE", "D_MODEL_Q1"),
-    "q2": ("D_TIME", "D_EFF", "D_STATE", "D_INFO", "D_SETTLE", "D_MODEL_Q2"),
+    "q1": ("D_TIME_INTERNAL", "D_EFF", "D_STATE", "D_MODEL_Q1"),
+    "q2": ("D_TIME_INTERNAL", "D_EFF", "D_STATE", "D_INFO", "D_SETTLE", "D_MODEL_Q2"),
     "q3": (
-        "D_TIME",
+        "D_TIME_INTERNAL",
         "D_EFF",
         "D_STATE",
         "D_INFO",
@@ -34,9 +36,9 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_SETTLE",
         "D_MODEL_Q3",
     ),
-    "q4_2": ("D_TIME", "D_EFF", "D_STATE", "D_INFO", "D_SETTLE", "D_MODEL_Q4_2"),
+    "q4_2": ("D_TIME_INTERNAL", "D_EFF", "D_STATE", "D_INFO", "D_SETTLE", "D_MODEL_Q4_2"),
     "q4_3": (
-        "D_TIME",
+        "D_TIME_INTERNAL",
         "D_EFF",
         "D_STATE",
         "D_INFO",

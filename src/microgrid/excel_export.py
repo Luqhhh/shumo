@@ -1,7 +1,7 @@
 """Official result-template adapters.
 
 Stage 0 never overwrites the official templates.  It can produce previews in
-`outputs/template_preview/`; real numeric filling is blocked by D-TIME.
+`outputs/template_preview/`; real numeric filling is blocked by D_TIME_TEMPLATE_EXPORT.
 """
 
 from __future__ import annotations
@@ -12,8 +12,10 @@ from pathlib import Path
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 
+from .checks import load_decisions
 from .dataio import ensure_dir
-from .schemas import InputError
+from .problem.contracts import CaseResult
+from .schemas import InputError, PendingDecisionError
 
 TEMPLATE_BY_CASE = {
     "q1": "result1.xlsx",
@@ -124,6 +126,47 @@ def copy_template_preview(repo_root: str | Path, case_id: str) -> Path:
             "\n".join(check.issues), encoding="utf-8"
         )
     return dest
+
+
+TEMPLATE_EXPORT_DECISION_ID = "D_TIME_TEMPLATE_EXPORT"
+
+
+def _template_export_decision(repo_root: str | Path) -> dict[str, object]:
+    decisions = load_decisions(repo_root)
+    return decisions.get(TEMPLATE_EXPORT_DECISION_ID.replace("_", "-"), {})
+
+
+def export_case_result(
+    repo_root: str | Path,
+    case_result: CaseResult,
+    output_path: str | Path | None = None,
+) -> Path:
+    """Formal numeric export entry point, gated separately from internal time.
+
+    The official template labels are not yet reconciled (D_TIME_TEMPLATE_EXPORT
+    is pending), so this function intentionally refuses to write values.  Once
+    that decision is approved, the implementation must map the shared
+    IntervalResult payload to the official workbook areas.
+    """
+
+    decision = _template_export_decision(repo_root)
+    if (
+        decision.get("status") != "approved"
+        or not str(decision.get("confirmed_by", "")).strip()
+        or not str(decision.get("confirmed_at", "")).strip()
+    ):
+        raise PendingDecisionError(
+            [TEMPLATE_EXPORT_DECISION_ID],
+            "formal result-template export requires fully approved D_TIME_TEMPLATE_EXPORT",
+        )
+    if case_result.case_id not in EXPECTED_SHEETS:
+        raise InputError(f"unknown result case_id: {case_result.case_id!r}")
+    if output_path is not None and Path(output_path).exists():
+        raise InputError(f"output already exists: {output_path}")
+    raise NotImplementedError(
+        "numeric template export is not implemented; do not copy values into "
+        "official-looking workbooks before template mapping is implemented"
+    )
 
 
 def make_smoke_result_name(filename: str) -> str:

@@ -15,7 +15,8 @@ from microgrid.schemas import (
 )
 
 DECISION_IDS = (
-    "D_TIME",
+    "D_TIME_INTERNAL",
+    "D_TIME_TEMPLATE_EXPORT",
     "D_EFF",
     "D_STATE",
     "D_INFO",
@@ -131,19 +132,38 @@ def test_pending_decision_blocks_case(tmp_path):
     _write_decisions(repo, approved=False)
     with pytest.raises(PendingDecisionError) as excinfo:
         run_case("q1", repo)
-    assert "D-TIME" in excinfo.value.decision_ids
+    assert "D-TIME-INTERNAL" in excinfo.value.decision_ids
 
 
 def test_case_dependency_graph_splits_model_gates_and_q4_2_has_no_resample():
     from microgrid.cases import CASE_DECISIONS
 
+    assert "D_TIME_INTERNAL" in CASE_DECISIONS["q1"]
     assert "D_MODEL_Q1" in CASE_DECISIONS["q1"]
     assert "D_MODEL_Q2" in CASE_DECISIONS["q2"]
     assert "D_MODEL_Q3" in CASE_DECISIONS["q3"]
     assert "D_MODEL_Q4_2" in CASE_DECISIONS["q4_2"]
     assert "D_MODEL_Q4_3" in CASE_DECISIONS["q4_3"]
     assert "D_MODEL" not in CASE_DECISIONS["q1"]
+    assert "D_TIME_TEMPLATE_EXPORT" not in CASE_DECISIONS["q1"]
     assert "D_RESAMPLE" not in CASE_DECISIONS["q4_2"]
+
+
+def test_proposed_decision_still_blocks_dispatch(tmp_path):
+    repo = tmp_path / "repo"
+    _write_decisions(repo, approved=False)
+    path = repo / "configs" / "decisions.toml"
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(
+        '[decisions.D_TIME_INTERNAL]\nstatus = "pending"',
+        '[decisions.D_TIME_INTERNAL]\nstatus = "proposed"',
+    )
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(PendingDecisionError) as excinfo:
+        run_case("q1", repo)
+    assert "D-TIME-INTERNAL" in excinfo.value.decision_ids
+    blockers = collect_blockers(repo, mode="final")
+    assert "decision D-TIME-INTERNAL is proposed" in blockers
 
 
 def test_approved_decisions_dispatch_to_unimplemented_runner(tmp_path):

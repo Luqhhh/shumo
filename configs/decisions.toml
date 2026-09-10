@@ -1,38 +1,48 @@
 schema_version = 1
-status_values = ["pending", "approved", "rejected"]
-instructions = "status 是唯一机器读取来源。confirmed_by/confirmed_at 只能由参赛队人工填写。"
+status_values = ["pending", "proposed", "approved", "rejected"]
+instructions = "status 是唯一机器读取来源。proposed 表示已有候选解释、仍会阻断执行；只有 status=approved 且 confirmed_by/confirmed_at 已填写时才视为人工批准。"
 
-[decisions.D_TIME]
-status = "pending"
-choice = ""
-rationale = ""
+# 共享物理语义：内部计算口径。
+[decisions.D_TIME_INTERNAL]
+status = "proposed"
+choice = "自然日 144 个行动区间、145 个状态边界：tau_k=d+k*10min，I_k=[tau_k,tau_{k+1})；原始功率标签按右端点对齐到其前一个十分钟区间，原始样本作为该区间代表平均功率；e_k=P_k*(1/6)。"
+rationale = "团队提供的 pre-division 语义，用于内部计算；仍需团队实际核对并人工批准。"
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第1-3页；附件1/2/4首尾时间；附件5/result1.xlsx!计划购电量!A2,A145；result2.xlsx!计划购电量!B1,EO1"
+source = "团队 pre-division 语义记录；附件1/2/4 右端点观察；不涉及 result*.xlsx 模板映射。"
+
+# 模板映射：正式 Excel 导出单独审批。
+[decisions.D_TIME_TEMPLATE_EXPORT]
+status = "pending"
+choice = ""
+rationale = "result1 首区间为 0:10-0:20、末区间为 0:00+1-0:10+1；多日模板末列为 0:00-0:10+1。没有官方勘误证据前，模板映射保持未决，正式导出必须继续阻断。"
+confirmed_by = ""
+confirmed_at = ""
+source = "result1.xlsx!计划购电量!A2,A145；result2/3/4!计划购电量!B1,EO1；本项与 D_TIME_INTERNAL 分开审批。"
 
 [decisions.D_EFF]
-status = "pending"
-choice = ""
-rationale = ""
+status = "proposed"
+choice = "eta_c=eta_d=0.9；E_{k+1}=E_k+0.9*c_k-d_k/0.9。c_k/d_k 定义在母线侧且非负；5000 kW 也按母线侧解释，故单区间约束 0<=c_k,d_k<=5000*(1/6) kWh。不同时充放电；不允许事后 clip 越界。"
+rationale = "团队提供的 pre-division 语义；往返效率为 81%，不是 90%；仍需团队实际核对并人工批准。"
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第2页附录1；效率原文及 0.9"
+source = "团队 pre-division 语义记录；题面附录1 原文“充放电效率为 90%”；本条不覆盖正式费用结算。"
 
 [decisions.D_STATE]
-status = "pending"
-choice = ""
-rationale = ""
+status = "proposed"
+choice = "2025-01 作为历史初始化期，电池待机 c_k=d_k=0，E_k=6000 kWh；2025-02-01 起连续运行，E_{d+1,0}=E_{d,144}，不每日重置；所有状态保持 1200<=E_k<=10800。Q1 单独采用 6000 kWh 初始工况并满足 E_144=E_0；Q2/Q3/Q4 不自动增加每日首尾相等约束，费用比较需同时报告期末储能。"
+rationale = "团队提供的 pre-division 语义；需要 A/B 独立核对后由团队统一确认。"
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第2页附录1、第3页附件5说明；2025-02-01 前的1月衔接"
+source = "团队 pre-division 语义记录；题面附录1 初始状态与 Q2/Q3 正式结果范围。"
 
 [decisions.D_INFO]
-status = "pending"
-choice = ""
-rationale = ""
+status = "proposed"
+choice = "统一因果规则 available_at(x)<=tau：x 才可用于时刻 tau 的计划。Q1 用附件1给定的当天电价、负载、光伏预测和初始储能；Q2 用已获得的历史实际值、固定电价表、当前储能和基于历史得到的预测；Q3 在 Q2 共同信息上加当时已发布的附件3预报，按 0/6/12/18 发布顺序先发布后调整；Q4-2 保持 Q2 光伏信息边界，未来波动电价用历史信息预测；Q4-3 保持 Q3 光伏预报边界，未来波动电价同样用预测。完整十分钟 actual 在区间结束后才进入历史，只用于回放结算，不用于提前计划。"
+rationale = "团队提供的 pre-division 语义，尤其是 Q4 价格可见性额外假设；仍需 B/C 独立列出 decision_time -> observable information 后团队统一。"
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第1-2页 Q1-Q3；附件2/3/4可获得时点"
+source = "团队 pre-division 语义记录；题面 Q1-Q3 信息发布描述；Q4 价格可见性为显式额外假设。"
 
 [decisions.D_RESAMPLE]
 status = "pending"
@@ -40,7 +50,7 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第2页 Q3；附件3的1-24小时预报与10分钟决策粒度"
+source = "附件3的1-24小时预报到10分钟输入的转换与边界；owner C，批准前只能研究证据。"
 
 [decisions.D_SETTLE]
 status = "pending"
@@ -48,7 +58,7 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第1-2页 Q2、Q3；计划/调整/紧急费用与余电处理"
+source = "题面给出的50%/1.5倍/紧急5倍比例；完整结算公式、调整比较基准与余电处理待 B/C 联合判断。"
 
 [decisions.D_MODEL_Q1]
 status = "pending"
@@ -56,7 +66,7 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "按 case 拆分：Q1 单日模型批准；共享语义继续由 D_TIME/D_EFF/D_STATE 承担"
+source = "按 case 拆分：Q1 单日模型批准；共享语义由 D_TIME_INTERNAL/D_EFF/D_STATE 承担。"
 
 [decisions.D_MODEL_Q2]
 status = "pending"
@@ -64,7 +74,7 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "按 case 拆分：Q2 基础模型批准；Q4-2 复用时另行扩展批准"
+source = "按 case 拆分：Q2 基础模型批准；Q4-2 复用时另行扩展批准。"
 
 [decisions.D_MODEL_Q3]
 status = "pending"
@@ -72,7 +82,7 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "按 case 拆分：Q3 预报调整模型批准；依赖 D_INFO/D_RESAMPLE/D_SETTLE"
+source = "按 case 拆分：Q3 预报调整模型批准；依赖 D_INFO/D_RESAMPLE/D_SETTLE。"
 
 [decisions.D_MODEL_Q4_2]
 status = "pending"
@@ -80,7 +90,7 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "按 case 拆分：波动电价下重算 Q2；批准需覆盖 Q2 基础模型与价格信息条件扩展；不依赖 D_RESAMPLE"
+source = "按 case 拆分：波动电价下重算 Q2；批准需覆盖 Q2 基础模型与价格信息条件扩展；不依赖 D_RESAMPLE。"
 
 [decisions.D_MODEL_Q4_3]
 status = "pending"
@@ -88,7 +98,7 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "按 case 拆分：波动电价下重算 Q3；批准需覆盖 Q3 基础模型与价格信息条件扩展"
+source = "按 case 拆分：波动电价下重算 Q3；批准需覆盖 Q3 基础模型与价格信息条件扩展。"
 
 [decisions.D_EVAL]
 status = "pending"
@@ -96,4 +106,4 @@ choice = ""
 rationale = ""
 confirmed_by = ""
 confirmed_at = ""
-source = "C题 PDF 第3页；比较设计、验证设计与证据边界"
+source = "正式比较、验证设计、证据标准及结论边界。"
