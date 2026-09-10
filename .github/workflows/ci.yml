@@ -54,7 +54,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             latexmk biber \
             texlive-xetex texlive-lang-chinese texlive-latex-extra \
-            texlive-bibtex-extra
+            texlive-bibtex-extra texlive-fonts-recommended
 
       - name: Build paper draft
         run: uv run --locked python scripts/build_paper.py --mode draft
