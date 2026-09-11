@@ -2,8 +2,9 @@
 
 This module preserves every ``issue_time`` / ``valid_time`` pair and exposes
 only an ``InfoSet``-filtered view.  It deliberately does not choose between
-multiple visible versions for the same valid time and does not resample hourly
-forecasts to ten-minute slots; both remain behind human decisions.
+multiple visible versions for the same valid time.  The separately approved
+resampling contract consumes an already-combined hourly sequence in
+``q3_resampling``; forecast combination remains outside this adapter.
 """
 
 from __future__ import annotations

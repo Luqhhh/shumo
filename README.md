@@ -22,7 +22,7 @@
 - 内部时间与正式导出分开审批：`D_TIME_TEMPLATE_EXPORT` 单独控制 `result*.xlsx` 数值导出。
 - `proposed` 表示已有候选解释但未批准，仍然阻断。
 - Q4-2 是波动电价下重算 Q2，**不依赖 `D_RESAMPLE`**；Q4-3 保持 Q3 预报信息边界。
-- `src/microgrid/problem/contracts.py` 已建立 TimeGrid / BatteryState / BatteryAction / InfoSet / PurchasePlan / CostBreakdown 等领域 contract；这些 contract 按团队提供的 pre-division 语义实现，共享四项 D_TIME_INTERNAL / D_EFF / D_STATE / D_INFO 已于 2026-09-10 经用户批准；D_MODEL_Q1、D_TIME_TEMPLATE_EXPORT 也已批准。其余 decisions（Q2–Q4 模型、D_RESAMPLE、D_SETTLE、D_EVAL）仍为 pending。
+- `src/microgrid/problem/contracts.py` 已建立 TimeGrid / BatteryState / BatteryAction / InfoSet / PurchasePlan / CostBreakdown 等领域 contract；共享四项 D_TIME_INTERNAL / D_EFF / D_STATE / D_INFO 已于 2026-09-10 经用户批准；D_MODEL_Q1、D_TIME_TEMPLATE_EXPORT 也已批准。D_RESAMPLE 已于 2026-09-11 经三位队员批准并实现独立重采样 contract；Q2–Q4 模型、D_SETTLE、D_EVAL 仍受各自 decision 状态约束。
 - 模型 runner 只产生统一 `CaseResult` / `IntervalResult`，不直接写 Excel；官方模板映射由 `excel_export.py` 负责，并受 `D_TIME_TEMPLATE_EXPORT` 独立门槛控制。
 - `InfoSet.from_raw` 只保留 `available_at <= decision_time` 的可见项，计划器不能通过原始容器读取未来 actual。
 - A 组 shared-core 交付说明见 `docs/shared_api.md` 与 `docs/a_handoff.md`；B/C 接入接口，但在共享 decisions 未批准前不得实现正式模型。

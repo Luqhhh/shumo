@@ -20,7 +20,7 @@ Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。�
 | D-EFF | `eta_c=eta_d=0.9`；行动量母线侧、储能电池内部；`E_{k+1}=E_k+0.9c_k-d_k/0.9` | 储能状态更新 |
 | D-STATE | 一月待机 6000 kWh；二月起连续运行、不每日重置；Q1 单独日终等式 | 跨日状态与终端条件 |
 | D-INFO | `available_at <= decision_time`；只按可获得时间使用信息；未来 actual 只用于回放结算 | 预测与计划输入 |
-| D-RESAMPLE | 小时预报到 10 分钟输入及边界；owner C | Q3/Q4-3 预报处理 |
+| D-RESAMPLE | 已批准：接收上游唯一小时预测序列；LIN 主方案、PCHIP 敏感性；最近十分钟实际均值作边界代理；输出按右端点对齐 | Q3/Q4-3 预报处理 |
 | D-SETTLE | 调整、紧急费用与余电处理；owner B/C | 正式费用计算 |
 
 ## 架构冻结后建议新增的决策

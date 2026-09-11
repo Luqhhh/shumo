@@ -6,7 +6,7 @@
 - **Stage 1 — active**：在参赛队人工批准 shared semantics 后实现正式模型。
 - 未经批准的 decision 不得进入模型代码；已批准的 decision 只能按批准 contract 严格实现。
 - Stage 1 共享建模边界以 [`docs/modeling_plan.md`](modeling_plan.md) 为架构冻结版计划。该计划不代替 `configs/decisions.toml` 的人工批准状态。
-- C 线三个待表决口径及回复模板见 [`docs/c_decision_cards.md`](c_decision_cards.md)；参赛队表决前它们不构成批准。
+- C 线各项 decision card 及回复模板见 [`docs/c_decision_cards.md`](c_decision_cards.md)；机器可读状态始终以 `configs/decisions.toml` 为准。
 - 架构冻结后统一按 `decision -> contract -> contract test -> implementation -> validation` 推进；除非新题面证据、contract test 矛盾或正式数据审计发现问题，不再扩展 shared architecture。
 
 ## 分支与 PR
