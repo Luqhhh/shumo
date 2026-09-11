@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from microgrid.checks import collect_blockers  # noqa: E402
-from microgrid.paper_assets import generate_draft_assets  # noqa: E402
+from microgrid.paper_assets import generate_draft_assets, generate_final_assets  # noqa: E402
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -88,12 +88,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.mode == "final":
         blockers = collect_blockers(repo, mode="final")
-        print("FINAL BUILD BLOCKED:")
-        for blocker in blockers:
-            print(f"  - {blocker}")
-        return 5
+        if blockers:
+            print("FINAL BUILD BLOCKED:")
+            for blocker in blockers:
+                print(f"  - {blocker}")
+            return 5
+        try:
+            generate_final_assets(repo)
+        except Exception as exc:
+            print(f"FINAL ASSET BLOCKED: {type(exc).__name__}: {exc}")
+            return 5
+    else:
+        generate_draft_assets(repo)
 
-    generate_draft_assets(repo)
     _clean_build_artifacts(build_dir, target_base)
 
     for tool in ("xelatex", "latexmk"):
@@ -135,9 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"LaTeX build completed with {len(warnings)} warning(s):")
         for warning in warnings[:20]:
             print(f"  warning: {warning}")
-        print(
-            "draft mode: warnings listed above; final mode would fail on missing characters/undefined refs"
-        )
+        if args.mode == "final":
+            print("final mode: missing characters/undefined references are release blockers")
+            return 1
+        print("draft mode: warnings listed above")
     if not pdf_path.exists():
         print(f"LaTeX reported success but PDF is missing: {pdf_path}")
         return 1

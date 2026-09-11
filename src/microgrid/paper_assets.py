@@ -7,13 +7,15 @@ placeholders.  It never treats a synthetic run as a result.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
 from .dataio import ensure_dir
 from .problem.contracts import STEPS_PER_DAY
 from .problem.result_io import load_case_result
-from .schemas import PendingDecisionError
+from .problem.validation import validate_complete_run
+from .schemas import InputError, PendingDecisionError
 
 SOURCE_FILES = [
     "tests/test_approvals.py",
@@ -165,15 +167,46 @@ def generate_draft_assets(repo_root: str | Path) -> dict[str, Path]:
 def generate_final_assets(
     repo_root: str | Path, selection: dict[str, Any] | None = None
 ) -> dict[str, Path]:
-    if not selection or not selection.get("runs"):
-        raise PendingDecisionError(
-            ["D_MODEL_Q1", "D_MODEL_Q2", "D_MODEL_Q3", "D_MODEL_Q4_2", "D_MODEL_Q4_3", "D_EVAL"],
-            "final paper assets require an explicit selected-run catalogue and approved decisions",
-        )
-    raise PendingDecisionError(
-        ["D_MODEL_Q1", "D_MODEL_Q2", "D_MODEL_Q3", "D_MODEL_Q4_2", "D_MODEL_Q4_3", "D_EVAL"],
-        "Stage 0 intentionally does not generate final assets",
-    )
+    """Generate paper assets from explicitly selected, approved runs.
+
+    This is called only after ``collect_blockers(mode="final")`` is empty.
+    Asset generators are registered per case; missing generators fail
+    explicitly instead of being hidden behind a permanent Stage 0 blocker.
+    """
+
+    from .checks import load_selected_runs
+
+    repo = Path(repo_root)
+    if selection is None:
+        selected, selection_status = load_selected_runs(repo)
+        if selection_status != "approved":
+            raise PendingDecisionError(
+                ["D_MODEL_Q1"],
+                f"final paper assets require approved selection_status, got {selection_status!r}",
+            )
+    else:
+        selected = {
+            str(case): str(run_id)
+            for case, run_id in selection.get("runs", selection).items()
+            if str(run_id).strip()
+        }
+        if not selected:
+            raise PendingDecisionError(["D_MODEL_Q1"], "final paper asset selection is empty")
+
+    if not selected:
+        raise PendingDecisionError(["D_MODEL_Q1"], "final paper asset selection is empty")
+
+    generators = {"q1": generate_q1_result_tables}
+    assets: dict[str, Path] = {}
+    for case_id, run_id in selected.items():
+        generator = generators.get(case_id)
+        if generator is None:
+            raise PendingDecisionError(
+                [f"D_MODEL_{case_id.upper()}"],
+                f"final paper asset generator is not implemented for {case_id}",
+            )
+        assets[case_id] = generator(repo, run_id)
+    return assets
 
 
 def _fmt_number(value: float) -> str:
@@ -193,14 +226,32 @@ def generate_q1_result_tables(
     repo = Path(repo_root)
     source_run = Path(run_dir) if run_dir is not None else repo / "outputs" / "runs" / "q1" / run_id
     result = load_case_result(source_run / "domain_result.json")
-    if result.case_id != "q1":
-        raise PendingDecisionError(["D_MODEL_Q1"], "paper Q1 tables require a Q1 run")
+    if result.case_id != "q1" or result.run_id != run_id:
+        raise InputError("paper Q1 tables require a matching Q1 run")
+    if result.status != "success" or result.is_synthetic is not False:
+        raise InputError("paper Q1 tables require a successful, non-synthetic Q1 run")
     if len(result.intervals) != STEPS_PER_DAY:
-        raise PendingDecisionError(
-            ["D_MODEL_Q1"], "paper Q1 tables require exactly 144 interval results"
-        )
+        raise InputError("paper Q1 tables require exactly 144 interval results")
     summary_path = source_run / "summary.json"
-    summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
+    if not summary_path.is_file():
+        raise InputError("paper Q1 tables require summary.json")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    if summary.get("run_id") != run_id or summary.get("case_id") != "q1":
+        raise InputError("summary.json does not belong to the requested Q1 run")
+    if summary.get("is_synthetic") is not False or summary.get("validation_ok") is not True:
+        raise InputError("summary.json is not a validated non-synthetic Q1 result")
+    if "total_planned_cost_cny" not in summary:
+        raise InputError("summary.json is missing total_planned_cost_cny")
+    check_complete = validate_complete_run(
+        result.intervals,
+        (result.intervals[0].day,),
+        require_daily_equal_ends=True,
+    )
+    if not check_complete.ok:
+        raise InputError(
+            "paper Q1 tables require a complete validated Q1 run: "
+            + "; ".join(check_complete.issues)
+        )
 
     table1_rows: list[tuple[str, str]] = []
     for label, slot in (
@@ -213,7 +264,14 @@ def generate_q1_result_tables(
     ):
         table1_rows.append((label, _fmt_number(result.intervals[slot].planned_purchase_kwh)))
     total_purchase = sum(interval.planned_purchase_kwh for interval in result.intervals)
-    total_cost = float(summary.get("total_planned_cost_cny", 0.0))
+    total_cost_value = summary["total_planned_cost_cny"]
+    if (
+        isinstance(total_cost_value, bool)
+        or not isinstance(total_cost_value, (int, float))
+        or not math.isfinite(float(total_cost_value))
+    ):
+        raise InputError("summary.json total_planned_cost_cny is not finite")
+    total_cost = float(total_cost_value)
 
     table2_rows: list[tuple[str, str, str]] = []
     for block, label in enumerate(

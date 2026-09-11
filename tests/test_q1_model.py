@@ -4,17 +4,18 @@ import datetime as dt
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
 
-from microgrid.paper_assets import generate_q1_result_tables
+from microgrid.paper_assets import generate_final_assets, generate_q1_result_tables
 from microgrid.problem import q1 as q1_module
 from microgrid.problem.contracts import CaseContext
 from microgrid.problem.q1 import Q1Solution, Q1SolveError, run, validate_q1_solution
 from microgrid.problem.q1_inputs import load_q1_inputs
-from microgrid.schemas import PendingDecisionError
+from microgrid.schemas import InputError, PendingDecisionError
 
 
 def _right_endpoint_label(slot: int) -> str:
@@ -233,10 +234,44 @@ def test_mock_solver_run_keeps_synthetic_flag_and_persists_pv_used(tmp_path, mon
     assert len(domain["intervals"]) == 144
     assert "pv_used_kwh" in domain["intervals"][0]
 
-    paper_dir = tmp_path / "papergen"
-    tables = generate_q1_result_tables(repo, "run-mock", output_dir=paper_dir, run_dir=output_dir)
+    with pytest.raises(InputError):
+        generate_q1_result_tables(
+            repo, "run-mock", output_dir=tmp_path / "papergen", run_dir=output_dir
+        )
+
+
+def test_paper_tables_require_validated_nonsynthetic_summary(tmp_path, monkeypatch):
+    repo, _source = _make_mock_repo(tmp_path)
+    output_dir = tmp_path / "formal_mock"
+
+    def mock_solver(snapshot, **kwargs):
+        return _feasible_mock_solution(snapshot)
+
+    monkeypatch.setattr(q1_module, "solve_q1_milp", mock_solver)
+    run(
+        CaseContext(
+            repo_root=repo,
+            case_id="q1",
+            run_id="run-formal-mock",
+            output_dir=output_dir,
+        )
+    )
+    tables = generate_q1_result_tables(
+        repo, "run-formal-mock", output_dir=tmp_path / "papergen", run_dir=output_dir
+    )
     assert tables.is_file()
     assert "QOneTotalCostCny" in tables.read_text(encoding="utf-8")
+
+    run_copy = repo / "outputs" / "runs" / "q1" / "run-formal-mock"
+    shutil.copytree(output_dir, run_copy)
+    assets = generate_final_assets(repo, {"runs": {"q1": "run-formal-mock"}})
+    assert assets["q1"].is_file()
+
+    (output_dir / "summary.json").unlink()
+    with pytest.raises(InputError):
+        generate_q1_result_tables(
+            repo, "run-formal-mock", output_dir=tmp_path / "papergen", run_dir=output_dir
+        )
 
 
 def test_failed_solver_run_writes_failure_evidence(tmp_path, monkeypatch):
