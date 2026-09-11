@@ -178,6 +178,7 @@ def _wide_values(
     sheet_name: str,
     kind: str,
     unit: str,
+    expected_days: tuple[dt.date, ...] | None = None,
 ) -> dict[tuple[dt.date, int], _WideValue]:
     records = _call_reader(
         logical_name,
@@ -238,6 +239,8 @@ def _wide_values(
         )
 
     _require_complete_days(logical_name, path, sheet_name, values)
+    if expected_days is not None:
+        _require_expected_days(logical_name, path, sheet_name, values, expected_days)
     return values
 
 
@@ -258,6 +261,33 @@ def _require_complete_days(
                 f"{logical_name} path={path} sheet={sheet_name} day={day} "
                 f"missing_slots={missing} extra_slots={extra}"
             )
+
+
+
+def _require_expected_days(
+    logical_name: str,
+    path: Path,
+    sheet_name: str,
+    values: dict[tuple[dt.date, int], _WideValue],
+    expected_days: tuple[dt.date, ...],
+) -> None:
+    expected = tuple(expected_days)
+    if not expected:
+        raise InputError(f"{logical_name} path={path} expected_days must not be empty")
+    if len(set(expected)) != len(expected):
+        raise InputError(f"{logical_name} path={path} expected_days contains duplicates")
+    observed = {day for day, _slot in values}
+    expected_set = set(expected)
+    missing = sorted(expected_set - observed)
+    extra = sorted(observed - expected_set)
+    if missing or extra:
+        expected_text = [day.isoformat() for day in expected]
+        missing_text = [day.isoformat() for day in missing]
+        extra_text = [day.isoformat() for day in extra]
+        raise InputError(
+            f"{logical_name} path={path} sheet={sheet_name} "
+            f"expected_days={expected_text} missing_days={missing_text} extra_days={extra_text}"
+        )
 
 
 def _fixed_prices(path: Path) -> tuple[FixedPricePoint, ...]:
@@ -311,6 +341,7 @@ def load_q2_inputs(
     attachment2_path: str | Path,
     load_sheet_name: str,
     pv_sheet_name: str,
+    expected_days: tuple[dt.date, ...] | None = None,
 ) -> Q2InputBundle:
     attachment1 = _require_file("attachment1", attachment1_path)
     attachment2 = _require_file("attachment2", attachment2_path)
@@ -321,6 +352,7 @@ def load_q2_inputs(
         sheet_name=load_sheet_name,
         kind="load_kw",
         unit="kW",
+        expected_days=expected_days,
     )
     pvs = _wide_values(
         logical_name="attachment2 pv",
@@ -328,6 +360,7 @@ def load_q2_inputs(
         sheet_name=pv_sheet_name,
         kind="pv_actual_kw",
         unit="kW",
+        expected_days=expected_days,
     )
     if set(loads) != set(pvs):
         raise InputError(

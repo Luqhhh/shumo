@@ -25,6 +25,11 @@ DECISION_IDS = (
     "D_SETTLE",
     "D_MODEL_Q1",
     "D_MODEL_Q2",
+    "D_LOAD_FORECAST",
+    "D_PRICE_FORECAST",
+    "D_YEAR_BOUNDARY",
+    "D_TERMINAL",
+    "D_MPC",
     "D_MODEL_Q3",
     "D_MODEL_Q4_2",
     "D_MODEL_Q4_3",
@@ -197,15 +202,13 @@ def test_q1_approved_is_not_blocked_by_q3_or_export_pending(tmp_path):
         run_case("q1", repo)
 
 
-def test_approved_decisions_dispatch_to_unimplemented_runner(tmp_path):
+def test_approved_decisions_reach_explicit_q2_input_error(tmp_path):
     repo = tmp_path / "repo"
     _write_decisions(repo, approved=True)
-    with pytest.raises(ModelNotImplementedError) as excinfo:
+    with pytest.raises(InputError, match="attachment1"):
         run_case("q2", repo)
-    assert excinfo.value.case_id == "q2"
     # Dispatcher must not invent a fake solution or success.
     assert not (repo / "outputs").exists()
-
 
 def test_final_guard_has_no_permanent_stage0_blocker(tmp_path):
     repo = tmp_path / "repo"

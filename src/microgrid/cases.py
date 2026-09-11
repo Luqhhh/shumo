@@ -26,7 +26,17 @@ CASE_IDS = ("q1", "q2", "q3", "q4_2", "q4_3")
 # D_RESAMPLE.
 CASE_DECISIONS: dict[str, tuple[str, ...]] = {
     "q1": ("D_TIME_INTERNAL", "D_EFF", "D_STATE", "D_MODEL_Q1"),
-    "q2": ("D_TIME_INTERNAL", "D_EFF", "D_STATE", "D_INFO", "D_SETTLE", "D_MODEL_Q2"),
+    "q2": (
+        "D_TIME_INTERNAL",
+        "D_EFF",
+        "D_STATE",
+        "D_INFO",
+        "D_SETTLE",
+        "D_MODEL_Q2",
+        "D_MPC",
+        "D_TERMINAL",
+        "D_YEAR_BOUNDARY",
+    ),
     "q3": (
         "D_TIME_INTERNAL",
         "D_EFF",
@@ -47,7 +57,6 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_MODEL_Q4_3",
     ),
 }
-
 CASE_DESCRIPTIONS = {
     "q1": "问题1：单日计划购电模型",
     "q2": "问题2：实际负载/光伏下的多日计划与紧急购电",

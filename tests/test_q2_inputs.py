@@ -433,3 +433,54 @@ def test_historical_info_items_are_causal_at_interval_end(tmp_path: Path) -> Non
     assert not any(
         item.valid_time == dt.datetime(2025, 1, 1, 0, 20) for item in at_end.visible_items
     )
+
+
+@pytest.mark.parametrize("missing_day", [dt.date(2025, 1, 1), dt.date(2025, 1, 2), dt.date(2025, 1, 3)])
+def test_load_q2_inputs_rejects_missing_expected_day(tmp_path: Path, missing_day: dt.date) -> None:
+    expected_days = (
+        dt.date(2025, 1, 1),
+        dt.date(2025, 1, 2),
+        dt.date(2025, 1, 3),
+    )
+    observed_days = tuple(day for day in expected_days if day != missing_day)
+    attachment1 = _write_attachment1(tmp_path / "附件1.xlsx")
+    attachment2 = _write_wide_workbook(
+        tmp_path / "附件2.xlsx",
+        sheets=("实际负荷", "实际光伏"),
+        days=observed_days,
+    )
+
+    with pytest.raises(InputError, match=f"expected_days.*{missing_day.isoformat()}"):
+        load_q2_inputs(
+            attachment1_path=attachment1,
+            attachment2_path=attachment2,
+            load_sheet_name="实际负荷",
+            pv_sheet_name="实际光伏",
+            expected_days=expected_days,
+        )
+
+def test_load_q2_inputs_rejects_day_missing_from_one_actual_table(tmp_path: Path) -> None:
+    expected_days = (
+        dt.date(2025, 1, 1),
+        dt.date(2025, 1, 2),
+        dt.date(2025, 1, 3),
+    )
+    attachment1 = _write_attachment1(tmp_path / "附件1.xlsx")
+    attachment2 = _write_wide_workbook(
+        tmp_path / "附件2.xlsx",
+        sheets=("实际负荷", "实际光伏"),
+        days=expected_days,
+    )
+    workbook = load_workbook(attachment2)
+    workbook["实际负荷"].delete_rows(3)
+    workbook.save(attachment2)
+    workbook.close()
+
+    with pytest.raises(InputError, match=f"expected_days.*{dt.date(2025, 1, 2).isoformat()}"):
+        load_q2_inputs(
+            attachment1_path=attachment1,
+            attachment2_path=attachment2,
+            load_sheet_name="实际负荷",
+            pv_sheet_name="实际光伏",
+            expected_days=expected_days,
+        )
