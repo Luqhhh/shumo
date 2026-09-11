@@ -1,7 +1,6 @@
-# Q1 模型卡（候选，等待 H-M 批准）
+# Q1 模型卡（已批准）
 
-状态：`proposed`，对应 `D_MODEL_Q1` 仍为 pending。  
-本卡是 A 形成的候选模型，不是已批准模型，也不代表已选定求解器。
+状态：`approved`，对应 `D_MODEL_Q1` 已于 2026-09-10 批准；求解器选择为 `scipy.optimize.milp` / HiGHS。
 
 ## 1. 适用性
 
@@ -87,20 +86,15 @@ min sum_k price_k * g_k
 
 即最小化计划购电费用。Q1 未引入紧急购电与调整购电。
 
-## 6. 求解器候选（需团队选择）
+## 6. 求解器（已批准）
 
-当前仓库未声明 Q1 求解器，模型卡不能代替团队选择。
+已批准：`scipy.optimize.milp` / HiGHS。
 
-候选方案：
+曾列候选：
 
-1. **推荐：SciPy `scipy.optimize.milp`（HiGHS）**
-   - 能直接表达 `z_k` 互斥约束；
-   - 需要新增 `scipy` 依赖并更新 `uv.lock`；
-   - 适合 144 区间小规模 MILP。
-2. `pulp` + CBC 或其他经批准的 MILP/LP 求解器；
-3. 若团队论证 LP 松弛可保证不出现同时充放电，才可退回纯 LP；不能解完后手工删除某个方向。
-
-未得到团队选择前，不添加任何求解器依赖，不实现 A4。
+- SciPy `scipy.optimize.milp`（HiGHS）：已采用；
+- `pulp` + CBC 或其他经批准的 MILP/LP 求解器：未采用；
+- 纯 LP：未采用。
 
 ## 7. 输出
 
@@ -112,9 +106,9 @@ min sum_k price_k * g_k
 - `CaseResult.intervals` 144 段；
 - 独立复算验证，不直接信任 solver 返回值。
 
-## 8. 待 H-M 批准
+## 8. 已批准范围
 
-请团队确认或修改：
+已确认：
 
 - 目标函数与供需关系；
 - 弃光/余电处理以及不售电假设；

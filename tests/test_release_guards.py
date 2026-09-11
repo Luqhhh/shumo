@@ -9,6 +9,7 @@ from microgrid.cases import CASE_IDS, run_case
 from microgrid.checks import assert_release_ready, collect_blockers, load_selected_runs
 from microgrid.cli import main
 from microgrid.schemas import (
+    InputError,
     ModelNotImplementedError,
     PendingDecisionError,
     ReleaseBlockedError,
@@ -186,11 +187,13 @@ def _write_approved_subset(repo: Path, decision_ids: tuple[str, ...]) -> None:
 
 
 def test_q1_approved_is_not_blocked_by_q3_or_export_pending(tmp_path):
-    from microgrid.cases import required_decisions
+    from microgrid.cases import pending_decisions, required_decisions
 
     repo = tmp_path / "repo"
     _write_approved_subset(repo, required_decisions("q1"))
-    with pytest.raises(ModelNotImplementedError):
+    assert pending_decisions(repo, "q1") == []
+    # Dispatch reaches the Q1 runner; missing local attachment is later than decision gate.
+    with pytest.raises(InputError):
         run_case("q1", repo)
 
 
@@ -198,8 +201,8 @@ def test_approved_decisions_dispatch_to_unimplemented_runner(tmp_path):
     repo = tmp_path / "repo"
     _write_decisions(repo, approved=True)
     with pytest.raises(ModelNotImplementedError) as excinfo:
-        run_case("q1", repo)
-    assert excinfo.value.case_id == "q1"
+        run_case("q2", repo)
+    assert excinfo.value.case_id == "q2"
     # Dispatcher must not invent a fake solution or success.
     assert not (repo / "outputs").exists()
 

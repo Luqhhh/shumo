@@ -61,12 +61,12 @@ confirmed_at = ""
 source = "题面给出的50%/1.5倍/紧急5倍比例；完整结算公式、调整比较基准与余电处理待 B/C 联合判断。"
 
 [decisions.D_MODEL_Q1]
-status = "pending"
-choice = ""
-rationale = ""
-confirmed_by = ""
-confirmed_at = ""
-source = "按 case 拆分：Q1 单日模型批准；共享语义由 D_TIME_INTERNAL/D_EFF/D_STATE 承担。"
+status = "approved"
+choice = "按 docs/q1_model.md：目标 min sum_k price_k*g_k；g/c/d/u/E 变量；供需 g_k+d_k+u_k=load_k+c_k；弃光无售电收入；E_{k+1}=E_k+0.9c_k-d_k/0.9；E_0=E_144=6000；1200<=E_k<=10800；0<=c_k,d_k<=5000/6；二进制 z_k 实现充放电互斥；SciPy scipy.optimize.milp / HiGHS。"
+rationale = "用户于 2026-09-10 批准 Q1 模型卡与 SciPy MILP 求解器选择；采用已批准的 D_TIME_INTERNAL/D_EFF/D_STATE/D_INFO。"
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-10"
+source = "docs/q1_model.md；用户批准消息；SciPy MILP 选择。"
 
 [decisions.D_MODEL_Q2]
 status = "pending"

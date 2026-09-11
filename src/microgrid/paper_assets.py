@@ -17,6 +17,7 @@ SOURCE_FILES = [
     "tests/test_ai_usage.py",
     "tests/test_result_io.py",
     "tests/test_q1_inputs.py",
+    "tests/test_q1_model.py",
     "tests/test_shared_contracts.py",
     "src/microgrid/approvals.py",
     "src/microgrid/__init__.py",
