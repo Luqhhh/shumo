@@ -104,6 +104,16 @@ class Q2Plan:
     solver_metadata: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class Q2ValidationReport:
+    ok: bool
+    issues: tuple[str, ...]
+    max_balance_residual_kwh: float
+    max_dynamics_residual_kwh: float
+    cost_gap_cny: float
+    violations: tuple[str, ...]
+
+
 class Q2SolveError(InputError):
     """The Q2 MILP did not return a successful solution."""
 
@@ -231,4 +241,140 @@ def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
         solver_status=int(result.status),
         solver_message=str(result.message),
         solver_metadata=metadata,
+    )
+
+
+def validate_q2_plan(window: Q2WindowInput, plan: Q2Plan) -> Q2ValidationReport:
+    """Recompute Q2 feasibility and cost invariants independently."""
+
+    issues: list[str] = []
+    violations: list[str] = []
+    horizon = len(window.valid_times)
+    series_fields = (
+        ("planned_purchase_kwh", plan.planned_purchase_kwh, horizon),
+        ("charge_kwh", plan.charge_kwh, horizon),
+        ("discharge_kwh", plan.discharge_kwh, horizon),
+        ("pv_used_kwh", plan.pv_used_kwh, horizon),
+        ("soc_kwh", plan.soc_kwh, horizon + 1),
+    )
+    for name, values, expected_length in series_fields:
+        if len(values) != expected_length:
+            message = f"{name} length={len(values)} expected={expected_length}"
+            issues.append(message)
+            violations.append(message)
+
+    max_balance = 0.0
+    max_dynamics = 0.0
+    finite_series = True
+    for name, values, _expected_length in series_fields:
+        for index, value in enumerate(values):
+            if not math.isfinite(float(value)):
+                finite_series = False
+                message = f"slot={index} nonfinite {name}"
+                issues.append(message)
+                violations.append(message)
+            elif name != "soc_kwh" and value < -ENERGY_ABS_TOL_KWH:
+                message = f"slot={index} negative {name}"
+                issues.append(message)
+                violations.append(message)
+
+    if len(plan.soc_kwh) == horizon + 1 and finite_series:
+        if abs(plan.soc_kwh[0] - window.initial_soc_kwh) > ENERGY_ABS_TOL_KWH:
+            message = "initial SOC mismatch"
+            issues.append(message)
+            violations.append(message)
+        for index in range(horizon + 1):
+            if (
+                not SOC_MIN_KWH - ENERGY_ABS_TOL_KWH
+                <= plan.soc_kwh[index]
+                <= SOC_MAX_KWH + ENERGY_ABS_TOL_KWH
+            ):
+                message = f"slot={index} SOC bounds"
+                issues.append(message)
+                violations.append(message)
+        if window.is_annual_endpoint and window.annual_terminal_soc_kwh is not None:
+            if abs(plan.soc_kwh[-1] - window.annual_terminal_soc_kwh) > ENERGY_ABS_TOL_KWH:
+                message = "annual terminal SOC mismatch"
+                issues.append(message)
+                violations.append(message)
+
+    if all(len(values) == horizon for _name, values, _expected_length in series_fields[:4]):
+        for index, (quantity, charge, discharge, pv_used, load, pv_forecast) in enumerate(
+            zip(
+                plan.planned_purchase_kwh,
+                plan.charge_kwh,
+                plan.discharge_kwh,
+                plan.pv_used_kwh,
+                window.load_forecast_kwh,
+                window.pv_forecast_kwh,
+                strict=True,
+            )
+        ):
+            if all(
+                math.isfinite(float(value))
+                for value in (quantity, charge, discharge, pv_used, load, pv_forecast)
+            ):
+                balance_deficit = load + charge - quantity - discharge - pv_used
+                max_balance = max(max_balance, max(0.0, balance_deficit))
+                if balance_deficit > ENERGY_ABS_TOL_KWH:
+                    message = f"slot={index} supply inequality"
+                    issues.append(message)
+                    violations.append(message)
+                if pv_used > pv_forecast + ENERGY_ABS_TOL_KWH:
+                    message = f"slot={index} pv upper bound"
+                    issues.append(message)
+                    violations.append(message)
+                if charge > ENERGY_ABS_TOL_KWH and discharge > ENERGY_ABS_TOL_KWH:
+                    message = f"slot={index} simultaneous charge/discharge"
+                    issues.append(message)
+                    violations.append(message)
+        if len(plan.soc_kwh) == horizon + 1 and finite_series:
+            for index, (previous, charge, discharge, current) in enumerate(
+                zip(
+                    plan.soc_kwh[:-1],
+                    plan.charge_kwh,
+                    plan.discharge_kwh,
+                    plan.soc_kwh[1:],
+                    strict=True,
+                )
+            ):
+                residual = current - (
+                    previous + CHARGE_EFFICIENCY * charge - discharge / DISCHARGE_EFFICIENCY
+                )
+                max_dynamics = max(max_dynamics, abs(residual))
+                if abs(residual) > ENERGY_ABS_TOL_KWH:
+                    message = f"slot={index} SOC dynamics"
+                    issues.append(message)
+                    violations.append(message)
+
+    cost_gap = float("inf")
+    if finite_series and math.isfinite(float(plan.objective_cny)):
+        recomputed = sum(
+            price * quantity
+            for price, quantity in zip(
+                window.price_cny_per_kwh, plan.planned_purchase_kwh, strict=True
+            )
+        )
+        if window.is_annual_endpoint and window.annual_terminal_soc_kwh is not None:
+            terminal_soc = plan.soc_kwh[-1]
+        else:
+            terminal_soc = plan.soc_kwh[-1]
+        recomputed -= window.terminal_value_cny_per_kwh * terminal_soc
+        cost_gap = abs(float(plan.objective_cny) - recomputed)
+        if cost_gap > COST_ABS_TOL_CNY:
+            message = f"objective cost mismatch gap={cost_gap}"
+            issues.append(message)
+            violations.append("objective cost mismatch")
+
+    if plan.solver_status != 0:
+        message = f"solver status={plan.solver_status}"
+        issues.append(message)
+        violations.append(message)
+    return Q2ValidationReport(
+        ok=not issues,
+        issues=tuple(issues),
+        max_balance_residual_kwh=max_balance,
+        max_dynamics_residual_kwh=max_dynamics,
+        cost_gap_cny=cost_gap,
+        violations=tuple(violations),
     )

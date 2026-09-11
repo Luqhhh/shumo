@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 
 import pytest
 
 from microgrid.problem.q2_model import (
     Q2ModelConfig,
+    Q2Plan,
     Q2SolveError,
     Q2WindowInput,
     solve_q2_window,
+    validate_q2_plan,
 )
 
 
@@ -127,3 +130,57 @@ def test_non_successful_solver_result_raises_q2_solve_error(monkeypatch) -> None
             _window(load=(1.0, 1.0), pv=(0.0, 0.0), prices=(1.0, 2.0)),
             _config(2),
         )
+
+
+def _valid_plan(window: Q2WindowInput) -> Q2Plan:
+    steps = len(window.valid_times)
+    planned = window.load_forecast_kwh
+    return Q2Plan(
+        planned_purchase_kwh=planned,
+        charge_kwh=(0.0,) * steps,
+        discharge_kwh=(0.0,) * steps,
+        pv_used_kwh=(0.0,) * steps,
+        soc_kwh=(window.initial_soc_kwh,) * (steps + 1),
+        objective_cny=sum(
+            price * quantity
+            for price, quantity in zip(window.price_cny_per_kwh, planned, strict=True)
+        ),
+        solver_status=0,
+        solver_message="ok",
+        solver_metadata={},
+    )
+
+
+def test_validate_q2_plan_accepts_a_valid_plan() -> None:
+    window = _window(load=(10.0, 10.0), pv=(0.0, 0.0), prices=(1.0, 2.0))
+    report = validate_q2_plan(window, _valid_plan(window))
+
+    assert report.ok is True
+    assert report.issues == ()
+    assert report.violations == ()
+    assert report.max_balance_residual_kwh == pytest.approx(0.0)
+    assert report.max_dynamics_residual_kwh == pytest.approx(0.0)
+    assert report.cost_gap_cny == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    ("label", "tamper"),
+    [
+        ("supply", lambda plan: replace(plan, planned_purchase_kwh=(0.0, 10.0))),
+        ("dynamics", lambda plan: replace(plan, soc_kwh=(6000.0, 6000.0, 5999.0))),
+        ("pv", lambda plan: replace(plan, pv_used_kwh=(1.0, 0.0))),
+        (
+            "simultaneous",
+            lambda plan: replace(plan, charge_kwh=(1.0, 0.0), discharge_kwh=(1.0, 0.0)),
+        ),
+        ("objective", lambda plan: replace(plan, objective_cny=999.0)),
+        ("nonfinite", lambda plan: replace(plan, planned_purchase_kwh=(float("nan"), 10.0))),
+    ],
+)
+def test_validate_q2_plan_reports_tampering(label: str, tamper) -> None:
+    window = _window(load=(10.0, 10.0), pv=(0.0, 0.0), prices=(1.0, 2.0))
+    report = validate_q2_plan(window, tamper(_valid_plan(window)))
+
+    assert report.ok is False
+    assert report.issues
+    assert any(label in violation for violation in report.violations)
