@@ -191,3 +191,25 @@ results/result1.xlsx
 ```
 
 原因：`D_TIME_TEMPLATE_EXPORT` 仍为 pending。正式导出必须等 H-X 模板映射批准；当前不会把内部结果写入官方模板。
+
+## P1 修复后的 Q1 复运行
+
+针对独立校验、合成标识和输入来源检查的 P1 修复后，重新生成新 run：
+
+- commit: `357b99440d5bb121c5bdc6e4a313e6755d380d28`
+- run_id: `q1-a-formal-003`
+- manifest:
+  - `status=success`
+  - `model_status=implemented`
+  - `is_synthetic=false`
+  - `code_dirty=false`
+  - `input_verification_issues=[]`
+- validation:
+  - `ok=true`
+  - `violations=[]`
+  - 最大供需残差约 `1.14e-13 kWh`
+  - 最大电池动态残差约 `9.09e-13 kWh`
+- 逐段 `pv_used_kwh` 已写入 `domain_result.json`；例如 slot 72 的 `pv_used_kwh=1268.7193333333335`。
+- 合成 mock 测试现在必须显式传入 `CaseContext(is_synthetic=True, output_dir=...)`；manifest、`CaseResult` 和 summary 均保留 `is_synthetic=true`。
+- 失败运行现在会保留 `manifest.json`（`status=failed`）、`failure.json`（阶段、错误类型、错误消息）。
+- 附件1 来源检查现在要求清单中恰好一条有效记录、非空 SHA-256，并与实际读取文件绑定。
