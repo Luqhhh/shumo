@@ -18,6 +18,8 @@ from microgrid.problem.q2_inputs import (
     ActualInterval,
     FixedPricePoint,
     load_q2_inputs,
+    load_q4_2_prices,
+    require_matching_q4_2_grid,
 )
 from microgrid.problem.result_io import case_result_to_dict, load_case_result, save_case_result
 from microgrid.schemas import InputError
@@ -281,3 +283,63 @@ def test_load_q2_inputs_wraps_missing_path_and_sheet(tmp_path: Path) -> None:
             load_sheet_name="missing-sheet",
             pv_sheet_name="实际光伏",
         )
+
+
+def test_load_q4_2_prices_and_require_matching_grid(tmp_path: Path) -> None:
+    day = dt.date(2025, 1, 1)
+    attachment1 = _write_attachment1(tmp_path / "附件1.xlsx")
+    attachment2 = _write_wide_workbook(
+        tmp_path / "附件2.xlsx",
+        sheets=("实际负荷", "实际光伏"),
+        days=(day,),
+    )
+    attachment4 = _write_wide_workbook(
+        tmp_path / "附件4.xlsx",
+        sheets=("波动电价",),
+        days=(day,),
+    )
+    q2_inputs = load_q2_inputs(
+        attachment1_path=attachment1,
+        attachment2_path=attachment2,
+        load_sheet_name="实际负荷",
+        pv_sheet_name="实际光伏",
+    )
+
+    prices = load_q4_2_prices(
+        attachment4_path=attachment4,
+        price_sheet_name="波动电价",
+    )
+
+    assert len(prices.prices) == 144
+    assert prices.prices[0].start == dt.datetime(2025, 1, 1, 0, 0)
+    assert prices.prices[-1].end == dt.datetime(2025, 1, 2, 0, 0)
+    assert prices.prices[0].source_ref.startswith("附件4.xlsx!波动电价!B2 ")
+    assert prices.input_hashes == (("attachment4", sha256_file(attachment4)),)
+    require_matching_q4_2_grid(q2_inputs, prices)
+
+
+def test_require_matching_q4_2_grid_rejects_different_days(tmp_path: Path) -> None:
+    attachment1 = _write_attachment1(tmp_path / "附件1.xlsx")
+    attachment2 = _write_wide_workbook(
+        tmp_path / "附件2.xlsx",
+        sheets=("实际负荷", "实际光伏"),
+        days=(dt.date(2025, 1, 1),),
+    )
+    attachment4 = _write_wide_workbook(
+        tmp_path / "附件4.xlsx",
+        sheets=("波动电价",),
+        days=(dt.date(2025, 1, 2),),
+    )
+    q2_inputs = load_q2_inputs(
+        attachment1_path=attachment1,
+        attachment2_path=attachment2,
+        load_sheet_name="实际负荷",
+        pv_sheet_name="实际光伏",
+    )
+    prices = load_q4_2_prices(
+        attachment4_path=attachment4,
+        price_sheet_name="波动电价",
+    )
+
+    with pytest.raises(InputError, match="Q2/Attachment 4 grid mismatch"):
+        require_matching_q4_2_grid(q2_inputs, prices)

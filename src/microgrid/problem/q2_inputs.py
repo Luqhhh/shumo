@@ -345,3 +345,47 @@ def load_q2_inputs(
             )
         ),
     )
+
+
+def load_q4_2_prices(
+    *,
+    attachment4_path: str | Path,
+    price_sheet_name: str,
+) -> VariablePriceBundle:
+    attachment4 = _require_file("attachment4", attachment4_path)
+    values = _wide_values(
+        logical_name="attachment4 price",
+        path=attachment4,
+        sheet_name=price_sheet_name,
+        kind="price_actual_cny_per_kwh",
+        unit="元/kWh",
+    )
+    prices = tuple(
+        VariablePricePoint(
+            day=value.day,
+            slot=value.slot,
+            start=value.start,
+            end=value.end,
+            price_cny_per_kwh=value.value,
+            source_ref=value.source_ref,
+        )
+        for _key, value in sorted(values.items())
+    )
+    return VariablePriceBundle(
+        prices=prices,
+        input_hashes=(("attachment4", sha256_file(attachment4)),),
+    )
+
+
+def require_matching_q4_2_grid(
+    q2_inputs: Q2InputBundle,
+    variable_prices: VariablePriceBundle,
+) -> None:
+    actual_keys = {(item.day, item.slot) for item in q2_inputs.actuals}
+    price_keys = {(item.day, item.slot) for item in variable_prices.prices}
+    if actual_keys != price_keys:
+        raise InputError(
+            "Q2/Attachment 4 grid mismatch: "
+            f"actual_only={sorted(actual_keys - price_keys)[:10]} "
+            f"price_only={sorted(price_keys - actual_keys)[:10]}"
+        )
