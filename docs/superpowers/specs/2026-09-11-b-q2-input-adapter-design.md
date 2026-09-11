@@ -51,6 +51,7 @@ class FixedPricePoint:
     price_cny_per_kwh: float
     source_ref: str
 
+
 @dataclass(frozen=True)
 class ActualInterval:
     day: date
@@ -70,6 +71,7 @@ class ActualInterval:
     def pv_kwh(self) -> float:
         return TimeGrid.power_to_energy_kwh(self.pv_kw)
 
+
 @dataclass(frozen=True)
 class VariablePricePoint:
     day: date
@@ -79,11 +81,13 @@ class VariablePricePoint:
     price_cny_per_kwh: float
     source_ref: str
 
+
 @dataclass(frozen=True)
 class Q2InputBundle:
     fixed_prices: tuple[FixedPricePoint, ...]
     actuals: tuple[ActualInterval, ...]
     input_hashes: tuple[tuple[str, str], ...]
+
 
 @dataclass(frozen=True)
 class VariablePriceBundle:
@@ -104,6 +108,7 @@ def load_q2_inputs(
     pv_sheet_name: str,
 ) -> Q2InputBundle: ...
 
+
 def load_q4_2_prices(
     *,
     attachment4_path: str | Path,
@@ -121,6 +126,7 @@ def historical_info_items(
     *,
     variable_prices: VariablePriceBundle | None = None,
 ) -> tuple[InfoItem, ...]: ...
+
 
 def info_set_at(
     decision_time: datetime,

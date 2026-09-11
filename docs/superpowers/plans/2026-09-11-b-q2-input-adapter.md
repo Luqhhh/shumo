@@ -603,7 +603,9 @@ def _wide_values(
         except (InputError, ValueError) as exc:
             raise InputError(f"{logical_name} has bad time label at {ref}: {exc}") from exc
         if interval.day != day:
-            raise InputError(f"{logical_name} right endpoint crosses before its source day at {ref}")
+            raise InputError(
+                f"{logical_name} right endpoint crosses before its source day at {ref}"
+            )
         parsed_raw = record.get("parsed_timestamp")
         if parsed_raw is None:
             raise InputError(f"{logical_name} missing parsed_timestamp at {ref}")
@@ -991,7 +993,9 @@ def test_historical_info_items_are_causal_at_interval_end(tmp_path: Path) -> Non
     ]
     assert all(item.available_at == dt.datetime(2025, 1, 1, 0, 10) for item in at_end.visible_items)
     assert all(item.valid_time == item.available_at for item in at_end.visible_items)
-    assert not any(item.valid_time == dt.datetime(2025, 1, 1, 0, 20) for item in at_end.visible_items)
+    assert not any(
+        item.valid_time == dt.datetime(2025, 1, 1, 0, 20) for item in at_end.visible_items
+    )
 ```
 
 - [ ] **Step 2: Run the test and verify RED**
