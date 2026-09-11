@@ -148,3 +148,46 @@ B/C 不应：
 - 把未来 actual 直接传入计划器；
 - 把策略数据塞进 `metadata`；
 - 在 D_TIME_TEMPLATE_EXPORT 未批准时写正式 result*.xlsx。
+
+## A4–A5：Q1 内部结果
+
+`D_MODEL_Q1` 已由用户于 2026-09-10 批准，求解器采用 `scipy.optimize.milp` / HiGHS。
+
+正式附件 1 的内部运行（本地，非正式导出）：
+
+- branch: `feat/q1-shared-core`
+- code commit: `60eab7183e6587d3c8406eacbf1be6afd18d79d5`
+- run_id: `q1-a-formal-002`
+- code_dirty: `false`
+- input manifest verification: `[]`
+- reference_day: `2025-01-01`（内部坐标，不是附件1观测日期）
+- attachment1 SHA-256: `66b87134f5ecccd6...`
+- solver status: `0` / HiGHS Optimal
+- solver mip_gap: `0.0`
+- interval count: `144`
+- validation: `ok=true`，最大供需残差约 `1.14e-13 kWh`，最大电池动态残差约 `9.09e-13 kWh`
+- total load: `111024.8081 kWh`
+- total PV forecast: `55482.8357 kWh`
+- total planned purchase: `59482.6990 kWh`
+- total planned cost: `35126.9486 CNY`
+- initial/terminal energy: `6000 / 6000 kWh`
+
+已生成内部运行文件：
+
+```text
+outputs/runs/q1/q1-a-formal-002/
+├── manifest.json
+├── input_snapshot.json
+├── domain_result.json
+├── validation.json
+├── summary.json
+└── solver.log
+```
+
+尚未生成：
+
+```text
+results/result1.xlsx
+```
+
+原因：`D_TIME_TEMPLATE_EXPORT` 仍为 pending。正式导出必须等 H-X 模板映射批准；当前不会把内部结果写入官方模板。
