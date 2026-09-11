@@ -22,9 +22,7 @@ def _write_forecast_workbook(path, *, missing: tuple[int, int] | None = None):
             if missing == (issue_hour, lead):
                 value = None
             values.append(value)
-        ws.append(
-            ["2025-02-01" if issue_hour == 0 else "", f"{issue_hour}:00", *values]
-        )
+        ws.append(["2025-02-01" if issue_hour == 0 else "", f"{issue_hour}:00", *values])
     wb.save(path)
 
 
