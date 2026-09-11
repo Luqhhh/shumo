@@ -37,8 +37,13 @@
 \PrintReferences
 \label{body:end}
 
+\ifdefined\PaperBodyOnly
+\else
+\clearpage
 \appendix
 \input{appendices/file_list}
 \input{appendices/source_code}
+
+\fi
 
 \end{document}

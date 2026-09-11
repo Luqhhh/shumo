@@ -1,21 +1,27 @@
 \section{符号说明}
-
 \begin{table}[htbp]
 \centering
-\caption{主要符号（Stage 0 骨架）}
-\begin{tabular}{lll}
+\caption{主要符号及其含义}
+\label{tab:notation}
+\small
+\begin{tabular}{lp{8.6cm}l}
 \toprule
 符号 & 含义 & 单位 \\
 \midrule
-$E_{\max}$ & 额定储能容量 & kWh \\
-$E_{\min},E_{\max}^{\mathrm{soc}}$ & 储电量下界与上界 & kWh \\
-$E_0$ & 2025-01-01 00:00 初始储电量 & kWh \\
-$P^{\mathrm{ch}},P^{\mathrm{dis}}$ & 充、放电功率 & kW \\
-$L_t$ & 负载功率 & kW \\
-$PV_t$ & 光伏功率 & kW \\
-$G_t$ & 计划购电量 & kWh \\
+$N,\Delta t$ & 每日区间数与区间时长，分别为144和$1/6$ & 个，h \\
+$k,\tau_k$ & 区间或状态边界索引、对应边界时刻 & --- \\
+$p_k$ & 第$k$区间外网电价 & 元/kWh \\
+$P_k^{\mathrm L},P_k^{\mathrm{PV}}$ & 第$k$区间负载功率、光伏预测功率 & kW \\
+$\ell_k,v_k$ & 第$k$区间负载电量、光伏预测电量 & kWh \\
+$g_k,u_k$ & 第$k$区间购电量、光伏消纳电量 & kWh \\
+$c_k,d_k$ & 第$k$区间母线侧充电量、放电量 & kWh \\
+$E_k$ & 时刻$\tau_k$的电池内部储电量 & kWh \\
+$E_{\min},E_{\max}$ & 储电量运行下界、上界 & kWh \\
+$P_{\max},M$ & 母线侧充放电功率上限、对应区间电量上限 & kW，kWh \\
+$\eta_{\mathrm c},\eta_{\mathrm d}$ & 充电效率、放电效率 & --- \\
+$z_k$ & 充电许可变量，取值为0或1 & --- \\
+$J$ & 全天外网购电费用 & 元 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\PH{完整符号表、状态变量和费用变量待 D-MODEL-Q* / D-SETTLE 确认。}
+电量与控制变量的索引为$k=0,\ldots,N-1$，储电量状态的索引为$k=0,\ldots,N$。额定容量与运行上界不同：额定容量为12\,000 kWh，$E_{\max}=10\,800$ kWh。
