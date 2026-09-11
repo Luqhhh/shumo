@@ -141,19 +141,68 @@ source = "C-4 decision card；提交 0b06e37；三位队员于 2026-09-11 19:27�
 [decisions.D_SETTLE]
 status = "proposed"
 choice = """
-采用 SETTLE-A 作为主结算口径：00:00计划为版本0，每次允许调整时刻的新计划
-相对上一版已确认计划计算 delta；按 target_slot 保存 previous_committed_kwh、
-new_committed_kwh、delta_kwh、issue_time、transaction_price、is_frozen，
-并逐版累计交易费用。官方调整购电表只导出每个执行时隙最终确认量，内部账本
-保留全部版本。合同约束为
-q_plan + q_adjust_plus - q_adjust_minus >= 0。
-计划/调整/紧急购电、违约和余电的题面费率仍需逐项映射；系数未人工确认前，
-不得生成正式数值。SETTLE-B（最终版相对00:00版一次结算）仅作敏感性对照。
+采用 SETTLE-A-v2 作为待队伍确认的逐版结算口径；本区块仍为 proposed，
+不表示题面已经明确给出以下全部公式。00:00 计划为版本 0；每个后续发布
+时刻的新计划相对上一版已确认计划逐 target_slot 计算 delta。官方调整购电表
+只导出每个执行时隙的最终确认量，内部账本保留全部版本。
+
+符号和时间基准：q_plan_t 为版本 0 在执行时隙 t 的计划购电量；q_prev_vt
+和 q_new_vt 分别为版本 v 调整前后的已确认量；delta_plus_vt =
+max(q_new_vt - q_prev_vt, 0)，delta_minus_vt = max(q_prev_vt - q_new_vt, 0)，
+且 q_new_vt = q_prev_vt + delta_plus_vt - delta_minus_vt。p_base_t 是
+执行时隙 t 的正常购电价；p_trade_v 是版本 v 发布/交易时刻的价格。Q2/Q3
+的 p_base_t 来自附件 1；Q4 的 p_base_t 在回放结算时使用附件 4 对应执行
+时隙的实际价格，计划器仍只能使用已批准的未来价格信息。p_trade_v 在
+Q3 使用附件 1 在版本 v 发布时刻对应的固定价格；Q4 使用附件 4 在版本 v 发布
+时刻的实际价格；未来真实价格不得传给计划器。
+
+1. 正常计划购电：计划合同量按 q_plan_t * p_base_t 计费。即使其中一部分
+未被负荷实际利用、被弃置或被光伏/电池替代，仍视为已承诺合同量并全额付费；
+本 proposed 口径不提供未利用合同电退款。费用不得改按实际负荷、净负荷或
+事后剩余量重算。
+
+2. 紧急购电：每个执行十分钟区间先按实际回放量计算短缺；q_emergency_t
+= max(load_kwh_t + charge_kwh_t - q_adjusted_t - pv_used_kwh_t
+- discharge_kwh_t, 0)。紧急购电费为
+q_emergency_t * 5 * p_trade_t，其中 p_trade_t 是该执行区间的交易时刻
+价格；内部时间采用十分钟区间右端点作为 actual 可见和结算时刻。Q2/Q3 使用
+附件 1 的固定价格，Q4 使用附件 4 对应区间的实际价格。
+
+3. Q3 每次调整：对每个未冻结 target_slot，按本次发布时刻 v 的价格逐项计费：
+adjustment_cost_vt = 0.5 * p_trade_v * delta_minus_vt
+                     + 1.5 * p_trade_v * delta_plus_vt。
+delta_minus 是计划/上一版高于本版的减少部分，delta_plus 是本版高于上一版
+的增加部分；不得把最终版相对 00:00 版的一次差额替代逐版 delta。SETTLE-B
+（最终版相对版本 0 一次结算）仅作敏感性对照，不作为主口径。
+
+4. 逐版等式和冻结：每个版本 v 必须保存 target_slot、previous_committed_kwh、
+new_committed_kwh、delta_kwh、issue_time、transaction_price、is_frozen。
+若目标区间已经执行，或在 issue_time 之前已提交/确认且标记为冻结，则
+is_frozen=true 且 q_new_vt=q_prev_vt；只有未执行、未提交的未来时隙可以调整。
+Q2 不产生调整 delta，q_adjusted_t=q_plan_t。Q3 的 q_adjusted_t 是最终确认
+总量，不是增量；它满足 q_adjusted_t=q_plan_t+delta_plus_t-delta_minus_t
+并且 q_plan_t、delta_plus_t、delta_minus_t 均非负。
+
+5. Q4 价格：价格预测只进入 Q4 计划器；正式回放结算不使用预测价替代实际价。
+Q4 的正常计划费使用附件 4 对应执行时隙实际价格；Q4 的调整、减少违约、
+增加超出和紧急购电费使用发生该交易/执行时刻的附件 4 实际价格。
+
+6. 统一能量账本：令 S_grid_t = q_adjusted_t + q_emergency_t，令
+S_PV_t = pv_used_kwh_t，令 S_grid_spill_t 和 S_PV_curtail_t 为非负的
+未利用电网合同电和弃光量，则每个区间使用
+S_grid_t + S_PV_t + discharge_kwh_t
+= load_kwh_t + charge_kwh_t + S_grid_spill_t + S_PV_curtail_t。
+S_PV_t 不得超过 pv_available_kwh_t；账本等式只是物理记账，不得通过伪造
+供给或强制消纳来掩盖不可行。消去弃电/弃光项后，供需约束仍为
+grid_supplied_kwh + discharge_kwh + pv_kwh >= load_kwh + charge_kwh。
+
+正式成本必须为 planned_cost + adjustment_cost + emergency_cost，并使用实际
+回放负荷/PV；D_SETTLE 未人工批准前不得生成正式数值或正式提交文件。
 """
-rationale = "保留Q3多次发布调整的逐次经济后果，避免中间交易在最终表中消失；题面未明示比较基准，因此保留SETTLE-B对照。"
+rationale = "在 C-3 SETTLE-A 推荐的基础上锁定逐版 delta、冻结和账本字段；正常计划量全额计费、Q4 使用实际价格、未利用电退款和等式账本均是待队伍确认的 proposed 解释，不把题面未明示内容伪装成事实。"
 confirmed_by = ""
 confirmed_at = ""
-source = "C线 C-3 decision card；题面计划/调整费率；团队讨论"
+source = "C线 C-3 decision card；C题 PDF 第1-3页及附录1-5；configs/constants.toml；docs/shared_api.md；团队讨论"
 
 [decisions.D_MODEL_Q1]
 status = "approved"
