@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import datetime as dt
+import importlib.util
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from scripts.audit_q3_forecast_versions import (
-    historical_mae,
-    lead_bucket,
-    method_name,
-    validate_forecasts,
-    weighted_prediction,
-)
+_SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "audit_q3_forecast_versions.py"
+_SPEC = importlib.util.spec_from_file_location("q3_forecast_version_audit_script", _SCRIPT_PATH)
+if _SPEC is None or _SPEC.loader is None:  # pragma: no cover - importlib platform guard
+    raise RuntimeError(f"cannot load audit script: {_SCRIPT_PATH}")
+_AUDIT = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = _AUDIT
+_SPEC.loader.exec_module(_AUDIT)
+
+historical_mae = _AUDIT.historical_mae
+lead_bucket = _AUDIT.lead_bucket
+method_name = _AUDIT.method_name
+validate_forecasts = _AUDIT.validate_forecasts
+weighted_prediction = _AUDIT.weighted_prediction
 
 
 def test_historical_mae_uses_only_errors_realized_by_decision_time() -> None:
