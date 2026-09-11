@@ -207,10 +207,16 @@ class BatteryState:
             raise ValueError("max_energy_kwh cannot exceed capacity_kwh")
         if self.min_energy_kwh > self.max_energy_kwh:
             raise ValueError("min_energy_kwh cannot exceed max_energy_kwh")
-        if not self.min_energy_kwh <= self.energy_kwh <= self.max_energy_kwh:
+        if not (
+            self.min_energy_kwh - ENERGY_ABS_TOL_KWH
+            <= self.energy_kwh
+            <= self.max_energy_kwh + ENERGY_ABS_TOL_KWH
+        ):
             raise ValueError(
                 "battery energy is outside the approved bounds: "
-                f"{self.energy_kwh} not in [{self.min_energy_kwh}, {self.max_energy_kwh}]"
+                f"{self.energy_kwh} not in "
+                f"[{self.min_energy_kwh}, {self.max_energy_kwh}] "
+                f"(tol={ENERGY_ABS_TOL_KWH})"
             )
 
     @property
@@ -236,13 +242,13 @@ class BatteryAction:
     def __post_init__(self) -> None:
         for name in ("charge_kwh", "discharge_kwh", "max_bus_energy_kwh"):
             _require_finite(name, getattr(self, name))
-        if self.charge_kwh < 0 or self.discharge_kwh < 0:
+        if self.charge_kwh < -ENERGY_ABS_TOL_KWH or self.discharge_kwh < -ENERGY_ABS_TOL_KWH:
             raise ValueError("charge_kwh and discharge_kwh must be non-negative")
-        if self.charge_kwh > self.max_bus_energy_kwh:
+        if self.charge_kwh > self.max_bus_energy_kwh + ENERGY_ABS_TOL_KWH:
             raise ValueError("charge_kwh exceeds the bus-side power limit")
-        if self.discharge_kwh > self.max_bus_energy_kwh:
+        if self.discharge_kwh > self.max_bus_energy_kwh + ENERGY_ABS_TOL_KWH:
             raise ValueError("discharge_kwh exceeds the bus-side power limit")
-        if self.charge_kwh > 0 and self.discharge_kwh > 0:
+        if self.charge_kwh > ENERGY_ABS_TOL_KWH and self.discharge_kwh > ENERGY_ABS_TOL_KWH:
             raise ValueError("simultaneous charge and discharge is not allowed in this contract")
 
     @property
@@ -322,9 +328,9 @@ class IntervalResult:
         if self.load_kw < 0 or self.pv_kw < 0:
             raise ValueError("load_kw and pv_kw must be non-negative")
         for name in ("planned_purchase_kwh", "adjusted_purchase_kwh", "emergency_purchase_kwh"):
-            if getattr(self, name) < 0:
+            if getattr(self, name) < -ENERGY_ABS_TOL_KWH:
                 raise ValueError(f"{name} must be non-negative")
-        if self.pv_used_kwh < 0:
+        if self.pv_used_kwh < -ENERGY_ABS_TOL_KWH:
             raise ValueError("pv_used_kwh must be non-negative")
         if self.pv_used_kwh > self.pv_kw / 6.0 + ENERGY_ABS_TOL_KWH:
             raise ValueError("pv_used_kwh exceeds the interval PV forecast")

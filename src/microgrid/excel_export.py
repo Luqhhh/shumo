@@ -15,6 +15,7 @@ from openpyxl import load_workbook  # type: ignore[import-untyped]
 from .approvals import require_approved_decisions
 from .dataio import ensure_dir
 from .problem.contracts import CaseResult
+from .problem.validation import validate_complete_run
 from .schemas import InputError, PendingDecisionError
 
 TEMPLATE_BY_CASE = {
@@ -242,6 +243,23 @@ def export_case_result(
     if case_result.case_id != "q1":
         raise NotImplementedError(
             f"numeric template export is implemented only for Q1, not {case_result.case_id!r}"
+        )
+    if not case_result.run_id:
+        raise InputError("Q1 result has no run_id")
+    if len(case_result.intervals) != 144:
+        raise InputError("Q1 export requires exactly 144 intervals")
+    days = {interval.day for interval in case_result.intervals}
+    if len(days) != 1:
+        raise InputError("Q1 export requires all intervals to belong to one day")
+    run_validation = validate_complete_run(
+        case_result.intervals,
+        tuple(days),
+        require_daily_equal_ends=True,
+    )
+    if not run_validation.ok:
+        raise InputError(
+            "Q1 export refuses an incomplete or discontinuous result: "
+            + "; ".join(run_validation.issues)
         )
     repo = Path(repo_root)
     output = (

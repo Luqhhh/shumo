@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,53 @@ def _make_run(
         result_path.write_bytes(f"{case_id}:{run_id}\n".encode())
     else:
         result_path.unlink(missing_ok=True)
+
+    domain_path = run_dir / "domain_result.json"
+    domain_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "case_id": case_id,
+                "run_id": run_id,
+                "status": status,
+                "is_synthetic": is_synthetic,
+                "intervals": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "validation.json").write_text(
+        json.dumps({"ok": True, "violations": []}),
+        encoding="utf-8",
+    )
+
+    template = repo / "data" / "templates" / filename
+    template.parent.mkdir(parents=True, exist_ok=True)
+    if not template.exists():
+        template.write_bytes(f"template:{filename}\n".encode())
+
+    export_manifest = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "case_id": case_id,
+        "source_result_sha256": _sha256_bytes(domain_path),
+        "output_sha256": _sha256_bytes(result_path) if create_result else "",
+        "template_file": str(template.relative_to(repo)),
+        "template_sha256": _sha256_bytes(template),
+        "decision_snapshot": {
+            "D_TIME_TEMPLATE_EXPORT": {
+                "status": "approved",
+                "choice": "test choice",
+                "confirmed_by": "tester",
+                "confirmed_at": "2026-09-10",
+            }
+        },
+    }
+    (run_dir / "export_manifest.json").write_text(
+        json.dumps(export_manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
     manifest = {
         "run_id": run_id,
         "case_id": case_id,
@@ -90,7 +138,7 @@ def _make_run(
         "result_sha256": {filename: _sha256_bytes(result_path)} if create_result else {},
     }
     (run_dir / "manifest.json").write_text(
-        __import__("json").dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 

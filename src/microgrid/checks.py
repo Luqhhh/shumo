@@ -16,7 +16,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from .approvals import FINAL_REQUIRED_DECISION_IDS, DecisionIssue, decision_issues
+from .approvals import FINAL_REQUIRED_DECISION_IDS, DecisionIssue, decision_issues, load_decisions
 from .schemas import ReleaseBlockedError
 
 REQUIRED_CASES = ("q1", "q2", "q3", "q4_2", "q4_3")
@@ -112,6 +112,95 @@ def _selected_result_path(manifest: dict[str, Any], run_dir: Path, filename: str
     return None
 
 
+def _check_run_evidence(
+    repo: Path,
+    run_dir: Path,
+    case_id: str,
+    run_id: str,
+    manifest: dict[str, Any],
+    filename: str,
+    result_path: Path | None,
+) -> list[str]:
+    blockers: list[str] = []
+
+    validation_path = run_dir / "validation.json"
+    if not validation_path.is_file():
+        blockers.append(f"case {case_id}: selected run has no validation.json")
+    else:
+        try:
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            blockers.append(f"case {case_id}: validation.json is invalid: {exc}")
+        else:
+            if validation.get("ok") is not True:
+                blockers.append(f"case {case_id}: validation.json does not report ok=true")
+            violations = validation.get("violations")
+            if isinstance(violations, list) and violations:
+                blockers.append(f"case {case_id}: validation.json still contains violations")
+
+    domain_path = run_dir / "domain_result.json"
+    domain: dict[str, Any] | None = None
+    if not domain_path.is_file():
+        blockers.append(f"case {case_id}: selected run has no domain_result.json")
+    else:
+        try:
+            domain = json.loads(domain_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            blockers.append(f"case {case_id}: domain_result.json is invalid: {exc}")
+        else:
+            if domain.get("case_id") != case_id or domain.get("run_id") != run_id:
+                blockers.append(f"case {case_id}: domain_result identity mismatch")
+            if domain.get("status") != "success" or domain.get("is_synthetic") is not False:
+                blockers.append(
+                    f"case {case_id}: domain_result is not a successful non-synthetic result"
+                )
+
+    export_path = run_dir / "export_manifest.json"
+    if not export_path.is_file():
+        blockers.append(f"case {case_id}: selected run has no export_manifest.json")
+    else:
+        try:
+            export_manifest = json.loads(export_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            blockers.append(f"case {case_id}: export_manifest.json is invalid: {exc}")
+        else:
+            if export_manifest.get("case_id") != case_id or export_manifest.get("run_id") != run_id:
+                blockers.append(f"case {case_id}: export_manifest identity mismatch")
+            if domain_path.is_file() and export_manifest.get("source_result_sha256") != _sha256(
+                domain_path
+            ):
+                blockers.append(f"case {case_id}: export_manifest source_result_sha256 mismatch")
+            if result_path is not None and export_manifest.get("output_sha256") != _sha256(
+                result_path
+            ):
+                blockers.append(f"case {case_id}: export_manifest output_sha256 mismatch")
+            template_file = export_manifest.get("template_file")
+            if not isinstance(template_file, str) or not template_file:
+                blockers.append(f"case {case_id}: export_manifest has no template_file")
+            else:
+                template_path = repo / template_file
+                if not template_path.is_file():
+                    blockers.append(
+                        f"case {case_id}: exported template file is missing: {template_file}"
+                    )
+                elif export_manifest.get("template_sha256") != _sha256(template_path):
+                    blockers.append(f"case {case_id}: export_manifest template_sha256 mismatch")
+            current_decision = load_decisions(repo).get("D-TIME-TEMPLATE-EXPORT", {})
+            snapshot = export_manifest.get("decision_snapshot", {}).get(
+                "D_TIME_TEMPLATE_EXPORT", {}
+            )
+            if not isinstance(snapshot, dict):
+                blockers.append(f"case {case_id}: export_manifest has no export decision snapshot")
+            else:
+                for field in ("status", "choice", "confirmed_by", "confirmed_at"):
+                    if str(snapshot.get(field)) != str(current_decision.get(field)):
+                        blockers.append(
+                            f"case {case_id}: export decision snapshot differs from current "
+                            f"D_TIME_TEMPLATE_EXPORT.{field}"
+                        )
+    return blockers
+
+
 def check_selected_run(repo_root: str | Path, case_id: str, run_id: str) -> list[str]:
     repo = Path(repo_root)
     run_dir = repo / "outputs" / "runs" / case_id / run_id
@@ -141,6 +230,7 @@ def check_selected_run(repo_root: str | Path, case_id: str, run_id: str) -> list
         blockers.append(f"case {case_id}: selected run has no owned result file {filename}")
     else:
         result_hashes = manifest.get("result_sha256")
+        expected = None
         if isinstance(result_hashes, dict):
             expected = result_hashes.get(filename)
             if expected is None:
@@ -148,8 +238,14 @@ def check_selected_run(repo_root: str | Path, case_id: str, run_id: str) -> list
                     if Path(str(key)).name == filename:
                         expected = value
                         break
-            if expected is not None and str(expected) != _sha256(result_path):
-                blockers.append(f"case {case_id}: result file hash mismatch for {filename}")
+        if not expected:
+            blockers.append(f"case {case_id}: manifest has no result_sha256 for {filename}")
+        elif str(expected) != _sha256(result_path):
+            blockers.append(f"case {case_id}: result file hash mismatch for {filename}")
+
+    blockers.extend(
+        _check_run_evidence(repo, run_dir, case_id, run_id, manifest, filename, result_path)
+    )
     return blockers
 
 

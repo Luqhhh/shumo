@@ -14,7 +14,7 @@ from microgrid.problem.contracts import (
     IntervalResult,
     apply_battery_action,
 )
-from microgrid.schemas import PendingDecisionError
+from microgrid.schemas import InputError, PendingDecisionError
 
 
 def _write_export_decision(
@@ -84,6 +84,20 @@ def _q1_case_result() -> CaseResult:
         status="success",
         intervals=tuple(intervals),
     )
+
+
+def test_export_rejects_incomplete_q1_result(synthetic_template_repo):
+    repo = synthetic_template_repo
+    _write_export_decision(repo, status="approved")
+    complete = _q1_case_result()
+    incomplete = CaseResult(
+        case_id="q1",
+        run_id="run-1",
+        status="success",
+        intervals=complete.intervals[:-1],
+    )
+    with pytest.raises(InputError):
+        export_case_result(repo, incomplete, output_path=repo / "bad_result1.xlsx")
 
 
 def test_approved_template_writer_exports_q1_and_reads_back(synthetic_template_repo):

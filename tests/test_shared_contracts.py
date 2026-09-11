@@ -89,7 +89,7 @@ def test_battery_action_rejects_negative_and_simultaneous_charge_discharge():
     with pytest.raises(ValueError):
         BatteryAction(charge_kwh=1.0, discharge_kwh=1.0)
     with pytest.raises(ValueError):
-        BatteryAction(charge_kwh=MAX_BUS_ENERGY_KWH + 1e-9)
+        BatteryAction(charge_kwh=MAX_BUS_ENERGY_KWH + 1e-3)
 
 
 def test_battery_transition_numbers_match_team_decision():
@@ -116,6 +116,19 @@ def test_zero_action_preserves_energy_for_january_standby():
     for _ in range(TimeGrid.steps_per_day):
         state = apply_battery_action(state, BatteryAction())
     assert state.energy_kwh == pytest.approx(INITIAL_SOC_KWH)
+
+
+def test_battery_bounds_use_the_same_explicit_tolerance_as_q1_validation():
+    # A tiny numerical overshoot inside the shared tolerance is accepted.
+    near_max = BatteryState(10_800.0 + 1e-10)
+    assert near_max.energy_kwh == pytest.approx(10_800.0 + 1e-10)
+    # A real overshoot still fails; it is never clipped back into range.
+    with pytest.raises(ValueError):
+        BatteryState(10_800.0 + 1e-3)
+    # Tiny negative bus-side action noise is accepted within the same policy,
+    # but the action is not clipped or silently rewritten.
+    tiny = BatteryAction(charge_kwh=-1e-10)
+    assert tiny.charge_kwh == pytest.approx(-1e-10)
 
 
 def test_battery_transition_raises_instead_of_clipping():
