@@ -2,6 +2,8 @@
 
 机器可读状态以 `configs/decisions.toml` 为唯一来源。本文件只解释背景与依赖，不代替人工批准。
 
+Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。该计划建议新增 `D_LOAD_FORECAST` 和 `D_REALTIME_DISPATCH`，并要求团队重新核对一月状态与 Q4 价格可见性。在参赛队修改 `configs/decisions.toml` 前，这些都只是计划中的候选决策，不是已批准 gate。
+
 状态含义：
 
 - `pending`：尚无候选解释或尚未开始判断，必须阻断。
@@ -20,6 +22,22 @@
 | D-INFO | `available_at <= decision_time`；只按可获得时间使用信息；未来 actual 只用于回放结算 | 预测与计划输入 |
 | D-RESAMPLE | 小时预报到 10 分钟输入及边界；owner C | Q3/Q4-3 预报处理 |
 | D-SETTLE | 调整、紧急费用与余电处理；owner B/C | 正式费用计算 |
+
+## 架构冻结后建议新增的决策
+
+下表只记录计划中的 decision 边界。当前配置中尚无这些 ID，因此不能写成“已批准”或认为现有 gate 已经检查它们。
+
+| 建议 ID | 负责边界 | 不负责 |
+|---|---|---|
+| D-LOAD-FORECAST | Q2/Q3 的因果负载预测、日内是否更新、cold start、rolling-origin 与 provenance | 光伏重采样、费用结算 |
+| D-REALTIME-DISPATCH | actual replay 中每 10 分钟如何因果调整电池、紧急电量何时成为 residual | 调整/紧急费用怎样结算 |
+| D-PRICE-FORECAST（条件新增） | 仅当 Q4 未来实时价格不可提前见时，定义价格的因果预测 | 价格已日前公布的情形 |
+
+## 当前已批准口径与新计划的差异
+
+- `D_EFF` 当前已批准 `eta_c=eta_d=0.9`，往返效率为 81%。如无新的人工决定，实现必须继续使用该口径。
+- `D_STATE` 当前已批准“一月待机”，而架构冻结计划要求重新比较因果 warm-up 与 2 月 1 日重置。若改口径，必须先修订并重新确认 decision。
+- `D_INFO` 当前已批准 Q4 未来价格使用历史信息预测。架构冻结计划仍要求团队审计题意；如改为未来价格已知，同样必须先重新批准。
 
 ## 模型 gate（按 case 拆分）
 

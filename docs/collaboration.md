@@ -5,6 +5,9 @@
 - **Stage 0 — completed**：数据层、时间标签、模板契约、smoke、论文层、release guards 已完成；不保留“模型永久不可实现”的常量阻断。
 - **Stage 1 — active**：在参赛队人工批准 shared semantics 后实现正式模型。
 - 未经批准的 decision 不得进入模型代码；已批准的 decision 只能按批准 contract 严格实现。
+- Stage 1 共享建模边界以 [`docs/modeling_plan.md`](modeling_plan.md) 为架构冻结版计划。该计划不代替 `configs/decisions.toml` 的人工批准状态。
+- C 线三个待表决口径及回复模板见 [`docs/c_decision_cards.md`](c_decision_cards.md)；参赛队表决前它们不构成批准。
+- 架构冻结后统一按 `decision -> contract -> contract test -> implementation -> validation` 推进；除非新题面证据、contract test 矛盾或正式数据审计发现问题，不再扩展 shared architecture。
 
 ## 分支与 PR
 
@@ -49,6 +52,8 @@ B/C 可以从共享交付合并后的 main 同步并接入这些接口。共享�
 - 模型 gate 按 case 拆分：`D_MODEL_Q1`、`D_MODEL_Q2`、`D_MODEL_Q3`、`D_MODEL_Q4_2`、`D_MODEL_Q4_3`。
 - 共享物理语义由 `D_TIME_INTERNAL`、`D_EFF`、`D_STATE`、`D_INFO` 承担；Q4-2 明确不依赖 `D_RESAMPLE`。
 - 内部时间网格（`D_TIME_INTERNAL`）与正式 Excel 映射（`D_TIME_TEMPLATE_EXPORT`）分开审批；前者不自动放行后者。
+- 计划中建议新增的 `D_LOAD_FORECAST` 和 `D_REALTIME_DISPATCH` 尚未进入机器可读 gate；必须先由参赛队确认口径，再由 A 统一更新 decision 配置、case dependencies 和 tests。
+- 当前 `D_STATE` 的已批准口径为“一月待机”。如果团队选择因果 warm-up 或 2 月 1 日重置，必须由参赛队正式修订并重新确认 `D_STATE`，不得只改代码。
 - required decision 非 approved 时，对应 case 必须被 `PendingDecisionError` 阻断。
 - decision 已 approved 后，dispatcher 才允许调用 `src/microgrid/problem/q*.py`。
 - 尚未实现的 runner 必须明确抛出 `ModelNotImplementedError`，不得返回伪结果。
@@ -73,6 +78,8 @@ B/C 可以从共享交付合并后的 main 同步并接入这些接口。共享�
 - 每个区间使用同一个 `IntervalResult` 载体：日期、slot、负载、光伏、计划/调整/紧急购电量、电池 action、起止储能，不允许把不同结构塞进 `metadata` 绕过。
 - 官方 `result*.xlsx` 只能由 `excel_export.py` 从统一结果快照转换；`export_case_result` 受 `D_TIME_TEMPLATE_EXPORT` 独立门槛控制。
 - `InfoSet.from_raw` 只保存 `available_at <= decision_time` 的可见项；禁止把包含未来 actual 的原始集合直接传给计划器。
+- 十分钟基线控制不在时隙内重优化；时隙左端的动作不得使用该时隙右端才完整可得的 actual。
+- 紧急购电是时隙内的 residual balancing energy；可在时隙结束后按实现量核算，但不得解释为停电后回头补电。
 
 ## Formal run 最低契约
 

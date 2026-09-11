@@ -26,6 +26,7 @@
 - 模型 runner 只产生统一 `CaseResult` / `IntervalResult`，不直接写 Excel；官方模板映射由 `excel_export.py` 负责，并受 `D_TIME_TEMPLATE_EXPORT` 独立门槛控制。
 - `InfoSet.from_raw` 只保留 `available_at <= decision_time` 的可见项，计划器不能通过原始容器读取未来 actual。
 - A 组 shared-core 交付说明见 `docs/shared_api.md` 与 `docs/a_handoff.md`；B/C 接入接口，但在共享 decisions 未批准前不得实现正式模型。
+- Stage 1 共享建模架构的冻结版计划见 `docs/modeling_plan.md`；其中的候选口径不代替 `configs/decisions.toml` 的人工批准状态。
 - release guard 不再使用“Stage 0 永久阻断”常量，而是检查显式选择的正式 run artifacts。
 
 ## 常用命令
