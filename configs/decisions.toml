@@ -48,18 +48,16 @@ source = "团队 pre-division 语义记录；题面 Q1-Q3 信息发布描述；Q
 [decisions.D_MPC]
 status = "proposed"
 choice = """
-Q2/Q3/Q4采用连续SOC的滚动模型预测控制。优化窗口固定为24小时，
-即144个十分钟slot；每10分钟重新求解一次，每次只执行第一个slot动作，
-其余未来动作在下一时刻全部重算。
-
-滚动重优化不改变市场承诺：已经提交、冻结或题面不允许修改的计划购电/
-调整购电变量必须通过 commitment ledger 固定；只有规则允许修改的变量
-可重新决策。48小时窗口仅用于敏感性实验，不作为正式基线模型。
+Q2/Q3/Q4采用连续SOC的24小时滚动模型预测控制，优化每10分钟更新，
+但只执行当前第一个十分钟电池动作。电池内部动作更新频率与Q3合同购电
+调整频率严格区分：合同购电只能在00:00、06:00、12:00、18:00调整。
+已执行或已提交的合同购电时隙通过 commitment ledger 冻结，不得被后续MPC
+静默改写；只有规则允许的未冻结时隙可以重算。48小时窗口仅作敏感性实验。
 """
-rationale = "避免每天重置储能，且使实时控制只基于当时可见的信息。"
+rationale = "将储能物理控制频率与市场合同调整时刻分离，避免滚动优化误改已提交承诺。"
 confirmed_by = ""
 confirmed_at = ""
-source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+source = "团队讨论；C题合同调整时刻；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_TERMINAL]
 status = "proposed"
@@ -99,47 +97,63 @@ source = "团队讨论；D_STATE 已批准口径；Q2-Q3-Q4 Rolling Optimization
 [decisions.D_PRICE_FORECAST]
 status = "proposed"
 choice = """
-Q4未来波动电价采用严格因果的周周期组合加残差AR(1)预测。
-基础预测使用过去7、14、21、28天相同slot历史价格的非负、和为1的加权组合；
-权重仅利用 decision_time 之前的历史数据估计。最新可见残差采用AR(1)衰减修正。
-价格预测不强制截断为非负。
-
-Q4每次控制需要未来24小时优化价格预测，并额外预测后续24小时，
-用于计算 D_TERMINAL 的终端SOC经济价值。
+采用 PRICE-A 信息边界：决策时可见当前价格和历史价格，未来真实价格不可提前
+使用；Q4回放/结算使用真实实现价格。7/14/21/28日同slot组合加AR(1)残差
+只是候选预测算法，仍须用附件4真实价格做严格因果验证，不能因写入本卡而视为
+已批准算法。若用于D_TERMINAL，必须保存预测版本、training_cutoff和误差证据。
 """
-rationale = "保证Q4未来价格预测严格因果，并为24小时MPC终端项提供价格依据。"
+rationale = "实时波动电价的题面语义不支持使用未来真实价格；候选算法需要数据验证后再决定。"
 confirmed_by = ""
 confirmed_at = ""
-source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+source = "C题附件4价格信息边界；C线 C-2 decision card；团队讨论"
 
+[decisions.D_LOAD_FORECAST]
+status = "proposed"
+choice = """
+采用 LF-A 作为 Q3 负载预测主方案：每天 00:00、06:00、12:00、18:00
+均可使用该决策时刻之前已观测的负载，对尚未开始的剩余时隙进行因果校正；
+不得使用决策时刻之后的 actual。每一版预测必须保存
+valid_time、available_at、training_cutoff、model_version、data_version。
+LF-B（仅 00:00 生成、日内不更新）作为敏感性对照；日内更新属于
+MODELING_ASSUMPTION，不得写成题面明文条件。
+"""
+rationale = "真实附件2上，28日同一时段均值代理的严格因果回测（191592个有效十分钟点）中，LF-A的MAE/RMSE为784.54/965.65，LF-B为787.73/969.77；收益较小但方向一致，因此主方案保留LF-A并保留LF-B对照。"
+confirmed_by = ""
+confirmed_at = ""
+source = "C题附件2真实负载；28日同slot只读因果回测；团队C-1 decision card"
 
 [decisions.D_RESAMPLE]
 status = "proposed"
 choice = """
-仅在附件3预测量确认代表区间平均功率时，转为10分钟网格采用基于时间区间
-重叠长度的能量守恒重采样；不得普通线性插值。每个10分钟slot的能量等于
-所有相交原区间 power_kw * overlap_hours 的和，再乘6恢复等效平均功率。
-必须验证重采样前后总能量守恒。
+采用 RESAMPLE-LIN 作为主方案，RESAMPLE-PCHIP 作为敏感性对照。
+附件3按整点功率点值解释，不采用小时区间平均功率的重叠拆分。
+在每个十分钟决策边界，以最近已观测十分钟实际PV区间均值作为左端点代理，
+与因果可见的未来小时预测节点连接；对每个十分钟右端点线性插值，
+再以 power_kw * (1/6 h) 转为区间电量 kWh。整点必须精确命中预测节点，
+跨午夜按真实 valid_time 连续；不得把线性插值写成能量守恒的区间拆分。
+PCHIP只用于敏感性，不改变主方案结算。
 """
-rationale = "避免小时预测转10分钟时改变总发电能量。"
+rationale = "真实数据审计更支持整点功率点值语义；C-4回测报告线性24小时MAE 182.64 kW、下次发布前6小时MAE 83.15 kW，PCHIP分别为181.38/80.82 kW，但线性整体RMSE更低且大于250 kW变化处更稳；因此LIN适合作为可解释主方案，PCHIP检验结论稳健性。"
 confirmed_by = ""
 confirmed_at = ""
-source = "附件3的1-24小时预报到10分钟输入的转换与边界；owner C，批准前只能研究证据。"
+source = "C题附件2/附件3真实数据审计；C线 decision card 提交31a1661；批准前保持 proposed"
 
 [decisions.D_SETTLE]
 status = "proposed"
 choice = """
-所有Q2/Q3/Q4共用同一结算接口。q_contract =
-q_plan + q_adjust_plus - q_adjust_minus >= 0。预测优化与真实执行后结算
-使用相同单位语义，但正式成本必须由真实实现的负荷、PV和价格计算。
-
-具体计划购电、调整购电、紧急购电、违约和余电的费率、阈值、退款/
-弃光规则必须严格按题面映射；在系数未确认前，不允许生成正式数值。
+采用 SETTLE-A 作为主结算口径：00:00计划为版本0，每次允许调整时刻的新计划
+相对上一版已确认计划计算 delta；按 target_slot 保存 previous_committed_kwh、
+new_committed_kwh、delta_kwh、issue_time、transaction_price、is_frozen，
+并逐版累计交易费用。官方调整购电表只导出每个执行时隙最终确认量，内部账本
+保留全部版本。合同约束为
+q_plan + q_adjust_plus - q_adjust_minus >= 0。
+计划/调整/紧急购电、违约和余电的题面费率仍需逐项映射；系数未人工确认前，
+不得生成正式数值。SETTLE-B（最终版相对00:00版一次结算）仅作敏感性对照。
 """
-rationale = "先统一结算结构，保留题面费率与余电规则的人工确认门槛。"
+rationale = "保留Q3多次发布调整的逐次经济后果，避免中间交易在最终表中消失；题面未明示比较基准，因此保留SETTLE-B对照。"
 confirmed_by = ""
 confirmed_at = ""
-source = "题面结算规则待逐项映射；团队讨论"
+source = "C线 C-3 decision card；题面计划/调整费率；团队讨论"
 
 [decisions.D_MODEL_Q1]
 status = "approved"
@@ -168,17 +182,25 @@ source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 [decisions.D_MODEL_Q3]
 status = "proposed"
 choice = """
-Q3沿用Q2的连续SOC、24小时滚动MILP和年度边界；负荷/PV主预测来源改为
-附件3中 release_time <= decision_time 的最新版forecast vintage，禁止未来修订。
+Q3采用严格因果的24小时滚动MILP，沿用连续SOC、D_MPC和年度边界。
+预测时先构造 InfoSet：保留所有 available_at <= decision_time 的附件3版本；
+对同一 valid_time 的可见版本，不简单选择最新一版，而按 lead_hours 使用
+历史MAE平方倒数加权（VERSION-B + WEIGHT-B）。每个权重只能由该预测版本
+发布前已可获得的历史actual估计；主方案采用HISTORY-A扩展历史，
+HISTORY-C-56（过去56日）作敏感性对照。实际数据表明附件3预测误差随提前量
+显著增加，lead 1/24小时MAE约为18.69/374.79 kW，支持lead-specific权重，
+但加权结果须在完整回测中同时报告MAE和RMSE，不预设必然改善。
 
-购电调整仅允许00:00、06:00、12:00、18:00发生；只能修改尚未开始且规则允许
-调整的未来区间。储能MPC仍每10分钟运行。附件3覆盖不足或缺失时，可回退到
-D_MODEL_Q2的严格因果预测，并记录fallback原因与次数。
+负载采用LF-A：00:00、06:00、12:00、18:00可用当时已观测actual对剩余负载
+预测做因果更新；每版保存training_cutoff并禁止未来泄漏，LF-B作为敏感性对照。
+附件3光伏采用D_RESAMPLE的RESAMPLE-LIN主方案，PCHIP作敏感性。Q3合同购电
+只能在00/06/12/18调整；十分钟电池动作仍按D_MPC滚动，已执行或已提交时隙冻结。
+附件覆盖不足时允许回退到严格因果Q2预测，但必须记录fallback原因与次数。
 """
-rationale = "将附件3的发布时刻、调整时点和滚动控制统一到同一因果框架。"
+rationale = "把C线已提出的版本、权重、负载更新和插值口径纳入B侧模型；历史回测只提供证据，不替代参赛队人工批准。"
 confirmed_by = ""
 confirmed_at = ""
-source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+source = "C题附件2/附件3真实数据分析；C线 decision cards（含提交31a1661）；团队讨论"
 
 [decisions.D_MODEL_Q4_2]
 status = "proposed"
