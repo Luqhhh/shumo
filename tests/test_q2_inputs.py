@@ -17,6 +17,8 @@ from microgrid.problem.contracts import (
 from microgrid.problem.q2_inputs import (
     ActualInterval,
     FixedPricePoint,
+    historical_info_items,
+    info_set_at,
     load_q2_inputs,
     load_q4_2_prices,
     require_matching_q4_2_grid,
@@ -343,3 +345,44 @@ def test_require_matching_q4_2_grid_rejects_different_days(tmp_path: Path) -> No
 
     with pytest.raises(InputError, match="Q2/Attachment 4 grid mismatch"):
         require_matching_q4_2_grid(q2_inputs, prices)
+
+
+def test_historical_info_items_are_causal_at_interval_end(tmp_path: Path) -> None:
+    day = dt.date(2025, 1, 1)
+    attachment1 = _write_attachment1(tmp_path / "附件1.xlsx")
+    attachment2 = _write_wide_workbook(
+        tmp_path / "附件2.xlsx",
+        sheets=("实际负荷", "实际光伏"),
+        days=(day,),
+    )
+    attachment4 = _write_wide_workbook(
+        tmp_path / "附件4.xlsx",
+        sheets=("波动电价",),
+        days=(day,),
+    )
+    q2_inputs = load_q2_inputs(
+        attachment1_path=attachment1,
+        attachment2_path=attachment2,
+        load_sheet_name="实际负荷",
+        pv_sheet_name="实际光伏",
+    )
+    prices = load_q4_2_prices(
+        attachment4_path=attachment4,
+        price_sheet_name="波动电价",
+    )
+    items = historical_info_items(q2_inputs, variable_prices=prices)
+
+    before_end = info_set_at(dt.datetime(2025, 1, 1, 0, 9, 59), items)
+    at_end = info_set_at(dt.datetime(2025, 1, 1, 0, 10), items)
+
+    assert before_end.visible_items == ()
+    assert [item.kind for item in at_end.visible_items] == [
+        "load_actual_kw",
+        "price_actual_cny_per_kwh",
+        "pv_actual_kw",
+    ]
+    assert all(item.available_at == dt.datetime(2025, 1, 1, 0, 10) for item in at_end.visible_items)
+    assert all(item.valid_time == item.available_at for item in at_end.visible_items)
+    assert not any(
+        item.valid_time == dt.datetime(2025, 1, 1, 0, 20) for item in at_end.visible_items
+    )

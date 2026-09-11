@@ -18,7 +18,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 from ..dataio import read_attachment1, read_wide_attachment, sha256_file
 from ..schemas import InputError
-from .contracts import TimeGrid
+from .contracts import InfoItem, InfoSet, TimeGrid
 
 _FIXED_PRICE_SENTINEL_DAY = dt.date(2000, 1, 1)
 _T = TypeVar("_T")
@@ -389,3 +389,49 @@ def require_matching_q4_2_grid(
             f"actual_only={sorted(actual_keys - price_keys)[:10]} "
             f"price_only={sorted(price_keys - actual_keys)[:10]}"
         )
+
+
+def historical_info_items(
+    q2_inputs: Q2InputBundle,
+    *,
+    variable_prices: VariablePriceBundle | None = None,
+) -> tuple[InfoItem, ...]:
+    items: list[InfoItem] = []
+    for actual in q2_inputs.actuals:
+        items.extend(
+            (
+                InfoItem(
+                    kind="load_actual_kw",
+                    available_at=actual.end,
+                    valid_time=actual.end,
+                    value=actual.load_kw,
+                    source_ref=actual.load_source_ref,
+                ),
+                InfoItem(
+                    kind="pv_actual_kw",
+                    available_at=actual.end,
+                    valid_time=actual.end,
+                    value=actual.pv_kw,
+                    source_ref=actual.pv_source_ref,
+                ),
+            )
+        )
+    if variable_prices is not None:
+        for price in variable_prices.prices:
+            items.append(
+                InfoItem(
+                    kind="price_actual_cny_per_kwh",
+                    available_at=price.end,
+                    valid_time=price.end,
+                    value=price.price_cny_per_kwh,
+                    source_ref=price.source_ref,
+                )
+            )
+    return tuple(sorted(items, key=lambda item: (item.valid_time, item.kind, item.source_ref)))
+
+
+def info_set_at(
+    decision_time: dt.datetime,
+    items: tuple[InfoItem, ...],
+) -> InfoSet:
+    return InfoSet.from_raw(decision_time, items)
