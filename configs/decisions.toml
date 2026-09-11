@@ -123,20 +123,20 @@ confirmed_at = ""
 source = "C题附件2真实负载；28日同slot只读因果回测；团队C-1 decision card"
 
 [decisions.D_RESAMPLE]
-status = "proposed"
+status = "approved"
 choice = """
-采用 RESAMPLE-LIN 作为主方案，RESAMPLE-PCHIP 作为敏感性对照。
-附件3按整点功率点值解释，不采用小时区间平均功率的重叠拆分。
-在每个十分钟决策边界，以最近已观测十分钟实际PV区间均值作为左端点代理，
-与因果可见的未来小时预测节点连接；对每个十分钟右端点线性插值，
-再以 power_kw * (1/6 h) 转为区间电量 kWh。整点必须精确命中预测节点，
-跨午夜按真实 valid_time 连续；不得把线性插值写成能量守恒的区间拆分。
-PCHIP只用于敏感性，不改变主方案结算。
+D_RESAMPLE只负责接收已经由 forecast-combination 层合成的唯一小时预测序列，
+不负责选择 forecast vintage、计算 VERSION-B + WEIGHT-B 权重或处理 epsilon。
+以最近已结束十分钟实际 PV 区间均值作为当前决策边界的左端点代理；
+对 slot_end=t+10min ... t+24h 的十分钟右端点生成 RESAMPLE-LIN 主方案，
+并以 RESAMPLE-PCHIP 作为敏感性对照。整点必须精确命中已组合的小时预测值，
+跨午夜按真实 valid_time 连续，功率到区间电量统一使用
+power_kw * (1/6 h)。不得把点值插值改写为小时平均功率的区间重叠拆分。
 """
-rationale = "真实数据审计更支持整点功率点值语义；C-4回测报告线性24小时MAE 182.64 kW、下次发布前6小时MAE 83.15 kW，PCHIP分别为181.38/80.82 kW，但线性整体RMSE更低且大于250 kW变化处更稳；因此LIN适合作为可解释主方案，PCHIP检验结论稳健性。"
-confirmed_by = ""
-confirmed_at = ""
-source = "C题附件2/附件3真实数据审计；C线 decision card 提交31a1661；批准前保持 proposed"
+rationale = "C-4真实数据审计支持整点功率点值语义；线性插值边界清晰，PCHIP用于敏感性检验。版本组合、权重和epsilon属于独立的forecast-combination层。"
+confirmed_by = "lqh、xjn、jjt"
+confirmed_at = "2026-09-11T19:27:00+08:00"
+source = "C-4 decision card；提交 0b06e37；三位队员于 2026-09-11 19:27（北京时间）确认"
 
 [decisions.D_SETTLE]
 status = "proposed"
