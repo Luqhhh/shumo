@@ -4,14 +4,32 @@
 每天 0:00 制定当天计划；储能设备在 0:00 与 24:00 的储电量相同。
 
 \subsection{模型表达}
-\PH{Q1 的目标函数、决策变量、约束、方法和求解器待 D-MODEL-Q1 确认。}
+Q1 采用已批准的变量定义：计划购电量 $g_k$、母线侧充电量 $c_k$、母线侧放电量 $d_k$、实际消纳光伏 $u_k$ 和电池内部储能 $E_k$。目标为最小化计划购电费用
+\[
+\min \sum_{k=0}^{143} price_k\, g_k .
+\]
+供需关系为
+\[
+g_k + d_k + u_k = load_k + c_k ,
+\]
+未消纳光伏不计售电收入。电池动态采用
+\[
+E_{k+1}=E_k+0.9c_k-\frac{d_k}{0.9},
+\]
+并满足 $1200\le E_k\le10800$、$E_0=E_{144}=6000$、
+$0\le c_k,d_k\le 5000/6$。每个区间使用二进制变量 $z_k$ 表达充放电互斥。
 
 \subsection{求解过程}
-\PH{求解过程待模型实现后填写。}
+Q1 使用 SciPy/HiGHS 的 MILP 入口求解，每个十分钟区间对应一个二进制互斥变量。求解器返回状态与 objective 被如实记录；随后执行独立复算，不直接以 solver 的 success 作为最终验证。
 
 \subsection{结果展示}
-\input{generated/draft_tables}
-\PH{表 1、表 2 的正式数值待计算；本稿不填 0。}
+\IfFileExists{generated/q1_result_tables.tex}{%
+  \input{generated/q1_result_tables}%
+  \noindent 上述表 1 和表 2 与内部结果快照同源，对应 run \QOneRunId；全天购电量为 \QOneTotalPurchaseKwh{} kWh，全天购电费为 \QOneTotalCostCny{} 元。
+}{%
+  \input{generated/draft_tables}%
+  \PH{表 1、表 2 的正式数值待计算；本稿不填 0。}
+}
 
 \subsection{检验与讨论}
-\PH{物理解、边界与结果合理性检验待模型实现后填写。}
+独立复算检查了供需平衡、电池动态、充放电互斥、功率边界、储能边界、终端储能和费用一致性。当前 HiGHS 解得出的结果通过上述检查；这不构成对全局最优性的额外数学证明。

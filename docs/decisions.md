@@ -14,7 +14,7 @@
 | ID | 候选/最终口径 | 阻断 |
 |---|---|---|
 | D-TIME-INTERNAL | 自然日 144 区间、145 边界；输入功率标签按右端点对齐，原始样本作为前十分钟代表平均功率；内部 `e_k=P_k*(1/6)` | 内部模型计算 |
-| D-TIME-TEMPLATE-EXPORT | result1 与多日模板首尾标签冲突未解决；正式模板映射单独审批 | 正式 Excel 数值导出 |
+| D-TIME-TEMPLATE-EXPORT | Q1 result1.xlsx 采用显式行序映射：内部 slot 0..143 写入计划购电量行序，保留官方标签不改写；其他 case 模板仍待核对 | Q1 正式导出已实现；其他 case 正式导出未实现 |
 | D-EFF | `eta_c=eta_d=0.9`；行动量母线侧、储能电池内部；`E_{k+1}=E_k+0.9c_k-d_k/0.9` | 储能状态更新 |
 | D-STATE | 一月待机 6000 kWh；二月起连续运行、不每日重置；Q1 单独日终等式 | 跨日状态与终端条件 |
 | D-INFO | `available_at <= decision_time`；只按可获得时间使用信息；未来 actual 只用于回放结算 | 预测与计划输入 |
@@ -50,7 +50,7 @@ D-INFO 是共享语义；每个 case 仍需自己的 `D_MODEL_*` 批准。
 - `D_TIME_INTERNAL` 控制 144 区间内部网格和输入右端点对齐；
 - `D_TIME_TEMPLATE_EXPORT` 控制 `result*.xlsx` 的正式数值映射。
 
-`D_TIME_INTERNAL` 为 proposed 不会自动放行正式导出；只有 `D_TIME_TEMPLATE_EXPORT` 也为 approved 时，导出层才允许进入实现/运行。
+`D_TIME_INTERNAL` 已批准只放行内部模型输入；`D_TIME_TEMPLATE_EXPORT` 已批准 Q1 的行序映射。其他 case 的正式导出仍需分别实现和核对。
 
 ## 如何批准
 

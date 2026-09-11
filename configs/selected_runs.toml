@@ -7,7 +7,8 @@ note = "正式论文资产必须通过显式 run_id 选择；禁止默认使用 
 # Release guard 会检查 manifest 的 status=success、is_synthetic=false、
 # case_id/run_id 匹配、result_files 存在且（若声明）SHA-256 匹配。
 [runs]
-# q1 = ""
+q1 = "q1-a-formal-003"
+# 其他 case 仍待完成
 # q2 = ""
 # q3 = ""
 # q4_2 = ""

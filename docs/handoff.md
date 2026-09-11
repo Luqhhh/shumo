@@ -14,7 +14,7 @@
 | latex_draft | pass | `paper/build/main.pdf`，本机最新构建 79 页（正文开始于第 2 页；正文结束标记在第 7 页，附录另计） |
 | ai_details_draft | pass | `paper/build/AI 工具使用详情.pdf`，2 页；仍标 pending 人工核验 |
 | ci_config | pass | GitHub Actions `stage0-ci` run 34477892523 success（截至 commit ca4f007 的运行记录） |
-| template_time_mapping | pending_human_decision | D_TIME_TEMPLATE_EXPORT 等 decisions 非 approved |
+| template_time_mapping | approved_with_recorded_q1_mapping | D_TIME_TEMPLATE_EXPORT 已批准 Q1 行序映射；其他 case 未实现 |
 | model_implementation | not_implemented | `microgrid run --case ...` 非零退出 |
 | formal_experiments | not_started | 无正式 run、无选中的结果快照 |
 | final_submission | blocked | `prepare_submission.py --mode final` 与 `build_paper.py --mode final` 均退出 5 |
@@ -91,8 +91,8 @@ export TMPDIR="$PWD/.tmp"
 
 以下事项仍为 pending：
 
-- D_TIME_INTERNAL：内部 144 区间与输入右端点对齐（proposed，未批准）；
-- D_TIME_TEMPLATE_EXPORT：正式 Excel 模板映射（pending）；
+- D_TIME_INTERNAL：内部 144 区间与输入右端点对齐（approved；2026-09-10 用户批准）；
+- D_TIME_TEMPLATE_EXPORT：Q1 行序映射已批准；其他 case 模板仍待核对；
 - D-EFF：90% 效率含义与充放电量侧；
 - D-STATE：1 月到 2 月及 Q2–Q4 的跨日状态/终端条件；
 - D-INFO：各决策时刻实际可见信息；

@@ -51,8 +51,11 @@ from microgrid.problem.contracts import CaseResult, IntervalResult
 | `action` | `BatteryAction` |
 | `state_start` / `state_end` | 电池内部储能 |
 | `source_ref` | 来源标识 |
+| `pv_used_kwh` | 实际消纳光伏电量，kWh；必须 `0 <= pv_used_kwh <= pv_kw/6` |
 
 `CaseResult.intervals` 必须按 `(day, slot)` 有序且唯一。不要把主数据塞进 `metadata`。
+
+合成运行必须显式设置 `CaseContext(is_synthetic=True, output_dir=...)`；正式运行使用默认 `is_synthetic=False`。合成标识会写入 `CaseResult`、manifest 和 summary，不能靠文件名或 monkeypatch 猜测。
 
 注意：
 

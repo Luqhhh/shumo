@@ -101,9 +101,9 @@
 ## 当前状态
 
 - shared-core 接口已可交 B/C 接入；
-- 共享物理语义 decision 仍为 `proposed`，没有 approved；
+- 共享物理语义 `D_TIME_INTERNAL`、`D_EFF`、`D_STATE`、`D_INFO` 已于 2026-09-10 由用户明确批准；
 - Q1 模型 gate `D_MODEL_Q1` 仍 pending；
-- 正式导出 gate `D_TIME_TEMPLATE_EXPORT` 仍 pending；
+- 正式导出 gate `D_TIME_TEMPLATE_EXPORT` 当时 pending；后续已批准，见 A6。
 - Q1 runner 仍抛 `ModelNotImplementedError`；
 - 等待 H-S（共享语义批准）和 H-M（Q1 模型卡）后再进入 A3/A4；
 - 等待 H-X 后才进入 A6 正式导出。
@@ -148,3 +148,104 @@ B/C 不应：
 - 把未来 actual 直接传入计划器；
 - 把策略数据塞进 `metadata`；
 - 在 D_TIME_TEMPLATE_EXPORT 未批准时写正式 result*.xlsx。
+
+## A4–A5：Q1 内部结果
+
+`D_MODEL_Q1` 已由用户于 2026-09-10 批准，求解器采用 `scipy.optimize.milp` / HiGHS。
+
+正式附件 1 的内部运行（本地，非正式导出）：
+
+- branch: `feat/q1-shared-core`
+- code commit: `60eab7183e6587d3c8406eacbf1be6afd18d79d5`
+- run_id: `q1-a-formal-002`
+- code_dirty: `false`
+- input manifest verification: `[]`
+- reference_day: `2025-01-01`（内部坐标，不是附件1观测日期）
+- attachment1 SHA-256: `66b87134f5ecccd6...`
+- solver status: `0` / HiGHS Optimal
+- solver mip_gap: `0.0`
+- interval count: `144`
+- validation: `ok=true`，最大供需残差约 `1.14e-13 kWh`，最大电池动态残差约 `9.09e-13 kWh`
+- total load: `111024.8081 kWh`
+- total PV forecast: `55482.8357 kWh`
+- total planned purchase: `59482.6990 kWh`
+- total planned cost: `35126.9486 CNY`
+- initial/terminal energy: `6000 / 6000 kWh`
+
+已生成内部运行文件：
+
+```text
+outputs/runs/q1/q1-a-formal-002/
+├── manifest.json
+├── input_snapshot.json
+├── domain_result.json
+├── validation.json
+├── summary.json
+└── solver.log
+```
+
+尚未生成：
+
+```text
+results/result1.xlsx
+```
+
+原因（当时）：`D_TIME_TEMPLATE_EXPORT` 仍为 pending。后续 A6 已采用显式行序映射并完成 result1.xlsx 导出，见下文。
+
+## P1 修复后的 Q1 复运行
+
+针对独立校验、合成标识和输入来源检查的 P1 修复后，重新生成新 run：
+
+- commit: `357b99440d5bb121c5bdc6e4a313e6755d380d28`
+- run_id: `q1-a-formal-003`
+- manifest:
+  - `status=success`
+  - `model_status=implemented`
+  - `is_synthetic=false`
+  - `code_dirty=false`
+  - `input_verification_issues=[]`
+- validation:
+  - `ok=true`
+  - `violations=[]`
+  - 最大供需残差约 `1.14e-13 kWh`
+  - 最大电池动态残差约 `9.09e-13 kWh`
+- 逐段 `pv_used_kwh` 已写入 `domain_result.json`；例如 slot 72 的 `pv_used_kwh=1268.7193333333335`。
+- 合成 mock 测试现在必须显式传入 `CaseContext(is_synthetic=True, output_dir=...)`；manifest、`CaseResult` 和 summary 均保留 `is_synthetic=true`。
+- 失败运行现在会保留 `manifest.json`（`status=failed`）、`failure.json`（阶段、错误类型、错误消息）。
+- 附件1 来源检查现在要求清单中恰好一条有效记录、非空 SHA-256，并与实际读取文件绑定。
+
+
+## A6–A7：正式交付
+
+`D_TIME_TEMPLATE_EXPORT` 已批准 Q1 行序映射：
+
+- 内部 slot 0..143 按行写入 `计划购电量!B2:B145`；
+- 保留官方模板原标签，不修改表头；
+- `充放电量!B2:C7` 按六个四小时块汇总；
+- `E2/E3` 写 0:00/24:00 储电量；
+- 该映射是团队为正式交付采用的显式约定，不声称官方标签已被勘误。
+
+正式导出：
+
+- run_id：`q1-a-formal-003`
+- result1.xlsx：`outputs/runs/q1/q1-a-formal-003/results/result1.xlsx`
+- export_manifest：`outputs/runs/q1/q1-a-formal-003/export_manifest.json`
+- output SHA-256：`2ea2a2efb90ff4a8facad26dfbbfa8205c7bf73eede8aba1fb476d8e8ccb21cb`
+- manifest 已登记 `result_files` 和 `result_sha256`。
+
+论文表格：
+
+- `paper/generated/q1_result_tables.tex` 由同一 `domain_result.json` 生成；
+- 表 1、表 2 与 Excel 结果同源；
+- 支持宏：`\QOneTotalPurchaseKwh`、`\QOneTotalCostCny`、`\QOneRunId`。
+
+选择记录：
+
+- `configs/selected_runs.toml` 已记录 `q1 = "q1-a-formal-003"`；
+- `selection_status` 仍为 pending，因为 Q2–Q4 尚未完成；这不是 Q1 失败。
+
+仍待完成：
+
+- Q2–Q4 模型与正式结果；
+- Q1 之外 case 的模板映射；
+- 最终全队 submissions selected run 和支撑材料预检。

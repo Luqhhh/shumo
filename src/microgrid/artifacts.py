@@ -112,6 +112,7 @@ def environment_snapshot() -> dict[str, Any]:
         "openpyxl",
         "matplotlib",
         "pypdf",
+        "scipy",
         "pytest",
         "ruff",
         "microgrid",
@@ -169,6 +170,52 @@ def verify_imported_inputs(repo_root: str | Path) -> list[str]:
     return issues
 
 
+def verify_required_inputs(
+    repo_root: str | Path, required_paths: tuple[str, ...] | list[str]
+) -> list[str]:
+    """Verify that each required input appears exactly once with a valid hash.
+
+    ``verify_imported_inputs`` reports conflicts only for entries already in the
+    manifest; this function additionally catches empty manifests and entries
+    without a usable ``sha256``.
+    """
+
+    repo = Path(repo_root)
+    manifest_path = repo / "records" / "inputs_manifest.json"
+    if not manifest_path.is_file():
+        return [f"inputs_manifest.json is missing; cannot verify {list(required_paths)}"]
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    items = data.get("items", [])
+    issues: list[str] = []
+    for required in required_paths:
+        matches = [
+            item
+            for item in items
+            if isinstance(item, dict) and item.get("repository_path") == required
+        ]
+        if len(matches) != 1:
+            issues.append(
+                f"required input {required} must appear exactly once in manifest, "
+                f"found {len(matches)}"
+            )
+            continue
+        expected = matches[0].get("sha256")
+        if not isinstance(expected, str) or not expected:
+            issues.append(f"required input {required} has no valid sha256 in manifest")
+            continue
+        path = repo / required
+        if not path.is_file():
+            issues.append(f"required input file is missing: {required}")
+            continue
+        actual = sha256_file(path)
+        if actual != expected:
+            issues.append(
+                f"required input hash changed: {required} "
+                f"(expected {expected[:12]}, actual {actual[:12]})"
+            )
+    return issues
+
+
 def run_dir_for(repo_root: str | Path, case_id: str, run_id: str) -> Path:
     return Path(repo_root) / "outputs" / "runs" / case_id / run_id
 
@@ -192,7 +239,7 @@ def build_manifest(
     command: Iterable[str],
     status: str,
     is_synthetic: bool,
-    model_status: str = "not_implemented",
+    model_status: str = "unknown",
     random_seed: int | None = None,
     result_files: dict[str, str] | None = None,
     result_sha256: dict[str, str] | None = None,

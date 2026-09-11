@@ -122,7 +122,7 @@ class RunManifest:
     created_at: str = ""
     status: str = "not_run"
     is_synthetic: bool = False
-    model_status: str = "not_implemented"
+    model_status: str = "unknown"
     result_files: dict[str, str] = field(default_factory=dict)
     result_sha256: dict[str, str] = field(default_factory=dict)
     input_verification_issues: list[str] = field(default_factory=list)

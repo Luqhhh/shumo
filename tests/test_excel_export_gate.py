@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 
 from microgrid.excel_export import TEMPLATE_EXPORT_DECISION_ID, export_case_result
-from microgrid.problem.contracts import CaseResult
+from microgrid.problem.contracts import (
+    BatteryAction,
+    BatteryState,
+    CaseResult,
+    IntervalResult,
+    apply_battery_action,
+)
 from microgrid.schemas import PendingDecisionError
 
 
@@ -47,9 +55,51 @@ def test_approved_status_without_confirmation_still_blocks_export(tmp_path):
         export_case_result(repo, result)
 
 
-def test_approved_template_gate_does_not_fake_numeric_export(tmp_path):
-    repo = tmp_path / "repo"
+def _q1_case_result() -> CaseResult:
+    day = dt.date(2025, 1, 1)
+    state = BatteryState(6000.0)
+    intervals: list[IntervalResult] = []
+    for slot in range(144):
+        start = state
+        action = BatteryAction()
+        end = apply_battery_action(start, action)
+        intervals.append(
+            IntervalResult(
+                day=day,
+                slot=slot,
+                load_kw=600.0,
+                pv_kw=0.0,
+                planned_purchase_kwh=100.0,
+                adjusted_purchase_kwh=100.0,
+                emergency_purchase_kwh=0.0,
+                action=action,
+                state_start=start,
+                state_end=end,
+            )
+        )
+        state = end
+    return CaseResult(
+        case_id="q1",
+        run_id="run-1",
+        status="success",
+        intervals=tuple(intervals),
+    )
+
+
+def test_approved_template_writer_exports_q1_and_reads_back(synthetic_template_repo):
+    repo = synthetic_template_repo
     _write_export_decision(repo, status="approved")
-    result = CaseResult(case_id="q1", run_id="run-1", status="success")
-    with pytest.raises(NotImplementedError):
-        export_case_result(repo, result)
+    result = _q1_case_result()
+    output = export_case_result(repo, result, output_path=repo / "out_result1.xlsx")
+    assert output.is_file()
+    wb = load_workbook(output, data_only=False)
+    try:
+        plan = wb["计划购电量"]
+        charge = wb["充放电量"]
+        assert plan["A2"].value == "0:10-0:20"
+        assert plan["A145"].value == "0:00+1-0:10+1"
+        assert plan["B2"].value == pytest.approx(100.0)
+        assert charge["E2"].value == pytest.approx(6000.0)
+        assert charge["E3"].value == pytest.approx(6000.0)
+    finally:
+        wb.close()
