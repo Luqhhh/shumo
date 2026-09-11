@@ -59,6 +59,7 @@ class CaseContext:
     run_id: str | None = None
     output_dir: Path | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    is_synthetic: bool = False
 
     def resolved_output_dir(self) -> Path:
         if self.output_dir is not None:
@@ -304,6 +305,7 @@ class IntervalResult:
     state_start: BatteryState
     state_end: BatteryState
     source_ref: str = ""
+    pv_used_kwh: float = 0.0
 
     def __post_init__(self) -> None:
         if not 0 <= self.slot < STEPS_PER_DAY:
@@ -314,6 +316,7 @@ class IntervalResult:
             "planned_purchase_kwh",
             "adjusted_purchase_kwh",
             "emergency_purchase_kwh",
+            "pv_used_kwh",
         ):
             _require_finite(name, getattr(self, name))
         if self.load_kw < 0 or self.pv_kw < 0:
@@ -321,6 +324,10 @@ class IntervalResult:
         for name in ("planned_purchase_kwh", "adjusted_purchase_kwh", "emergency_purchase_kwh"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be non-negative")
+        if self.pv_used_kwh < 0:
+            raise ValueError("pv_used_kwh must be non-negative")
+        if self.pv_used_kwh > self.pv_kw / 6.0 + ENERGY_ABS_TOL_KWH:
+            raise ValueError("pv_used_kwh exceeds the interval PV forecast")
         if (
             self.state_start.capacity_kwh,
             self.state_start.min_energy_kwh,

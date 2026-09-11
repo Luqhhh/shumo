@@ -13,6 +13,7 @@ from microgrid.artifacts import (
     environment_snapshot,
     source_tree_hash,
     verify_imported_inputs,
+    verify_required_inputs,
     write_manifest,
 )
 from microgrid.schemas import InputError
@@ -45,7 +46,7 @@ def test_source_hash_and_manifest_are_deterministic(tmp_path):
         is_synthetic=True,
     )
     assert manifest["is_synthetic"] is True
-    assert manifest["model_status"] == "not_implemented"
+    assert manifest["model_status"] == "unknown"
     assert manifest["source_hash"] == h1
     assert manifest["code_commit"] is None
     out = write_manifest(repo / "outputs" / "run-test", manifest)
@@ -117,6 +118,39 @@ def test_verify_imported_inputs_reports_missing_or_changed(tmp_path):
     data_file.write_bytes(b"changed")
     issues = verify_imported_inputs(repo)
     assert issues and "hash changed" in issues[0]
+
+
+def test_verify_required_inputs_requires_exactly_one_hash_bound_entry(tmp_path):
+    repo = _minimal_repo(tmp_path)
+    required = "data/raw/附件1.xlsx"
+    data_file = repo / required
+    data_file.parent.mkdir(parents=True)
+    data_file.write_bytes(b"official-like bytes")
+    manifest = repo / "records" / "inputs_manifest.json"
+    manifest.parent.mkdir()
+    digest = hashlib.sha256(data_file.read_bytes()).hexdigest()
+
+    manifest.write_text(json.dumps({"items": []}), encoding="utf-8")
+    assert verify_required_inputs(repo, (required,))
+
+    manifest.write_text(json.dumps({"items": [{"repository_path": required}]}), encoding="utf-8")
+    assert verify_required_inputs(repo, (required,))
+
+    duplicate = {
+        "items": [
+            {"repository_path": required, "sha256": digest},
+            {"repository_path": required, "sha256": digest},
+        ]
+    }
+    manifest.write_text(json.dumps(duplicate), encoding="utf-8")
+    assert verify_required_inputs(repo, (required,))
+
+    valid = {"items": [{"repository_path": required, "sha256": digest}]}
+    manifest.write_text(json.dumps(valid), encoding="utf-8")
+    assert verify_required_inputs(repo, (required,)) == []
+
+    data_file.write_bytes(b"changed")
+    assert verify_required_inputs(repo, (required,))
 
 
 def test_run_id_allocation_and_manifest_overwrite_guard(tmp_path):

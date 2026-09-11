@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,22 @@ def test_result_io_roundtrip_and_synthetic_flag(tmp_path: Path) -> None:
     assert loaded.is_synthetic is True
     with pytest.raises(InputError):
         save_case_result(target, result)
+
+
+def test_result_io_roundtrips_pv_used_kwh(tmp_path: Path) -> None:
+    day = dt.date(2025, 2, 1)
+    base = _day_intervals(day)[0]
+    interval = replace(base, pv_kw=60.0, pv_used_kwh=5.0)
+    result = CaseResult(
+        case_id="q1",
+        run_id="run-pv-used",
+        status="success",
+        intervals=(interval,),
+    )
+    target = tmp_path / "domain_result.json"
+    save_case_result(target, result)
+    loaded = load_case_result(target)
+    assert loaded.intervals[0].pv_used_kwh == pytest.approx(5.0)
 
 
 def test_result_io_validates_expected_days_on_load(tmp_path: Path) -> None:

@@ -62,6 +62,7 @@ def interval_to_dict(interval: IntervalResult) -> dict[str, Any]:
         "state_start": _battery_state_to_dict(interval.state_start),
         "state_end": _battery_state_to_dict(interval.state_end),
         "source_ref": interval.source_ref,
+        "pv_used_kwh": interval.pv_used_kwh,
     }
 
 
@@ -78,6 +79,7 @@ def interval_from_dict(data: dict[str, Any]) -> IntervalResult:
         state_start=_battery_state_from_dict(data["state_start"]),
         state_end=_battery_state_from_dict(data["state_end"]),
         source_ref=str(data.get("source_ref", "")),
+        pv_used_kwh=float(data.get("pv_used_kwh", 0.0)),
     )
 
 

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -21,6 +23,7 @@ from ..artifacts import (
     ensure_run_id_available,
     new_run_id,
     verify_imported_inputs,
+    verify_required_inputs,
     write_json,
     write_manifest,
 )
@@ -217,7 +220,125 @@ def solve_q1_milp(
 
 
 def validate_q1_solution(snapshot: Q1InputSnapshot, solution: Q1Solution) -> dict[str, Any]:
-    """Independent residual checks; no solver return value is trusted blindly."""
+    """Independent residual and validity checks for an approved Q1 solution.
+
+    The check is deliberately stronger than "solver returned success": lengths,
+    finite values, non-negativity, PV bounds, mutual exclusion and all state
+    bounds are checked first.  Violations carry the interval slot.
+    """
+
+    n = len(snapshot.intervals)
+    issues: list[str] = []
+    violations: list[dict[str, Any]] = []
+
+    def violation(slot: int | None, kind: str, amount: float | None = None) -> None:
+        item: dict[str, Any] = {"slot": slot, "kind": kind}
+        if amount is not None:
+            item["amount"] = float(amount)
+        violations.append(item)
+
+    if solution.reference_day != snapshot.reference_day:
+        issues.append("solution reference_day does not match the input snapshot")
+        violation(None, "reference_day_mismatch")
+
+    arrays = {
+        "purchase_kwh": (solution.purchase_kwh, n),
+        "charge_kwh": (solution.charge_kwh, n),
+        "discharge_kwh": (solution.discharge_kwh, n),
+        "pv_used_kwh": (solution.pv_used_kwh, n),
+        "energy_kwh": (solution.energy_kwh, n + 1),
+    }
+    for name, (values, expected_length) in arrays.items():
+        if len(values) != expected_length:
+            issues.append(f"{name} length {len(values)} does not match expected {expected_length}")
+            violation(None, f"length:{name}")
+
+    nonfinite = False
+    for name, (values, _expected_length) in arrays.items():
+        for slot, value in enumerate(values):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+            ):
+                issues.append(f"{name}[{slot}] is not finite: {value!r}")
+                violation(slot, f"nonfinite:{name}")
+                nonfinite = True
+    if issues:
+        return {
+            "ok": False,
+            "issues": issues,
+            "violations": violations,
+            "max_balance_residual_kwh": None,
+            "max_dynamics_residual_kwh": None,
+            "max_bus_energy_kwh": None,
+            "max_abs_state_kwh": None,
+            "cost_gap_cny": None,
+            "independent_cost_cny": None,
+            "solver_objective_cny": solution.objective_cny,
+        }
+    if nonfinite:
+        return {
+            "ok": False,
+            "issues": issues,
+            "violations": violations,
+            "max_balance_residual_kwh": None,
+            "max_dynamics_residual_kwh": None,
+            "max_bus_energy_kwh": None,
+            "max_abs_state_kwh": None,
+            "cost_gap_cny": None,
+            "independent_cost_cny": None,
+            "solver_objective_cny": solution.objective_cny,
+        }
+
+    for slot in range(n):
+        if solution.purchase_kwh[slot] < -ENERGY_ABS_TOL_KWH:
+            issues.append(f"purchase_kwh[{slot}] is negative: {solution.purchase_kwh[slot]}")
+            violation(slot, "negative:purchase_kwh", solution.purchase_kwh[slot])
+        if solution.charge_kwh[slot] < -ENERGY_ABS_TOL_KWH:
+            issues.append(f"charge_kwh[{slot}] is negative: {solution.charge_kwh[slot]}")
+            violation(slot, "negative:charge_kwh", solution.charge_kwh[slot])
+        if solution.discharge_kwh[slot] < -ENERGY_ABS_TOL_KWH:
+            issues.append(f"discharge_kwh[{slot}] is negative: {solution.discharge_kwh[slot]}")
+            violation(slot, "negative:discharge_kwh", solution.discharge_kwh[slot])
+        if solution.pv_used_kwh[slot] < -ENERGY_ABS_TOL_KWH:
+            issues.append(f"pv_used_kwh[{slot}] is negative: {solution.pv_used_kwh[slot]}")
+            violation(slot, "negative:pv_used_kwh", solution.pv_used_kwh[slot])
+        point = snapshot.intervals[slot]
+        if solution.pv_used_kwh[slot] > point.pv_forecast_kwh + ENERGY_ABS_TOL_KWH:
+            issues.append(
+                f"pv_used_kwh[{slot}] exceeds PV forecast "
+                f"{point.pv_forecast_kwh}: {solution.pv_used_kwh[slot]}"
+            )
+            violation(slot, "pv_upper_bound", solution.pv_used_kwh[slot])
+        if solution.charge_kwh[slot] > MAX_BUS_ENERGY_KWH + ENERGY_ABS_TOL_KWH:
+            issues.append(f"charge_kwh[{slot}] exceeds bus-side limit: {solution.charge_kwh[slot]}")
+            violation(slot, "power_upper_bound:charge_kwh", solution.charge_kwh[slot])
+        if solution.discharge_kwh[slot] > MAX_BUS_ENERGY_KWH + ENERGY_ABS_TOL_KWH:
+            issues.append(
+                f"discharge_kwh[{slot}] exceeds bus-side limit: {solution.discharge_kwh[slot]}"
+            )
+            violation(slot, "power_upper_bound:discharge_kwh", solution.discharge_kwh[slot])
+        if (
+            solution.charge_kwh[slot] > ENERGY_ABS_TOL_KWH
+            and solution.discharge_kwh[slot] > ENERGY_ABS_TOL_KWH
+        ):
+            issues.append(
+                f"slot {slot} charges and discharges simultaneously "
+                f"({solution.charge_kwh[slot]}, {solution.discharge_kwh[slot]})"
+            )
+            violation(slot, "simultaneous_charge_discharge")
+
+    for slot, energy in enumerate(solution.energy_kwh):
+        if energy < 1200.0 - ENERGY_ABS_TOL_KWH or energy > 10800.0 + ENERGY_ABS_TOL_KWH:
+            issues.append(f"energy_kwh[{slot}] is out of [1200, 10800]: {energy}")
+            violation(slot, "energy_bounds", energy)
+    if abs(solution.energy_kwh[0] - 6000.0) > ENERGY_ABS_TOL_KWH:
+        issues.append(f"initial energy is not 6000 kWh: {solution.energy_kwh[0]}")
+        violation(0, "initial_energy", solution.energy_kwh[0])
+    if abs(solution.energy_kwh[-1] - 6000.0) > ENERGY_ABS_TOL_KWH:
+        issues.append(f"terminal energy is not 6000 kWh: {solution.energy_kwh[-1]}")
+        violation(n, "terminal_energy", solution.energy_kwh[-1])
 
     max_balance = 0.0
     max_dynamics = 0.0
@@ -233,20 +354,20 @@ def validate_q1_solution(snapshot: Q1InputSnapshot, solution: Q1Solution) -> dic
             - solution.charge_kwh[k]
         )
         max_balance = max(max_balance, abs(balance))
+        if abs(balance) > ENERGY_ABS_TOL_KWH:
+            issues.append(f"slot {k}: supply balance residual {balance:.6g} kWh")
+            violation(k, "supply_balance", balance)
+
         dynamics = solution.energy_kwh[k + 1] - (
             solution.energy_kwh[k] + 0.9 * solution.charge_kwh[k] - solution.discharge_kwh[k] / 0.9
         )
         max_dynamics = max(max_dynamics, abs(dynamics))
-        max_power = max(
-            max_power,
-            abs(solution.charge_kwh[k]),
-            abs(solution.discharge_kwh[k]),
-        )
-        max_state = max(
-            max_state,
-            abs(solution.energy_kwh[k]),
-            abs(solution.energy_kwh[k + 1]),
-        )
+        if abs(dynamics) > ENERGY_ABS_TOL_KWH:
+            issues.append(f"slot {k}: battery dynamics residual {dynamics:.6g} kWh")
+            violation(k, "battery_dynamics", dynamics)
+
+        max_power = max(max_power, abs(solution.charge_kwh[k]), abs(solution.discharge_kwh[k]))
+        max_state = max(max_state, abs(solution.energy_kwh[k]), abs(solution.energy_kwh[k + 1]))
         max_curtailment = max(
             max_curtailment,
             max(0.0, solution.pv_used_kwh[k] - point.pv_forecast_kwh),
@@ -257,34 +378,19 @@ def validate_q1_solution(snapshot: Q1InputSnapshot, solution: Q1Solution) -> dic
         for k, point in enumerate(snapshot.intervals)
     )
     cost_gap = abs(independent_cost - solution.objective_cny)
-    issues: list[str] = []
-    if max_balance > ENERGY_ABS_TOL_KWH:
-        issues.append(f"supply balance residual {max_balance:.6g} kWh")
-    if max_dynamics > ENERGY_ABS_TOL_KWH:
-        issues.append(f"battery dynamics residual {max_dynamics:.6g} kWh")
-    if max_power > MAX_BUS_ENERGY_KWH + ENERGY_ABS_TOL_KWH:
-        issues.append(f"bus-side power limit violated: {max_power:.6g} kWh")
-    if abs(solution.energy_kwh[0] - 6000.0) > ENERGY_ABS_TOL_KWH:
-        issues.append("initial energy is not 6000 kWh")
-    if abs(solution.energy_kwh[-1] - 6000.0) > ENERGY_ABS_TOL_KWH:
-        issues.append("terminal energy is not 6000 kWh")
-    if any(
-        energy < 1200.0 - ENERGY_ABS_TOL_KWH or energy > 10800.0 + ENERGY_ABS_TOL_KWH
-        for energy in solution.energy_kwh
-    ):
-        issues.append("state of charge out of [1200, 10800] kWh")
-    if max_curtailment > ENERGY_ABS_TOL_KWH:
-        issues.append(f"PV used exceeds forecast by {max_curtailment:.6g} kWh")
     if cost_gap > COST_ABS_TOL_CNY:
         issues.append(f"objective mismatch {cost_gap:.6g} CNY")
+        violation(None, "objective_mismatch", cost_gap)
 
     return {
         "ok": not issues,
         "issues": issues,
+        "violations": violations,
         "max_balance_residual_kwh": max_balance,
         "max_dynamics_residual_kwh": max_dynamics,
         "max_bus_energy_kwh": max_power,
         "max_abs_state_kwh": max_state,
+        "max_pv_curtailment_kwh": max_curtailment,
         "cost_gap_cny": cost_gap,
         "independent_cost_cny": independent_cost,
         "solver_objective_cny": solution.objective_cny,
@@ -315,6 +421,7 @@ def _build_interval_results(
                 state_start=state_start,
                 state_end=state_end,
                 source_ref=point.source_refs[0] if point.source_refs else snapshot.source_file,
+                pv_used_kwh=solution.pv_used_kwh[k],
             )
         )
     return tuple(intervals)
@@ -344,13 +451,21 @@ def _snapshot_to_dict(snapshot: Q1InputSnapshot) -> dict[str, Any]:
 
 
 def _summary(
-    snapshot: Q1InputSnapshot, solution: Q1Solution, validation: dict[str, Any]
+    snapshot: Q1InputSnapshot,
+    solution: Q1Solution,
+    validation: dict[str, Any],
+    *,
+    run_id: str,
+    is_synthetic: bool,
 ) -> dict[str, Any]:
     return {
         "case_id": CASE_ID,
+        "run_id": run_id,
         "reference_day": snapshot.reference_day.isoformat(),
         "source_sha256": snapshot.source_sha256,
         "interval_count": len(snapshot.intervals),
+        "is_synthetic": is_synthetic,
+        "model_status": "implemented",
         "total_load_kwh": sum(point.load_kwh for point in snapshot.intervals),
         "total_pv_forecast_kwh": sum(point.pv_forecast_kwh for point in snapshot.intervals),
         "total_pv_used_kwh": sum(solution.pv_used_kwh),
@@ -371,83 +486,202 @@ def _summary(
     }
 
 
-def run(context: CaseContext) -> CaseResult:
-    """Execute the approved Q1 model and write internal run artifacts."""
+def _command(context: CaseContext) -> list[str]:
+    raw = context.metadata.get("command")
+    if isinstance(raw, (list, tuple)):
+        return [str(item) for item in raw]
+    return ["python", "-m", "microgrid", "run", "--case", "q1"]
 
-    require_approved_decisions(context.repo_root, (MODEL_DECISION_ID,))
-    reference_day = _reference_day(context)
-    source_path = context.repo_root / "data" / "raw" / "附件1.xlsx"
-    if not source_path.is_file():
-        raise InputError(f"Q1 input not found: {source_path}; run ingest first")
 
-    input_verification_issues = verify_imported_inputs(context.repo_root)
-    if input_verification_issues:
-        raise InputError("input provenance check failed: " + "; ".join(input_verification_issues))
+def _resolve_run_dir(context: CaseContext, run_id: str) -> Path:
+    if context.output_dir is not None:
+        run_dir = Path(context.output_dir)
+        if run_dir.exists() and any(run_dir.iterdir()):
+            raise InputError(f"synthetic output directory is not empty: {run_dir}")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return run_dir
+    return ensure_run_id_available(context.repo_root, CASE_ID, run_id)
 
-    snapshot = load_q1_inputs(source_path, reference_day=reference_day)
-    solution = solve_q1_milp(snapshot)
-    validation = validate_q1_solution(snapshot, solution)
-    intervals = _build_interval_results(snapshot, solution)
 
-    run_id = context.run_id or new_run_id("q1", context.repo_root)
-    run_dir = ensure_run_id_available(context.repo_root, CASE_ID, run_id)
-    ensure_dir(run_dir)
-
-    result = CaseResult(
-        case_id=CASE_ID,
-        run_id=run_id,
-        status="success",
-        is_synthetic=False,
-        intervals=intervals,
-        metadata={
-            "model": "q1_milp",
-            "model_decision": MODEL_DECISION_ID,
-            "reference_day": reference_day.isoformat(),
-            "solver_status": solution.solver_status,
-            "objective_cny": solution.objective_cny,
-            "validation_ok": validation["ok"],
-        },
-    )
-    run_validation = validate_complete_run(
-        result.intervals,
-        (reference_day,),
-        require_daily_equal_ends=True,
-    )
-    if not run_validation.ok or not validation["ok"]:
-        raise Q1SolveError(
-            "Q1 result validation failed: "
-            + "; ".join(list(validation["issues"]) + list(run_validation.issues))
-        )
-
-    write_json(run_dir / "input_snapshot.json", _snapshot_to_dict(snapshot))
-    save_case_result(run_dir / "domain_result.json", result)
-    write_json(run_dir / "validation.json", validation)
-    write_json(run_dir / "summary.json", _summary(snapshot, solution, validation))
-    (run_dir / "solver.log").write_text(
-        "\n".join(
-            [
-                "solver=scipy.optimize.milp (HiGHS)",
-                f"status={solution.solver_status}",
-                f"message={solution.solver_message}",
-                f"objective_cny={solution.objective_cny:.9f}",
-                f"metadata={json.dumps(solution.solver_metadata, ensure_ascii=False, sort_keys=True)}",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+def _write_failure_evidence(
+    context: CaseContext,
+    run_id: str,
+    run_dir: Path,
+    *,
+    stage: str,
+    exc: BaseException,
+) -> None:
+    payload = {
+        "run_id": run_id,
+        "case_id": CASE_ID,
+        "failure_stage": stage,
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "is_synthetic": context.is_synthetic,
+        "model_status": "implemented",
+    }
+    write_json(run_dir / "failure.json", payload)
     manifest = build_manifest(
         context.repo_root,
         run_id=run_id,
         case_id=CASE_ID,
-        command=context.metadata.get(
-            "command", ["python", "-m", "microgrid", "run", "--case", "q1"]
-        ),
-        status="success",
-        is_synthetic=False,
+        command=_command(context),
+        status="failed",
+        is_synthetic=context.is_synthetic,
+        model_status="implemented",
         result_files={},
         result_sha256={},
-        verify_inputs=True,
+        verify_inputs=False,
     )
-    write_manifest(run_dir, manifest)
-    return result
+    manifest["failure_stage"] = stage
+    manifest["error_type"] = type(exc).__name__
+    manifest["error_message"] = str(exc)
+    write_manifest(run_dir, manifest, overwrite=True)
+
+
+def run(context: CaseContext) -> CaseResult:
+    """Execute the approved Q1 model and write internal run artifacts.
+
+    The run directory and a running manifest are created before input/solve
+    work, so failures retain a failure manifest and stage evidence.
+    """
+
+    require_approved_decisions(context.repo_root, (MODEL_DECISION_ID,))
+    reference_day = _reference_day(context)
+    run_id = context.run_id or new_run_id("q1", context.repo_root)
+    stage = "run_allocate"
+    snapshot: Q1InputSnapshot | None = None
+    solution: Q1Solution | None = None
+    validation: dict[str, Any] | None = None
+    run_dir: Path | None = None
+
+    try:
+        run_dir = _resolve_run_dir(context, run_id)
+        ensure_dir(run_dir)
+        write_manifest(
+            run_dir,
+            build_manifest(
+                context.repo_root,
+                run_id=run_id,
+                case_id=CASE_ID,
+                command=_command(context),
+                status="running",
+                is_synthetic=context.is_synthetic,
+                model_status="implemented",
+                result_files={},
+                result_sha256={},
+                verify_inputs=False,
+            ),
+            overwrite=True,
+        )
+
+        stage = "provenance"
+        provenance_issues = verify_imported_inputs(context.repo_root)
+        provenance_issues.extend(
+            verify_required_inputs(context.repo_root, ("data/raw/附件1.xlsx",))
+        )
+        if provenance_issues:
+            raise InputError("input provenance check failed: " + "; ".join(provenance_issues))
+
+        stage = "input_load"
+        source_path = context.repo_root / "data" / "raw" / "附件1.xlsx"
+        snapshot = load_q1_inputs(source_path, reference_day=reference_day)
+        if snapshot.source_sha256 != context.metadata.get("input_sha256", snapshot.source_sha256):
+            raise InputError("input SHA-256 changed between provenance check and load")
+
+        stage = "solve"
+        solution = solve_q1_milp(snapshot)
+
+        stage = "validation"
+        validation = validate_q1_solution(snapshot, solution)
+        if not validation["ok"]:
+            raise Q1SolveError(
+                "Q1 independent validation failed: " + "; ".join(validation["issues"])
+            )
+
+        stage = "result_assembly"
+        intervals = _build_interval_results(snapshot, solution)
+        result = CaseResult(
+            case_id=CASE_ID,
+            run_id=run_id,
+            status="success",
+            is_synthetic=context.is_synthetic,
+            intervals=intervals,
+            metadata={
+                "model": "q1_milp",
+                "model_status": "implemented",
+                "model_decision": MODEL_DECISION_ID,
+                "reference_day": reference_day.isoformat(),
+                "solver_status": solution.solver_status,
+                "objective_cny": solution.objective_cny,
+                "validation_ok": validation["ok"],
+                "is_synthetic": context.is_synthetic,
+            },
+        )
+        run_validation = validate_complete_run(
+            result.intervals,
+            (reference_day,),
+            require_daily_equal_ends=True,
+        )
+        if not run_validation.ok:
+            raise Q1SolveError(
+                "Q1 complete-run validation failed: " + "; ".join(run_validation.issues)
+            )
+
+        stage = "artifact_write"
+        write_json(run_dir / "input_snapshot.json", _snapshot_to_dict(snapshot))
+        save_case_result(run_dir / "domain_result.json", result)
+        write_json(run_dir / "validation.json", validation)
+        write_json(
+            run_dir / "summary.json",
+            _summary(
+                snapshot,
+                solution,
+                validation,
+                run_id=run_id,
+                is_synthetic=context.is_synthetic,
+            ),
+        )
+        (run_dir / "solver.log").write_text(
+            "\n".join(
+                [
+                    "solver=scipy.optimize.milp (HiGHS)",
+                    f"status={solution.solver_status}",
+                    f"message={solution.solver_message}",
+                    f"objective_cny={solution.objective_cny:.9f}",
+                    "metadata="
+                    + json.dumps(
+                        solution.solver_metadata,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        manifest = build_manifest(
+            context.repo_root,
+            run_id=run_id,
+            case_id=CASE_ID,
+            command=_command(context),
+            status="success",
+            is_synthetic=context.is_synthetic,
+            model_status="implemented",
+            result_files={},
+            result_sha256={},
+            verify_inputs=True,
+        )
+        manifest["validation_ok"] = bool(validation["ok"] and run_validation.ok)
+        manifest["reference_day"] = reference_day.isoformat()
+        write_manifest(run_dir, manifest, overwrite=True)
+        return result
+
+    except Exception as exc:
+        if run_dir is not None:
+            if validation is not None:
+                write_json(run_dir / "validation.json", validation)
+            if snapshot is not None:
+                write_json(run_dir / "input_snapshot.json", _snapshot_to_dict(snapshot))
+            _write_failure_evidence(context, run_id, run_dir, stage=stage, exc=exc)
+        raise
