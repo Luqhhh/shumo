@@ -50,7 +50,7 @@ D-INFO 是共享语义；每个 case 仍需自己的 `D_MODEL_*` 批准。
 - `D_TIME_INTERNAL` 控制 144 区间内部网格和输入右端点对齐；
 - `D_TIME_TEMPLATE_EXPORT` 控制 `result*.xlsx` 的正式数值映射。
 
-`D_TIME_INTERNAL` 为 proposed 不会自动放行正式导出；只有 `D_TIME_TEMPLATE_EXPORT` 也为 approved 时，导出层才允许进入实现/运行。
+`D_TIME_INTERNAL` 已批准只放行内部模型输入；只有 `D_TIME_TEMPLATE_EXPORT` 也为 approved 时，导出层才允许进入实现/运行。
 
 ## 如何批准
 

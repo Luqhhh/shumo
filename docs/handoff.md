@@ -91,7 +91,7 @@ export TMPDIR="$PWD/.tmp"
 
 以下事项仍为 pending：
 
-- D_TIME_INTERNAL：内部 144 区间与输入右端点对齐（proposed，未批准）；
+- D_TIME_INTERNAL：内部 144 区间与输入右端点对齐（approved；2026-09-10 用户批准）；
 - D_TIME_TEMPLATE_EXPORT：正式 Excel 模板映射（pending）；
 - D-EFF：90% 效率含义与充放电量侧；
 - D-STATE：1 月到 2 月及 Q2–Q4 的跨日状态/终端条件；

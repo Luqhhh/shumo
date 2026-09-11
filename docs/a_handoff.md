@@ -101,7 +101,7 @@
 ## 当前状态
 
 - shared-core 接口已可交 B/C 接入；
-- 共享物理语义 decision 仍为 `proposed`，没有 approved；
+- 共享物理语义 `D_TIME_INTERNAL`、`D_EFF`、`D_STATE`、`D_INFO` 已于 2026-09-10 由用户明确批准；
 - Q1 模型 gate `D_MODEL_Q1` 仍 pending；
 - 正式导出 gate `D_TIME_TEMPLATE_EXPORT` 仍 pending；
 - Q1 runner 仍抛 `ModelNotImplementedError`；

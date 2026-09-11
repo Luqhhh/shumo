@@ -36,15 +36,18 @@
 6. **模型/导出边界**：`problem/q*.py` 不直接写 Excel；官方模板由 `excel_export.py` 负责。
 7. **Formal run 最低契约**：见 `docs/collaboration.md` 与 `docs/runbook.md`。
 
-## 尚待人工批准
+## Decision 状态
 
-以下 decision 均未达到 approved；`proposed` 只表示已有候选解释，仍然阻断：
+已批准：
 
-- `D_TIME_INTERNAL`（proposed）
+- `D_TIME_INTERNAL`（2026-09-10 用户批准）
+- `D_EFF`（2026-09-10 用户批准）
+- `D_STATE`（2026-09-10 用户批准）
+- `D_INFO`（2026-09-10 用户批准）
+
+仍待批准，继续阻断：
+
 - `D_TIME_TEMPLATE_EXPORT`（pending）
-- `D_EFF`（proposed）
-- `D_STATE`（proposed）
-- `D_INFO`（proposed）
 - `D_RESAMPLE`（pending）
 - `D_SETTLE`（pending）
 - `D_MODEL_Q1`
@@ -54,7 +57,7 @@
 - `D_MODEL_Q4_3`
 - `D_EVAL`
 
-注意：`problem/contracts.py` 按团队提供的 pre-division 语义编码；`proposed` 不是 `approved`，正式模型与正式导出仍需人工批准。
+注意：`D_TIME_INTERNAL` 批准只放行内部输入网格；正式导出仍需 `D_TIME_TEMPLATE_EXPORT` approved。各 case 正式模型仍需自己的 `D_MODEL_*` approved。
 
 ## Follow-up：shared-result-gates
 
