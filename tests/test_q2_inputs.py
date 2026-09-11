@@ -4,7 +4,7 @@ import datetime as dt
 from pathlib import Path
 
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from microgrid.dataio import sha256_file
 from microgrid.problem.contracts import (
@@ -148,6 +148,53 @@ def _write_wide_workbook(
     wb.save(path)
     wb.close()
     return path
+
+
+def test_load_q2_inputs_accepts_excel_time_objects_in_attachment1(tmp_path: Path) -> None:
+    attachment1 = _write_attachment1(tmp_path / "附件1.xlsx")
+    wb = load_workbook(attachment1)
+    wb["Sheet1"]["A2"] = dt.time(0, 10)
+    wb.save(attachment1)
+    wb.close()
+    attachment2 = _write_wide_workbook(
+        tmp_path / "附件2.xlsx",
+        sheets=("实际负荷", "实际光伏"),
+        days=(dt.date(2025, 1, 1),),
+    )
+
+    bundle = load_q2_inputs(
+        attachment1_path=attachment1,
+        attachment2_path=attachment2,
+        load_sheet_name="实际负荷",
+        pv_sheet_name="实际光伏",
+    )
+
+    assert len(bundle.fixed_prices) == 144
+    assert bundle.fixed_prices[0].slot == 0
+
+
+def test_load_q2_inputs_accepts_excel_time_headers_in_attachment2(tmp_path: Path) -> None:
+    attachment1 = _write_attachment1(tmp_path / "附件1.xlsx")
+    attachment2 = _write_wide_workbook(
+        tmp_path / "附件2.xlsx",
+        sheets=("实际负荷", "实际光伏"),
+        days=(dt.date(2025, 1, 1),),
+    )
+    wb = load_workbook(attachment2)
+    wb["实际负荷"]["B1"] = dt.time(0, 10)
+    wb["实际光伏"]["B1"] = dt.time(0, 10)
+    wb.save(attachment2)
+    wb.close()
+
+    bundle = load_q2_inputs(
+        attachment1_path=attachment1,
+        attachment2_path=attachment2,
+        load_sheet_name="实际负荷",
+        pv_sheet_name="实际光伏",
+    )
+
+    assert len(bundle.actuals) == 144
+    assert bundle.actuals[0].start == dt.datetime(2025, 1, 1, 0, 0)
 
 
 def test_load_q2_inputs_aligns_fixed_prices_and_actuals(tmp_path: Path) -> None:

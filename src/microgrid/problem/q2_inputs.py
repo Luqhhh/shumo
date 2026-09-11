@@ -198,24 +198,29 @@ def _wide_values(
         ref = _source_ref(record)
         day = _parse_source_day(logical_name, record)
         raw_label = str(record.get("raw_time_label", ""))
-        try:
-            interval = grid.interval_from_right_endpoint(day, raw_label)
-        except (InputError, ValueError) as exc:
-            raise InputError(f"{logical_name} has bad time label at {ref}: {exc}") from exc
-        if interval.day != day:
-            raise InputError(
-                f"{logical_name} right endpoint crosses before its source day at {ref}"
-            )
         parsed_raw = record.get("parsed_timestamp")
         if parsed_raw is None:
             raise InputError(f"{logical_name} missing parsed_timestamp at {ref}")
         try:
             parsed_end = dt.datetime.fromisoformat(str(parsed_raw))
-        except ValueError as exc:
-            raise InputError(f"{logical_name} has invalid parsed_timestamp at {ref}") from exc
+            start = parsed_end - dt.timedelta(minutes=grid.step_minutes)
+            if start.date() != day:
+                raise InputError(
+                    f"{logical_name} right endpoint crosses before its source day at {ref}"
+                )
+            start_minutes = start.hour * 60 + start.minute
+            if start.second or start.microsecond or start_minutes % grid.step_minutes != 0:
+                raise InputError(
+                    f"{logical_name} right endpoint is not on the ten-minute grid at {ref}"
+                )
+            interval = grid.interval(day, start_minutes // grid.step_minutes)
+        except (InputError, ValueError, OverflowError) as exc:
+            raise InputError(
+                f"{logical_name} has bad time label {raw_label!r} at {ref}: {exc}"
+            ) from exc
         if parsed_end != interval.end:
             raise InputError(
-                f"{logical_name} parsed_timestamp disagrees with right endpoint at {ref}"
+                f"{logical_name} parsed_timestamp disagrees with right endpoint {raw_label!r} at {ref}"
             )
 
         raw_value = record.get("value")
@@ -263,11 +268,22 @@ def _fixed_prices(path: Path) -> tuple[FixedPricePoint, ...]:
     for record in price_records:
         ref = _source_ref(record)
         try:
-            interval = grid.interval_from_right_endpoint(
-                _FIXED_PRICE_SENTINEL_DAY,
-                record.raw_time_label,
+            if record.parsed_day_offset is None or record.parsed_minute_of_day is None:
+                raise InputError("parsed time fields are missing")
+            end = dt.datetime.combine(_FIXED_PRICE_SENTINEL_DAY, dt.time()) + dt.timedelta(
+                days=record.parsed_day_offset,
+                minutes=record.parsed_minute_of_day,
             )
-        except (InputError, ValueError) as exc:
+            start = end - dt.timedelta(minutes=TimeGrid.step_minutes)
+            if start.date() != _FIXED_PRICE_SENTINEL_DAY:
+                raise InputError("right endpoint crosses the sentinel day")
+            slot = (start - dt.datetime.combine(_FIXED_PRICE_SENTINEL_DAY, dt.time())).seconds // 60
+            if slot % TimeGrid.step_minutes != 0:
+                raise InputError("right endpoint is not on the ten-minute grid")
+            interval = grid.interval(_FIXED_PRICE_SENTINEL_DAY, slot // TimeGrid.step_minutes)
+            if interval.end != end:
+                raise InputError("parsed time does not map to the ten-minute grid")
+        except (InputError, ValueError, OverflowError) as exc:
             raise InputError(f"attachment1 has bad time label at {ref}: {exc}") from exc
         if interval.day != _FIXED_PRICE_SENTINEL_DAY:
             raise InputError(f"attachment1 right endpoint crosses before the sentinel day at {ref}")
