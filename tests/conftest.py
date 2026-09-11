@@ -41,6 +41,18 @@ def tiny_forecast(tmp_path: Path) -> Path:
     return path
 
 
+def _official_like_label(k: int) -> str:
+    start_minutes = 10 + k * 10
+    end_minutes = start_minutes + 10
+
+    def endpoint(minutes: int) -> str:
+        if minutes >= 24 * 60:
+            return f"0:{minutes - 24 * 60:02d}+1"
+        return f"{minutes // 60}:{minutes % 60:02d}"
+
+    return f"{endpoint(start_minutes)}-{endpoint(end_minutes)}"
+
+
 @pytest.fixture
 def synthetic_template_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
@@ -57,6 +69,8 @@ def synthetic_template_repo(tmp_path: Path) -> Path:
             plan = wb.active
             plan.title = "计划购电量"
             plan.append(["时间段", "购电量"])
+            for slot in range(144):
+                plan.append([_official_like_label(slot), None])
             charge = wb.create_sheet("充放电量")
             charge.append(["时间段", "充电量", "放电量", "时刻", "储电量"])
         else:

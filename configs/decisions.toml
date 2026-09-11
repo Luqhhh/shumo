@@ -13,12 +13,12 @@ source = "团队 pre-division 语义记录；附件1/2/4 右端点观察；不�
 
 # 模板映射：正式 Excel 导出单独审批。
 [decisions.D_TIME_TEMPLATE_EXPORT]
-status = "pending"
-choice = ""
-rationale = "result1 首区间为 0:10-0:20、末区间为 0:00+1-0:10+1；多日模板末列为 0:00-0:10+1。没有官方勘误证据前，模板映射保持未决，正式导出必须继续阻断。"
-confirmed_by = ""
-confirmed_at = ""
-source = "result1.xlsx!计划购电量!A2,A145；result2/3/4!计划购电量!B1,EO1；本项与 D_TIME_INTERNAL 分开审批。"
+status = "approved"
+choice = "Q1 result1.xlsx 采用显式行序映射：内部 slot 0..143 按行写入计划购电量!B2:B145；保留官方模板原标签不改写；充放电量!B2:C7 按六个四小时块汇总；E2/E3 写 0:00/24:00 储能。该约定不宣称官方标签已被勘误，只记录正式交付采用的映射。"
+rationale = "用户要求完成正式交付；在无官方勘误证据下，选择保留官方模板标签并按行序导出内部 144 区间。映射冲突已记录，后续如有官方说明应重新核对。"
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-10"
+source = "result1.xlsx!计划购电量!A2,A145；Q1 内部自然日网格；用户完成正式交付的指示。"
 
 [decisions.D_EFF]
 status = "approved"

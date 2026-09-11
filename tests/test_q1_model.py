@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
+from microgrid.paper_assets import generate_q1_result_tables
 from microgrid.problem import q1 as q1_module
 from microgrid.problem.contracts import CaseContext
 from microgrid.problem.q1 import Q1Solution, Q1SolveError, run, validate_q1_solution
@@ -231,6 +232,11 @@ def test_mock_solver_run_keeps_synthetic_flag_and_persists_pv_used(tmp_path, mon
     domain = json.loads((output_dir / "domain_result.json").read_text(encoding="utf-8"))
     assert len(domain["intervals"]) == 144
     assert "pv_used_kwh" in domain["intervals"][0]
+
+    paper_dir = tmp_path / "papergen"
+    tables = generate_q1_result_tables(repo, "run-mock", output_dir=paper_dir, run_dir=output_dir)
+    assert tables.is_file()
+    assert "QOneTotalCostCny" in tables.read_text(encoding="utf-8")
 
 
 def test_failed_solver_run_writes_failure_evidence(tmp_path, monkeypatch):

@@ -131,6 +131,89 @@ def copy_template_preview(repo_root: str | Path, case_id: str) -> Path:
 TEMPLATE_EXPORT_DECISION_ID = "D_TIME_TEMPLATE_EXPORT"
 
 
+def _validate_q1_export(output: Path, case_result: CaseResult) -> None:
+    wb = load_workbook(output, data_only=False)
+    try:
+        plan = wb["计划购电量"]
+        charge = wb["充放电量"]
+        if len(case_result.intervals) != 144:
+            raise InputError("Q1 export requires exactly 144 intervals")
+        for k, interval in enumerate(case_result.intervals):
+            value = plan.cell(row=k + 2, column=2).value
+            if value is None or abs(float(value) - interval.planned_purchase_kwh) > 1e-9:
+                raise InputError(f"Q1 export readback mismatch at 计划购电量!B{k + 2}")
+        for block in range(6):
+            expected_charge = sum(
+                interval.action.charge_kwh
+                for interval in case_result.intervals[block * 24 : (block + 1) * 24]
+            )
+            expected_discharge = sum(
+                interval.action.discharge_kwh
+                for interval in case_result.intervals[block * 24 : (block + 1) * 24]
+            )
+            cell_charge = charge.cell(row=block + 2, column=2).value
+            cell_discharge = charge.cell(row=block + 2, column=3).value
+            if (
+                cell_charge is None
+                or abs(float(cell_charge) - expected_charge) > 1e-9
+                or cell_discharge is None
+                or abs(float(cell_discharge) - expected_discharge) > 1e-9
+            ):
+                raise InputError(f"Q1 export readback mismatch in 充放电量 row {block + 2}")
+        state_start = charge["E2"].value
+        state_end = charge["E3"].value
+        if (
+            state_start is None
+            or abs(float(state_start) - case_result.intervals[0].state_start.energy_kwh) > 1e-9
+            or state_end is None
+            or abs(float(state_end) - case_result.intervals[-1].state_end.energy_kwh) > 1e-9
+        ):
+            raise InputError("Q1 export readback mismatch in 0:00/24:00 energy")
+        if plan["A2"].value != "0:10-0:20" or plan["A145"].value != "0:00+1-0:10+1":
+            raise InputError("Q1 export must not modify official template labels")
+    finally:
+        wb.close()
+
+
+def _export_q1(repo_root: str | Path, case_result: CaseResult, output: Path) -> Path:
+    template = template_path(repo_root, "q1")
+    if not template.is_file():
+        raise InputError(f"official template not found: {template}")
+    if not case_result.intervals:
+        raise InputError("Q1 result has no intervals")
+    if len(case_result.intervals) != 144:
+        raise InputError("Q1 result must contain 144 intervals before export")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        raise InputError(f"output already exists: {output}")
+    shutil.copyfile(template, output)
+    wb = load_workbook(output, data_only=False)
+    try:
+        plan = wb["计划购电量"]
+        for k, interval in enumerate(case_result.intervals):
+            plan.cell(row=k + 2, column=2, value=interval.planned_purchase_kwh)
+        charge = wb["充放电量"]
+        for block in range(6):
+            block_intervals = case_result.intervals[block * 24 : (block + 1) * 24]
+            charge.cell(
+                row=block + 2,
+                column=2,
+                value=sum(interval.action.charge_kwh for interval in block_intervals),
+            )
+            charge.cell(
+                row=block + 2,
+                column=3,
+                value=sum(interval.action.discharge_kwh for interval in block_intervals),
+            )
+        charge["E2"] = case_result.intervals[0].state_start.energy_kwh
+        charge["E3"] = case_result.intervals[-1].state_end.energy_kwh
+        wb.save(output)
+    finally:
+        wb.close()
+    _validate_q1_export(output, case_result)
+    return output
+
+
 def export_case_result(
     repo_root: str | Path,
     case_result: CaseResult,
@@ -138,10 +221,9 @@ def export_case_result(
 ) -> Path:
     """Formal numeric export entry point, gated separately from internal time.
 
-    The official template labels are not yet reconciled (D_TIME_TEMPLATE_EXPORT
-    is pending), so this function intentionally refuses to write values.  Once
-    that decision is approved, the implementation must map the shared
-    IntervalResult payload to the official workbook areas.
+    The D_TIME_TEMPLATE_EXPORT decision records the team's explicit mapping
+    interpretation.  Q1 is the only implemented writer; other cases still fail
+    explicitly rather than copying values into unverified templates.
     """
 
     try:
@@ -153,12 +235,29 @@ def export_case_result(
         ) from exc
     if case_result.case_id not in EXPECTED_SHEETS:
         raise InputError(f"unknown result case_id: {case_result.case_id!r}")
-    if output_path is not None and Path(output_path).exists():
-        raise InputError(f"output already exists: {output_path}")
-    raise NotImplementedError(
-        "numeric template export is not implemented; do not copy values into "
-        "official-looking workbooks before template mapping is implemented"
+    if case_result.is_synthetic:
+        raise InputError("synthetic Q1 result cannot be exported through the formal writer")
+    if case_result.status != "success":
+        raise InputError(f"Q1 result status is not success: {case_result.status!r}")
+    if case_result.case_id != "q1":
+        raise NotImplementedError(
+            f"numeric template export is implemented only for Q1, not {case_result.case_id!r}"
+        )
+    repo = Path(repo_root)
+    output = (
+        Path(output_path)
+        if output_path is not None
+        else repo
+        / "outputs"
+        / "runs"
+        / case_result.case_id
+        / case_result.run_id
+        / "results"
+        / "result1.xlsx"
     )
+    if output.is_absolute() is False:
+        output = repo / output
+    return _export_q1(repo, case_result, output)
 
 
 def make_smoke_result_name(filename: str) -> str:

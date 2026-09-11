@@ -103,7 +103,7 @@
 - shared-core 接口已可交 B/C 接入；
 - 共享物理语义 `D_TIME_INTERNAL`、`D_EFF`、`D_STATE`、`D_INFO` 已于 2026-09-10 由用户明确批准；
 - Q1 模型 gate `D_MODEL_Q1` 仍 pending；
-- 正式导出 gate `D_TIME_TEMPLATE_EXPORT` 仍 pending；
+- 正式导出 gate `D_TIME_TEMPLATE_EXPORT` 当时 pending；后续已批准，见 A6。
 - Q1 runner 仍抛 `ModelNotImplementedError`；
 - 等待 H-S（共享语义批准）和 H-M（Q1 模型卡）后再进入 A3/A4；
 - 等待 H-X 后才进入 A6 正式导出。
@@ -190,7 +190,7 @@ outputs/runs/q1/q1-a-formal-002/
 results/result1.xlsx
 ```
 
-原因：`D_TIME_TEMPLATE_EXPORT` 仍为 pending。正式导出必须等 H-X 模板映射批准；当前不会把内部结果写入官方模板。
+原因（当时）：`D_TIME_TEMPLATE_EXPORT` 仍为 pending。后续 A6 已采用显式行序映射并完成 result1.xlsx 导出，见下文。
 
 ## P1 修复后的 Q1 复运行
 
@@ -213,3 +213,39 @@ results/result1.xlsx
 - 合成 mock 测试现在必须显式传入 `CaseContext(is_synthetic=True, output_dir=...)`；manifest、`CaseResult` 和 summary 均保留 `is_synthetic=true`。
 - 失败运行现在会保留 `manifest.json`（`status=failed`）、`failure.json`（阶段、错误类型、错误消息）。
 - 附件1 来源检查现在要求清单中恰好一条有效记录、非空 SHA-256，并与实际读取文件绑定。
+
+
+## A6–A7：正式交付
+
+`D_TIME_TEMPLATE_EXPORT` 已批准 Q1 行序映射：
+
+- 内部 slot 0..143 按行写入 `计划购电量!B2:B145`；
+- 保留官方模板原标签，不修改表头；
+- `充放电量!B2:C7` 按六个四小时块汇总；
+- `E2/E3` 写 0:00/24:00 储电量；
+- 该映射是团队为正式交付采用的显式约定，不声称官方标签已被勘误。
+
+正式导出：
+
+- run_id：`q1-a-formal-003`
+- result1.xlsx：`outputs/runs/q1/q1-a-formal-003/results/result1.xlsx`
+- export_manifest：`outputs/runs/q1/q1-a-formal-003/export_manifest.json`
+- output SHA-256：`2ea2a2efb90ff4a8facad26dfbbfa8205c7bf73eede8aba1fb476d8e8ccb21cb`
+- manifest 已登记 `result_files` 和 `result_sha256`。
+
+论文表格：
+
+- `paper/generated/q1_result_tables.tex` 由同一 `domain_result.json` 生成；
+- 表 1、表 2 与 Excel 结果同源；
+- 支持宏：`\QOneTotalPurchaseKwh`、`\QOneTotalCostCny`、`\QOneRunId`。
+
+选择记录：
+
+- `configs/selected_runs.toml` 已记录 `q1 = "q1-a-formal-003"`；
+- `selection_status` 仍为 pending，因为 Q2–Q4 尚未完成；这不是 Q1 失败。
+
+仍待完成：
+
+- Q2–Q4 模型与正式结果；
+- Q1 之外 case 的模板映射；
+- 最终全队 submissions selected run 和支撑材料预检。
