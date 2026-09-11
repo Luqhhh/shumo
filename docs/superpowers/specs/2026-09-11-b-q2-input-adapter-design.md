@@ -1,7 +1,7 @@
 # B 任务 Q2/Q4-2 输入适配器设计
 
 - 日期：2026-09-11
-- 状态：已获聊天中的方向确认；等待本文件复核
+- 状态：已吸收队伍复核提出的时间、单位、平衡与结算约束；等待再次确认
 - 分支：`codex/b-q2-input-adapter`
 
 ## 1. 目标
@@ -61,6 +61,14 @@ class ActualInterval:
     pv_kw: float
     load_source_ref: str
     pv_source_ref: str
+
+    @property
+    def load_kwh(self) -> float:
+        return TimeGrid.power_to_energy_kwh(self.load_kw)
+
+    @property
+    def pv_kwh(self) -> float:
+        return TimeGrid.power_to_energy_kwh(self.pv_kw)
 
 @dataclass(frozen=True)
 class VariablePricePoint:
@@ -137,7 +145,7 @@ def info_set_at(
 - 分别调用 `read_wide_attachment`，kind 为 `load_kw` 与 `pv_actual_kw`，单位为 `kW`。
 - 将 `source_date` 解析为基准日，并以 `raw_time_label` 调用 `TimeGrid.interval_from_right_endpoint` 得到 `(day, slot, start, end)`；同时要求 reader 的 `parsed_timestamp` 与所得 `end` 完全相等。
 - 两个 sheet 必须拥有完全相同的 `(day, slot)` 键集合；每类记录内部不得重复；输入不得为空，且每个出现的日期必须完整包含 `slot 0..143`。
-- 数值必须有限且非负；输出按 `(day, slot)` 排序。
+- 数值必须有限且非负；输出按 `(day, slot)` 排序。`load_kw` / `pv_kw` 保留附件原始功率单位，`load_kwh` / `pv_kwh` 属性只通过 `TimeGrid.power_to_energy_kwh(..., minutes=10)` 派生。
 - 适配器保留全年记录，包括历史初始化期；不裁剪月份、不设置电池状态、不添加每日重置。
 
 ### 5.3 波动电价（附件4）
@@ -175,7 +183,35 @@ def require_matching_q4_2_grid(
 
 因此决策时刻 `tau` 只能看到 `end <= tau` 的完整区间 actual。固定电价曲线是题目给定的外生曲线，不混入历史 actual items；后续模型在 `D_INFO` 获人工批准后再决定如何把已知固定曲线交给计划器。
 
-## 7. 错误处理
+## 7. 后续模型前置不变量（本阶段不实现）
+
+以下四项来自参赛队本次书面复核，必须进入 `docs/b_decision_evidence.md` 和 `docs/b_model_card.md` 的强制约束与验收清单。它们是人工决策证据，但在队伍按流程填写确认人、确认时间并修改状态前，Agent 不得把 `configs/decisions.toml` 中任何条目标记为 `approved`。
+
+### 7.1 时间陷阱
+
+- 附件1/2/4 的时间标签是功率记录的右端点：`0:10` 对应 `[00:00, 00:10)`，`0:00+1` 对应 `[23:50, 次日 00:00)`；不得整体错移一个区间。
+- result 模板的首末标签与附件网格存在字面异常，`D_TIME_TEMPLATE_EXPORT` 批准前不得用模板标签反推或改写内部时间键。
+- 附件3 的“预报1小时”是发布时刻后一小时；日期只允许在同日四行发布块内继承，功率、价格和预测值禁止 ffill。
+
+### 7.2 功率与电量单位
+
+- 附件负载和光伏值是 `kW`；计划购电、调整购电、紧急购电以及 `BatteryAction` 是每个十分钟区间的 `kWh`。
+- 每个区间只允许一次显式换算：`energy_kwh = power_kw * (1 / 6 h)`。禁止把 kW 直接与 kWh 相加、比较或送入费用公式。
+- `IntervalResult.load_kw` / `pv_kw` 继续保存原始功率；模型约束使用派生的 `load_kwh` / `pv_kwh`。
+
+### 7.3 供需约束使用不等式
+
+- 统一到 kWh 后，约束方向固定为：`grid_supplied_kwh + discharge_kwh + pv_kwh >= load_kwh + charge_kwh`，不得改成等号。
+- `grid_supplied_kwh` 在 Q2、Q3、Q4 中由哪些计划/调整/紧急分量组成，必须由对应已批准模型卡定义；适配器不提前选择。
+- `>=` 允许未利用供给或弃光语义；实现不得为了凑等号伪造负荷、充电量或实际使用量。
+
+### 7.4 计划购电费用
+
+- 计划购电费按计划量结算：`planned_cost_cny = sum(planned_purchase_kwh[k] * tariff_cny_per_kwh[k])`。
+- 不得用实际使用量、净负荷、`min(计划量, 实际使用量)` 或事后剩余量替代 `planned_purchase_kwh`。
+- 调整费、违约费和紧急购电费保持独立分量，只有 `D_SETTLE` 与对应 model decision 正式批准后才能实现完整结算。
+
+## 8. 错误处理
 
 所有调用方可修复的输入问题统一转为带上下文的 `InputError`：
 
@@ -188,30 +224,31 @@ def require_matching_q4_2_grid(
 
 错误消息必须包含逻辑输入名以及路径、sheet、key 或 cell 中至少一个可定位字段。适配器不得静默删除坏记录、补零、ffill、clip 或自动修复时间标签。
 
-## 8. 测试设计
+## 9. 测试设计
 
 新增 `tests/test_q2_inputs.py`，工作簿全部在 `tmp_path` 创建并在读取前后比较 SHA-256。
 
 1. `test_load_q2_inputs_aligns_fixed_prices_and_actuals`：构造 144 点固定曲线和两天 actual，断言 slot 顺序、`0:10 -> slot 0`、`0:00+1 -> slot 143`、数值和 provenance。
-2. `test_load_q2_inputs_does_not_modify_sources`：比较三个输入文件读取前后哈希。
-3. `test_load_q2_inputs_rejects_mismatched_actual_grids`：负载/PV 缺一个 key 时抛 `InputError`。
-4. `test_load_q4_2_prices_and_require_matching_grid`：附件4对齐成功，缺 key 时联合网格检查失败。
-5. `test_historical_info_items_are_causal_at_interval_end`：在首区间结束前不可见，恰好结束时可见，第二个区间仍不可见；同时覆盖实际价格。
-6. `test_q2_case_result_roundtrip_preserves_adapter_provenance`：测试代码用已适配的一小段数据和零动作构造 `is_synthetic=True` 的 q2 `CaseResult`，经现有 `save_case_result` / `load_case_result` 后保持相等。
-7. `test_rejects_non_finite_or_negative_values`：对价格、负载或 PV 的坏值给出可定位错误。
+2. `test_actual_interval_converts_ten_minute_power_to_energy`：断言 `600 kW -> 100 kWh`，同时确认 `load_kw/pv_kw` 原值未被覆盖。
+3. `test_load_q2_inputs_does_not_modify_sources`：比较三个输入文件读取前后哈希。
+4. `test_load_q2_inputs_rejects_mismatched_actual_grids`：负载/PV 缺一个 key 时抛 `InputError`。
+5. `test_load_q4_2_prices_and_require_matching_grid`：附件4对齐成功，缺 key 时联合网格检查失败。
+6. `test_historical_info_items_are_causal_at_interval_end`：在首区间结束前不可见，恰好结束时可见，第二个区间仍不可见；同时覆盖实际价格。
+7. `test_q2_case_result_roundtrip_preserves_adapter_provenance`：测试代码用已适配的一小段数据和零动作构造 `is_synthetic=True` 的 q2 `CaseResult`，经现有 `save_case_result` / `load_case_result` 后保持相等。
+8. `test_rejects_non_finite_or_negative_values`：对价格、负载或 PV 的坏值给出可定位错误。
 
-第 6 项只是接口兼容测试，不在生产代码中根据输入制造购电计划，也不声称模型已实现。现有通用 result-I/O、审批门禁和 runner 阻断测试继续作为回归保护。
+第 7 项只是接口兼容测试，不在生产代码中根据输入制造购电计划，也不声称模型已实现。现有通用 result-I/O、审批门禁和 runner 阻断测试继续作为回归保护。
 
-## 9. 工程文档
+## 10. 工程文档
 
 新增：
 
 - `docs/b_decision_evidence.md`：按 decision ID 列出当前状态、现有题面/共享证据、仍需队伍决定的问题、可执行验证；不写批准结论。
-- `docs/b_model_card.md`：明确 Q2/Q4-2 模型状态为“未批准、未实现”，记录候选输入、输出契约、已知风险、未来批准条件和验证清单。
+- `docs/b_model_card.md`：明确 Q2/Q4-2 模型状态为“未批准、未实现”，记录候选输入、输出契约、时间陷阱、kW→kWh 换算、`>=` 供需约束、按计划量计费规则、已知风险、未来批准条件和验证清单。
 
 两份文档必须覆盖 `D_STATE`、`D_INFO`、`D_SETTLE`、`D_MODEL_Q2`、`D_MODEL_Q4_2`，并注明 `D_TIME_TEMPLATE_EXPORT` 继续阻断正式 Excel。它们不得填写 `confirmed_by`、`confirmed_at` 或把 proposed 解释描述成正式结论。
 
-## 10. 数据流
+## 11. 数据流
 
 ```text
 显式路径 + sheet 名称
@@ -236,12 +273,13 @@ historical_info_items -> InfoSet.from_raw(decision_time)
 IntervalResult -> CaseResult -> result_io（仅合成接口测试）
 ```
 
-## 11. 完成标准
+## 12. 完成标准
 
 - 新模块只读取显式输入，不扫描仓库数据目录。
 - 所有新增测试先失败再通过，并使用临时合成工作簿。
 - 两个正式 runner 的内容和行为未改变。
 - decision 状态及人工确认字段未改变。
+- 设计、决策证据和模型卡都明确记录时间陷阱、`kW * 1/6 h -> kWh`、供需 `>=` 和按计划量计费；本阶段不实现模型公式。
 - 目标测试与全量 `uv run --locked pytest -q`、Ruff lint/format 均通过。
 - Git diff 不含 `CUMCM2026Problems/`、`data/raw/`、`data/templates/`、`resources/`、`outputs/` 或 `dist/` 内容。
 - 正式 case 与 final submission 的既有非零阻断保持有效。
