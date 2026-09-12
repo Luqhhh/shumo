@@ -19,7 +19,15 @@ from ..timekeys import parse_time_label
 from .contracts import BatteryAction, BatteryState, CaseResult
 from .dispatch_feedback import ExecutionRecord
 from .purchase_ledger import Bill, ContractVersion, PurchaseLedger
-from .q4_common import ACTION_START, STEP, YEAR_END, atomic_json, reserve_start_from_config
+from .q4_common import (
+    ACTION_START,
+    BLEND_DECISIONS,
+    BLEND_MODEL_VERSION,
+    STEP,
+    YEAR_END,
+    atomic_json,
+    reserve_start_from_config,
+)
 from .q4_evidence import (
     audit_controller_chain,
     check_inventory,
@@ -295,6 +303,13 @@ def _export_q4(repo: Path, result: CaseResult, output: Path, performance: Perfor
     decision_snapshot = {"D_TIME_TEMPLATE_EXPORT_Q4": decision}
     if reserve_start is not None:
         decision_snapshot["D_TERMINAL_RESERVE_Q4"] = decisions["D-TERMINAL-RESERVE-Q4"]
+    if config["model_version"] == BLEND_MODEL_VERSION:
+        decision_snapshot.update(
+            {
+                decision_id: decisions[decision_id.replace("_", "-")]
+                for decision_id in BLEND_DECISIONS
+            }
+        )
     atomic_json(
         run_dir / "export_manifest.json",
         {

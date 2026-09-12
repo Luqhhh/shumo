@@ -49,6 +49,9 @@ def forecast_reserve_start(forecast: ForecastSnapshot):
     return reserve_start_from_config(
         {
             "model_version": forecast.model_version,
+            "case_id": forecast.case_id,
+            "price_method": forecast.price_method,
+            "pv_blend": forecast.traces.get("pv_blend", {}).get("parameters"),
             "terminal_reserve": None
             if forecast.model_version == "q4-v2"
             else {

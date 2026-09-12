@@ -9,7 +9,7 @@ import math
 from collections import defaultdict
 from pathlib import Path
 
-from ..approvals import load_decisions, normalize_decision_id
+from ..approvals import decision_issues, load_decisions, normalize_decision_id
 from ..dataio import sha256_file
 from ..schemas import InputError
 from .contracts import ENERGY_ABS_TOL_KWH as TOL
@@ -24,6 +24,8 @@ from .dispatch_milp import (
 from .purchase_ledger import PurchaseLedger
 from .q4_common import (
     ACTION_START,
+    BLEND_DECISIONS,
+    BLEND_MODEL_VERSION,
     STEP,
     YEAR_END,
     Q4Error,
@@ -163,6 +165,12 @@ def check_model_binding(repo: Path, run_dir: Path, export: dict | None = None) -
             ids = [decision_id for decision_id in ids if decision_id != "D_TERMINAL_RESERVE_Q4"]
         if config.get("price_method") == "lag1":
             ids.append("D_EVAL_Q4")
+        if config["model_version"] == BLEND_MODEL_VERSION:
+            ids.extend(BLEND_DECISIONS)
+            issues.extend(
+                f"{issue.decision_id}: {issue.reason}"
+                for issue in decision_issues(repo, BLEND_DECISIONS)
+            )
         expected_solver = {
             "presolve": True,
             "mip_rel_gap": 1e-4,
@@ -185,7 +193,7 @@ def check_model_binding(repo: Path, run_dir: Path, export: dict | None = None) -
             snapshot = runtime.get(decision_id)
             if not isinstance(snapshot, dict) or snapshot != expected:
                 issues.append(f"{decision_id}: runtime decision snapshot missing or conflicting")
-            if decision_id == "D_TERMINAL_RESERVE_Q4" and export is not None:
+            if decision_id in ("D_TERMINAL_RESERVE_Q4", *BLEND_DECISIONS) and export is not None:
                 saved = export.get("decision_snapshot", {}).get(decision_id)
                 if not isinstance(saved, dict) or saved != expected or saved != snapshot:
                     issues.append(f"{decision_id}: export decision snapshot missing or conflicting")

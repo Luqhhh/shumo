@@ -33,6 +33,9 @@ DECISION_CASE_SCOPES = {
     "D_TIME_TEMPLATE_EXPORT_Q4": ("q4_2", "q4_3"),
     "D_EVAL_Q4": ("q4_2", "q4_3"),
     "D_TERMINAL_RESERVE_Q4": ("q4_2", "q4_3"),
+    "D_PV_BLEND_LONG_Q4": ("q4_3",),
+    "D_EVAL_PV_BLEND_LONG_Q4": ("q4_3",),
+    "D_OPTIMIZATION_Q4": ("q4_2", "q4_3"),
 }
 FINAL_REQUIRED_DECISION_IDS = (
     *SHARED_DECISION_IDS,

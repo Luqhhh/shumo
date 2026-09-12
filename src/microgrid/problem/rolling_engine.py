@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import json
+import shutil
 import time
 from collections import defaultdict
 from dataclasses import asdict
@@ -14,13 +15,14 @@ import numpy as np
 
 from ..approvals import require_approved_decisions
 from ..artifacts import (
+    _source_paths,
     build_manifest,
     ensure_run_id_available,
     new_run_id,
     source_tree_hash,
     write_manifest,
 )
-from ..dataio import sha256_file
+from ..dataio import sha256_file, utc_now
 from ..schemas import InputError
 from .contracts import BatteryAction, BatteryState, CaseContext, CaseResult, InfoSet, IntervalResult
 from .dispatch_feedback import ExecutionRecord, Measurement, apply_feedback
@@ -29,6 +31,8 @@ from .purchase_ledger import PurchaseLedger
 from .q4_checkpoint import CHECKPOINT_SCHEMA, ledger_witness, restore_ledger
 from .q4_common import (
     ACTION_START,
+    BLEND_DECISIONS,
+    BLEND_MODEL_VERSION,
     MODEL_VERSION,
     RESERVE_START,
     STEP,
@@ -38,6 +42,7 @@ from .q4_common import (
     append_json,
     atomic_json,
     jsonable,
+    pv_blend_parameters,
 )
 from .q4_evidence import (
     LOG_NAMES,
@@ -83,6 +88,47 @@ def _snapshot_from_dict(data):
     return ForecastSnapshot(**data)
 
 
+def _restore_blend_forecaster(inputs, time_at, run_dir, committed_size, saved_forecast):
+    """Replay only the committed forecast prefix and ended history at recovery."""
+    service = _initialize_forecaster(
+        inputs, "q4_3", "main", ACTION_START, model_version=BLEND_MODEL_VERSION
+    )
+    official = defaultdict(list)
+    for item in inputs.official:
+        official[item.available_at].append(item)
+    with (run_dir / "forecasts.jsonl").open("rb") as stream:
+
+        def next_committed():
+            if stream.tell() == committed_size:
+                return None
+            line = stream.readline()
+            if not line or stream.tell() > committed_size or not line.endswith(b"\n"):
+                raise InputError("checkpoint forecast prefix boundary invalid")
+            return json.loads(line)
+
+        slot, latest = ACTION_START, None
+        while slot <= time_at:
+            if slot != ACTION_START:
+                service.ingest(
+                    InfoSet.from_raw(
+                        slot,
+                        inputs.actual_info((inputs.index(slot) if slot < YEAR_END else 52560) - 1)
+                        + tuple(official.get(slot, [])),
+                    )
+                )
+            if slot < time_at and slot.time() in tuple(dt.time(h) for h in (0, 6, 12, 18)):
+                expected = jsonable(service.refresh(InfoSet.from_raw(slot, ())))
+                if next_committed() != expected:
+                    raise InputError("checkpoint PV forecast differs from causal prefix replay")
+                latest = expected
+            slot += STEP
+        if next_committed() is not None:
+            raise InputError("checkpoint has extra committed forecast snapshots")
+        if saved_forecast != latest:
+            raise InputError("checkpoint frozen forecast differs from committed causal snapshot")
+    return service
+
+
 def _execution_from_dict(data):
     data = dict(data)
     for key in ("intent", "action"):
@@ -91,6 +137,31 @@ def _execution_from_dict(data):
         data[key] = BatteryState(**data[key])
     data["reasons"] = tuple(data["reasons"])
     return ExecutionRecord(**data)
+
+
+def _seal_source_snapshot(repo, run_dir, source_hash, manifest):
+    target = run_dir / "source_snapshot"
+    target.mkdir()
+    files = {}
+    for path in _source_paths(repo):
+        name = path.relative_to(repo)
+        destination = target / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, destination)
+        files[str(name)] = sha256_file(destination)
+    if source_tree_hash(target) != source_hash:
+        raise Q4Error("source_changed", "source changed while sealing new model snapshot")
+    atomic_json(
+        run_dir / "source_snapshot_manifest.json",
+        {
+            "source_hash": source_hash,
+            "captured_at_utc": utc_now(),
+            "code_commit": manifest["code_commit"],
+            "code_dirty": manifest["code_dirty"],
+            "files": files,
+            "method": "runner copy of code/config only before simulation",
+        },
+    )
 
 
 def _metrics(run_dir: Path, inputs: Q4Inputs, end: dt.datetime):
@@ -151,6 +222,15 @@ def run_q4(context: CaseContext) -> CaseResult:
         raise InputError("Q4 price_method must be main or lag1")
     if method == "lag1":
         require_approved_decisions(context.repo_root, ("D_EVAL_Q4",))
+    pv_method = context.metadata.get("pv_method", "v3")
+    if pv_method not in ("v3", "blend-long"):
+        raise InputError("Q4 pv_method must be v3 or blend-long")
+    model_version = MODEL_VERSION
+    if pv_method == "blend-long":
+        if context.case_id != "q4_3" or method != "main":
+            raise InputError("PV-BLEND-LONG is approved only for Q4-3/main")
+        require_approved_decisions(context.repo_root, BLEND_DECISIONS)
+        model_version = BLEND_MODEL_VERSION
     run_id = context.run_id or new_run_id(context.case_id, context.repo_root)
     resume = bool(context.metadata.get("resume", False))
     run_dir = (
@@ -170,7 +250,7 @@ def run_q4(context: CaseContext) -> CaseResult:
     config = {
         "schema_version": 1,
         "evidence_schema_version": 2,
-        "model_version": MODEL_VERSION,
+        "model_version": model_version,
         "terminal_reserve": {"start": str(RESERVE_START), "minimum_energy_kwh": 6000.0},
         "case_id": context.case_id,
         "end_time": str(end),
@@ -185,6 +265,8 @@ def run_q4(context: CaseContext) -> CaseResult:
             "primal_feasibility_tolerance": 1e-8,
         },
     }
+    if model_version == BLEND_MODEL_VERSION:
+        config["pv_blend"] = pv_blend_parameters()
     started = time.perf_counter()
     stage = "input_preflight"
     step_count = 0
@@ -211,13 +293,17 @@ def run_q4(context: CaseContext) -> CaseResult:
         with performance.measure("input_preflight"):
             inputs = load_q4_inputs(context.repo_root, context.case_id)
         if not resume:
+            if model_version == BLEND_MODEL_VERSION:
+                _seal_source_snapshot(context.repo_root, run_dir, code_hash, manifest)
             write_manifest(run_dir, manifest)
             atomic_json(run_dir / "input_snapshot.json", inputs.snapshot)
             atomic_json(run_dir / "effective_config.json", config)
             for name in LOG_NAMES:
                 (run_dir / f"{name}.jsonl").touch()
             with performance.measure("forecast_ingest"):
-                service = _initialize_forecaster(inputs, context.case_id, method, ACTION_START)
+                service = _initialize_forecaster(
+                    inputs, context.case_id, method, ACTION_START, model_version=model_version
+                )
         else:
             checkpoint = json.loads((run_dir / "checkpoint.json").read_text())
             if (
@@ -240,7 +326,17 @@ def run_q4(context: CaseContext) -> CaseResult:
                     raise InputError(f"checkpoint committed log prefix hash mismatch: {name}")
             time_at = dt.datetime.fromisoformat(checkpoint["time"])
             with performance.measure("forecast_ingest"):
-                service = _initialize_forecaster(inputs, context.case_id, method, time_at)
+                service = (
+                    _restore_blend_forecaster(
+                        inputs,
+                        time_at,
+                        run_dir,
+                        checkpoint["log_sizes"]["forecasts"],
+                        checkpoint["forecast"],
+                    )
+                    if model_version == BLEND_MODEL_VERSION
+                    else _initialize_forecaster(inputs, context.case_id, method, time_at)
+                )
             if jsonable(service.training_state()) != checkpoint["training_state"]:
                 raise InputError("checkpoint training state mismatch")
             for name, size in checkpoint["log_sizes"].items():
@@ -488,7 +584,9 @@ def run_q4(context: CaseContext) -> CaseResult:
                 "emergency_kwh": sum(r.emergency_purchase_kwh for r in rows),
                 "charge_kwh": sum(r.action.charge_kwh for r in rows),
                 "discharge_kwh": sum(r.action.discharge_kwh for r in rows),
-                "initial_energy_kwh": rows[0].state_start.energy_kwh,
+                "initial_energy_kwh": 6000
+                if offset == 0 and rows[0].state_start.energy_kwh == 6000
+                else rows[0].state_start.energy_kwh,
                 "terminal_energy_kwh": rows[-1].state_end.energy_kwh,
                 "planned_cost_cny": sum(b.planned_cost_cny for b in bills),
                 "adjustment_cost_cny": sum(b.adjustment_cost_cny for b in bills),
@@ -564,7 +662,7 @@ def run_q4(context: CaseContext) -> CaseResult:
             controller_audit,
             plans_path=run_dir / "dispatch_plans.jsonl",
         )
-        manifest["model_version"] = MODEL_VERSION
+        manifest["model_version"] = model_version
         manifest["evidence_manifest_sha256"] = sha256_file(inventory)
         write_manifest(run_dir, manifest, overwrite=True)
         timing = performance.summary()

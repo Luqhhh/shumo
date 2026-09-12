@@ -11,7 +11,16 @@ from dataclasses import dataclass
 import numpy as np
 
 from .contracts import InfoSet
-from .q4_common import MODEL_VERSION, STEP, YEAR_END, Q4Error, jsonable, nonnegative
+from .q4_common import (
+    BLEND_MODEL_VERSION,
+    MODEL_VERSION,
+    STEP,
+    YEAR_END,
+    Q4Error,
+    jsonable,
+    nonnegative,
+)
+from .q4_pv_blend import LongPVBlend
 
 
 class LagAR:
@@ -114,9 +123,12 @@ class Q4Forecaster:
         if case_id not in ("q4_2", "q4_3") or price_method not in ("main", "lag1"):
             raise ValueError("invalid forecast case or price method")
         self.case_id, self.source_hashes, self.price_method = case_id, source_hashes, price_method
-        if model_version not in ("q4-v2", MODEL_VERSION):
+        if model_version not in ("q4-v2", MODEL_VERSION, BLEND_MODEL_VERSION):
             raise ValueError("unknown Q4 forecast model version")
+        if model_version == BLEND_MODEL_VERSION and (case_id != "q4_3" or price_method != "main"):
+            raise ValueError("PV blend approval applies only to Q4-3/main")
         self.model_version = model_version
+        self.blend = LongPVBlend() if model_version == BLEND_MODEL_VERSION else None
         self.load = LagAR((1008, 2016, 3024, 4032), (8 / 15, 4 / 15, 2 / 15, 1 / 15))
         self.price = LagAR((144, 1008, 2016), (0.5, 0.3, 0.2))
         self.pv = LagAR(tuple(144 * i for i in range(1, 8)), (1 / 7,) * 7)
@@ -145,13 +157,15 @@ class Q4Forecaster:
                 }[item.kind]
                 series.add(item.valid_time, float(item.value))
                 if item.kind == "pv_actual_kw":
+                    if self.blend is not None:
+                        self.blend.observe(item.valid_time, float(item.value))
                     for forecast, lead in self.official.pop(item.valid_time, []):
                         self.errors[lead][0] += abs(float(forecast.value) - float(item.value))
                         self.errors[lead][1] += 1
         self.time = info.decision_time
 
     def training_state(self):
-        return {
+        state = {
             "time": self.time,
             "load": {
                 "pairs": self.load.pairs,
@@ -169,6 +183,9 @@ class Q4Forecaster:
             },
             "lead_errors": dict(self.errors),
         }
+        if self.blend is not None:
+            state["pv_blend"] = self.blend.witness()
+        return state
 
     def refresh(self, info: InfoSet) -> ForecastSnapshot:
         time = info.decision_time
@@ -266,6 +283,9 @@ class Q4Forecaster:
             "pv_boundary_proxy_kw": self.pv.values[-1] if self.case_id == "q4_3" else None,
             "valid_times": [slot + STEP for slot in slots],
         }
+        if self.blend is not None:
+            historical, _ = self.pv.predict(count, correction=False)
+            pv, traces["pv_blend"] = self.blend.apply(time, pv, historical)
         payload = {
             "case": self.case_id,
             "issue": str(time),

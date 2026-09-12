@@ -19,6 +19,27 @@ ACTION_START = dt.datetime(2025, 2, 1)
 YEAR_END = dt.datetime(2026, 1, 1)
 RESERVE_START = YEAR_END - dt.timedelta(days=1)
 MODEL_VERSION = "q4-v3-reserve"
+BLEND_MODEL_VERSION = "q4-v4-pv-blend-long"
+BLEND_DECISIONS = ("D_PV_BLEND_LONG_Q4", "D_EVAL_PV_BLEND_LONG_Q4")
+
+
+def pv_blend_parameters() -> dict:
+    """Return the explicitly approved parameters, without mutable shared state."""
+    return {
+        "schema_version": 1,
+        "mechanism": "PV-BLEND-LONG",
+        "minimum_lead_hours_exclusive": 12,
+        "lead_buckets_hours": [[12, 18], [18, 24]],
+        "history_days": 7,
+        "error_window_days": 28,
+        "cold_start_days": 7,
+        "start": str(ACTION_START),
+        "activation": str(ACTION_START + dt.timedelta(days=7)),
+        "history_proxy_threshold_kw": 1.0,
+        "mae_smoothing_kw": 1.0,
+        "weight_power": -2,
+        "sample_weighting": "equal_original_issue_target_pairs",
+    }
 
 
 def energy_lower_bound(
@@ -32,8 +53,21 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
     if config["model_version"] == "q4-v2":
         return None
     expected = {"start": str(RESERVE_START), "minimum_energy_kwh": 6000.0}
-    if config["model_version"] != MODEL_VERSION or config.get("terminal_reserve") != expected:
+    if (
+        config["model_version"] not in (MODEL_VERSION, BLEND_MODEL_VERSION)
+        or config.get("terminal_reserve") != expected
+    ):
         raise Q4Error("config_mismatch", "unknown Q4 model or terminal reserve configuration")
+    if config["model_version"] == BLEND_MODEL_VERSION:
+        if (
+            config.get("case_id") != "q4_3"
+            or config.get("price_method") != "main"
+            or json.dumps(config.get("pv_blend"), sort_keys=True)
+            != json.dumps(pv_blend_parameters(), sort_keys=True)
+        ):
+            raise Q4Error("config_mismatch", "PV-BLEND-LONG configuration differs from approval")
+    elif config.get("pv_blend") is not None:
+        raise Q4Error("config_mismatch", "v3 cannot claim a PV blend mechanism")
     return RESERVE_START
 
 

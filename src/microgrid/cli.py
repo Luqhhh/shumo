@@ -114,6 +114,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             run_id=args.run_id,
             end_time=args.end_time,
             price_method=args.price_method,
+            pv_method=args.pv_method,
             resume=args.resume,
         )
     except PendingDecisionError as exc:
@@ -165,6 +166,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("main", "lag1"),
         default="main",
         help="Q4 causal price prediction method",
+    )
+    p_run.add_argument(
+        "--pv-method",
+        choices=("v3", "blend-long"),
+        default="v3",
+        help="Q4-3/main approved long-lead PV blend; default retains v3",
     )
     p_run.add_argument(
         "--resume",
