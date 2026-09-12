@@ -226,7 +226,13 @@ def fit_candidate_state(series: LoadSeries, candidate: CandidateSpec) -> Candida
     values = series.values_kw
     residuals = np.full(len(values), np.nan, dtype=float)
     weights = np.asarray(candidate.lag_weights, dtype=float)
-    for index in range(max(LAG_SLOTS), len(values)):
+    active_lag_slots = tuple(
+        lag_slot for lag_slot, weight in zip(LAG_SLOTS, weights, strict=True) if weight > 0
+    )
+    if not active_lag_slots:  # guarded by the sum-to-one check, kept explicit here
+        raise ValueError(f"{candidate.name}: at least one lag weight must be positive")
+    first_residual_index = max(active_lag_slots)
+    for index in range(first_residual_index, len(values)):
         lag_values = values[index - np.asarray(LAG_SLOTS)]
         residuals[index] = values[index] - float(np.dot(weights, lag_values))
 

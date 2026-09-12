@@ -112,6 +112,22 @@ def test_prediction_uses_exact_7_14_21_28_day_target_lags() -> None:
     assert prediction.power_kw == pytest.approx(expected)
 
 
+def test_each_candidate_starts_residual_history_at_its_longest_active_lag() -> None:
+    series = _AUDIT.build_load_series(_synthetic_actual())
+    candidates = {
+        candidate.name: candidate for candidate in _AUDIT.candidate_specs((0.5, 1.0, 2.0))
+    }
+    lag7_state = _AUDIT.fit_candidate_state(series, candidates[_AUDIT.REFERENCE_METHOD])
+    load_a_state = _AUDIT.fit_candidate_state(series, candidates[_AUDIT.PREFERRED_METHOD])
+
+    assert np.isnan(lag7_state.residual_kw[_AUDIT.LAG_SLOTS[0] - 1])
+    assert np.isfinite(lag7_state.residual_kw[_AUDIT.LAG_SLOTS[0]])
+    assert np.isnan(load_a_state.residual_kw[_AUDIT.LAG_SLOTS[-1] - 1])
+    assert np.isfinite(load_a_state.residual_kw[_AUDIT.LAG_SLOTS[-1]])
+    assert lag7_state.ar_denominator[_AUDIT.LAG_SLOTS[-1]] > 0
+    assert load_a_state.ar_denominator[_AUDIT.LAG_SLOTS[-1]] == 0
+
+
 def test_load_series_rejects_a_missing_ten_minute_interval() -> None:
     actual = _synthetic_actual(days=1)
     del actual[dt.datetime(2025, 1, 1, 0, 20)]
