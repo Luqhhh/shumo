@@ -17,12 +17,12 @@ baseline 补齐最新附件3 snapshot 无法覆盖的窗口尾部：
   training_cutoff/source_refs`，并固定
   `fallback_reason="attachment3_horizon_exhausted"`；
 - 不得把补尾值伪装成附件3发布值；缺少获批 baseline 时显式阻断；
-- baseline 的具体历史算法另立小型 forecast decision，在其 machine 状态批准前
-  未批准时不进入正式 Q3 runner；该算法现已由 C-6 单独批准。
+- baseline 的具体历史算法另立小型 forecast decision；该算法现已由 C-6 单独
+  批准为 `TAIL-EXP2`。
 
 发布时刻先一次性保存144点不可变 `PVForecastSnapshot`；中间 MPC 只切片，不重新
-调用附件3 combiner/resampler。人工仍需明确 baseline 算法、冷启动、历史缺失和
-非负处理；该 pending decision 已加入 Q3 与 final gate。
+调用附件3 combiner/resampler。获批 baseline 缺少任一日滞后时显式失败，不静默
+切换算法；`D_PV_TAIL_BASELINE` 继续保留在 Q3 与 final gate 中防止状态回退。
 
 ## 2. 实际短缺：charge curtailment recourse
 
@@ -78,3 +78,11 @@ tests/test_q2_inputs.py
 不 merge B 分支，不 cherry-pick 其整条提交历史，不带入旧 `decisions.toml`。
 该 adapter 必须继续验证每天144格完整、指定 `expected_days` 不缺不多、负载/PV
 网格一致、右端点对齐和输入哈希。
+
+## 5. C-7 负载版本：LOAD-HORIZON-A
+
+2026-09-13 队长单独确认：Q3 的 LOAD-A 仍只在00/06/12/18发布，每版一次性冻结
+未来30小时（180个十分钟点）；中间10分钟 MPC 只从最近已发布版本切取未来24小时
+（144点），不得重新运行负载预测。30小时只用于覆盖两个发布时间之间最长5小时
+50分钟的窗口缺口，不改变Q2更新机制。下一发布时间到达后必须换用新版本；实现
+不得读取未来 forecast version 或实际负载。

@@ -13,8 +13,10 @@ LOAD_ACTUAL_KIND = "load_actual_kw"
 Q3_ISSUE_HOURS = (0, 6, 12, 18)
 LOAD_LAG_DAYS = (7, 14, 21, 28)
 LOAD_LAG_WEIGHTS = (8 / 15, 4 / 15, 2 / 15, 1 / 15)
-LOAD_FORECAST_MODEL_VERSION = "LOAD-A+LF-A/v1"
-DEFAULT_LOAD_HORIZON_STEPS = 24 * 60 // STEP_MINUTES
+LOAD_FORECAST_MODEL_VERSION = "LOAD-A+LF-A+LOAD-HORIZON-A/v2"
+LOAD_VERSION_HORIZON_HOURS = 30
+LOAD_VERSION_HORIZON_STEPS = LOAD_VERSION_HORIZON_HOURS * 60 // STEP_MINUTES
+DEFAULT_LOAD_HORIZON_STEPS = LOAD_VERSION_HORIZON_STEPS
 AR_DENOMINATOR_ZERO_TOL_KW2 = 1e-18
 
 
@@ -140,9 +142,8 @@ def forecast_q3_load(
     info: InfoSet,
     *,
     data_version: str,
-    horizon_steps: int = DEFAULT_LOAD_HORIZON_STEPS,
 ) -> tuple[LoadForecastPoint, ...]:
-    """Generate one approved LF-A version at 00/06/12/18.
+    """Generate one approved immutable 30-hour LF-A version at 00/06/12/18.
 
     The predictor uses only load actuals retained by ``info``.  It computes
     expanding residual history from the first timestamp with all four weekly
@@ -154,11 +155,6 @@ def forecast_q3_load(
         raise InputError("Q3 load forecast is only updated at 00:00/06:00/12:00/18:00")
     if not data_version.strip():
         raise InputError("data_version must be non-empty")
-    if isinstance(horizon_steps, bool) or not isinstance(horizon_steps, int) or horizon_steps <= 0:
-        raise InputError("horizon_steps must be a positive integer")
-    if horizon_steps > DEFAULT_LOAD_HORIZON_STEPS:
-        raise InputError("Q3 load forecast horizon cannot exceed 24 hours")
-
     history = _load_history(info)
     _require_continuous_history(history, decision_time)
     residuals: dict[dt.datetime, float] = {}
@@ -188,7 +184,7 @@ def forecast_q3_load(
     )
 
     points: list[LoadForecastPoint] = []
-    for horizon_step in range(1, horizon_steps + 1):
+    for horizon_step in range(1, DEFAULT_LOAD_HORIZON_STEPS + 1):
         valid_time = decision_time + horizon_step * step
         base_kw, lag_values, source_refs = _base_at(valid_time, history)
         raw_kw = base_kw + phi**horizon_step * latest_residual

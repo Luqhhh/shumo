@@ -11,7 +11,7 @@
 | 附件3版本读取 | 已实现方法中立适配器 | `problem/q3_inputs.py` | 正式组合器只能接收可见版本 |
 | 小时到十分钟重采样 | 已批准并实现 | `problem/q3_resampling.py` | 直接复用，不在 solver 重写 |
 | PV 版本组合 | 已批准并有生产实现 | `problem/q3_pv_forecast.py` | 接入统一 Q3 input bundle |
-| 负载预测 | 已批准并有生产实现 | `problem/q3_load_forecast.py` | 接入统一 Q3 input bundle |
+| 负载预测 | 已批准并有30 h不可变版本 | `problem/q3_load_forecast.py`、`q3_load_snapshot.py` | 中间 MPC 仅切24 h窗口 |
 | 年度 actual adapter | 已选择性整合 | `problem/q2_inputs.py` | 复用，不另写全年读取器 |
 | PV snapshot/window | 接口与测试已实现 | `problem/q3_pv_snapshot.py` | 接入获批 `TAIL-EXP2` |
 | 统一 Q3 input bundle | 缺失 | 预测层、actual adapter、PV window 均已就绪 | tail 算法与负载覆盖澄清后组装 |
@@ -29,11 +29,9 @@
 整合边界；2026-09-13 又单独确认 C-6 `TAIL-EXP2`。该算法已按1至7日同slot、
 2日半衰期固定权重实现，仍由 `D_PV_TAIL_BASELINE` gate 防止决策状态回退。
 
-实现 `Q3WindowInput` 时又发现一个对称的负载覆盖断点：现有 LOAD-A 只允许
-00/06/12/18生成最多24小时预测，不能覆盖中间 MPC 的固定24小时窗口尾部。
-这不一定需要新算法，但必须由队长确认是“发布时间生成30小时、随后切片”还是
-“每10分钟重新预测24小时”。精确选项见 Card C-7；Agent 不擅自改变已批准的
-LF-A 更新频率或 horizon。
+对称的负载覆盖断点也已由队长单独确认 C-7 `LOAD-HORIZON-A`：LOAD-A 仍只在
+00/06/12/18发布，每版冻结30小时；中间 MPC 仅从最近发布版本切取24小时，
+不重新预测。30小时只覆盖最长5小时50分钟缺口，不改变 Q2 更新机制。
 
 ## 3. 已提前补强的绿色测试
 
@@ -48,8 +46,9 @@ LF-A 更新频率或 horizon。
 - LIN/PCHIP 确定性和输入不变性。
 - 正式 `VERSION-B + WEIGHT-B` 组合、平方倒数权重、历史截止、provenance
   和缺失因果历史显式失败；
-- 正式 `LOAD-A + LF-A` 的 24 小时输出、四周滞后、AR(1)、非负截断、
-  provenance、未来 actual 不可见和历史缺口显式失败。
+- 正式 `LOAD-A + LF-A + LOAD-HORIZON-A` 的30小时不可变版本、四周滞后、
+  AR(1)、非负截断、provenance、未来 actual 不可见和历史缺口显式失败；中间
+  11:50 决策从06:00版完整切出未来24小时且不重新预测。
 - P00/P06/P12/P18 不可变快照、逐版 delta、已执行时隙冻结和
   `100 -> 110 -> 90 -> 95` 的 SETTLE-A-v2 手算费用。
 - 发布时刻一次性生成不可变的144点 PV snapshot，中间 MPC 只切片并只向 tail
@@ -66,9 +65,9 @@ LF-A 更新频率或 horizon。
 ## 4. 最短实施路径
 
 ```text
-1. 单独确认并实现 LOAD-HORIZON-A
-2. 组装不含未来 actual 的 Q3WindowInput
-3. 验证 PV/Load 两类不可变版本均只按最新发布时间切片
+1. 组装不含未来 actual 的 Q3WindowInput
+2. 验证 PV/Load 两类不可变版本均只按最新发布时间切片
+3. 实现单窗口 Q3 MILP + 独立 validator
 4. 实现单窗口 Q3 MILP + 独立 validator
 5. 接入 charge curtailment 回放、settlement 和 run artifacts
 6. 按合成窗口、1日、7日、1月、全年逐级验证
@@ -88,7 +87,7 @@ LF-A 更新频率或 horizon。
 - [x] charge curtailment recourse 已由队长与 C 成员冻结；
 - [x] charge curtailment 生产 contract 与公式级测试已实现，不做 spill 来源归属；
 - [x] `D_PV_TAIL_BASELINE` 已批准为 `TAIL-EXP2` 并有生产实现与证据；
-- [ ] LOAD-A 对中间 MPC 的24小时覆盖方式已由队长确认；
+- [x] LOAD-HORIZON-A 已由队长确认并实现30 h版本/24 h切片 contract；
 - [x] shared ledger/provenance 采用结构化 sidecar；
 - [x] 修正版年度 actual adapter 已选择性整合；
 - [x] 三份 sidecar 的精确结构、预测引用、往返、拒绝覆盖和哈希测试通过；

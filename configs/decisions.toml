@@ -94,6 +94,9 @@ Q3采用LOAD-A + LF-A。目标时刻前7/14/21/28天同slot负载按
 phi=clip(sum(e[s-1]*e[s])/sum(e[s-1]^2),0,0.999)，分母为0时phi=0；
 forecast(t+h)=max(0,base(t+h)+phi^h*e[t])，h为十分钟步数。
 00/06/12/18使用available_at<=decision_time的历史更新，每版独立留存；
+每个发布时间一次性冻结未来30小时（180个十分钟点）的不可变版本；中间10分钟MPC
+只从最近一次已发布版本切取未来24小时（144点），不重新预测。30小时仅用于覆盖
+两个发布时间之间最多5小时50分钟的窗口尾部，不改变Q2预测机制或Q3发布时间。
 一月仅作历史初始化，二月起运行；缺少所需周滞后或残差时显式报错，不填未来actual。
 保留半周半衰期和LF-B（当日00:00版不更新）敏感性。
 记录decision_time/valid_time/available_at/training_cutoff/lag_values/lag_weights/
@@ -101,10 +104,10 @@ ar1_phi/latest_visible_residual/model_version/data_version/prediction_value。
 日内更新是MODELING_ASSUMPTION，算法和半衰期是EMPIRICAL_CHOICE；
 本次批准范围为Q3，不据此批准Q2或Q4的预测模型。
 """
-rationale = "A明确正式确认LOAD-A + LF-A；官方附件2复算48096个共同目标，MAE为163.9090 kW，对比7天基线175.3080 kW和LF-B 166.9809 kW；不宣称参数唯一最优。"
-confirmed_by = "A（本会话用户）"
-confirmed_at = "2026-09-12"
-source = "2026-09-12本会话用户明确确认；docs/c_load_forecast_evidence.md；C-1/C-5；审阅提交7b90599"
+rationale = "A明确正式确认LOAD-A + LF-A，并于2026-09-13单独确认C-7 LOAD-HORIZON-A；30小时版本保证任意两次发布时间之间的10分钟MPC仍有完整24小时负载窗口，且不引入中间重预测。官方附件2复算48096个共同目标，MAE为163.9090 kW，对比7天基线175.3080 kW和LF-B 166.9809 kW；不宣称参数唯一最优。"
+confirmed_by = "A（队长，经C成员本会话转述）"
+confirmed_at = "2026-09-13"
+source = "2026-09-12 LOAD-A/LF-A确认与2026-09-13 C-7确认（均经C成员本会话转述）；docs/c_load_forecast_evidence.md；C-1/C-5/C-7；审阅提交7b90599"
 
 [decisions.D_PV_TAIL_BASELINE]
 status = "approved"

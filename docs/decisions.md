@@ -22,7 +22,7 @@ Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。2
 | D-INFO | `available_at <= decision_time`；只按可获得时间使用信息；未来 actual 只用于回放结算 | 预测与计划输入 |
 | D-RESAMPLE | 已批准：接收上游唯一小时预测序列；LIN 主方案、PCHIP 敏感性；最近十分钟实际均值作边界代理；输出按右端点对齐 | Q3/Q4-3 预报处理 |
 | D-SETTLE | 已批准：SETTLE-A-v2逐版增减量、正常合同全额付费、紧急5倍费率、显式能量等式 | 正式费用计算 |
-| D-LOAD-FORECAST | 已批准：Q3 LOAD-A + LF-A；四周加权与因果AR(1)，保留LF-B和半周敏感性 | Q3预测与final gate |
+| D-LOAD-FORECAST | 已批准：Q3 LOAD-A + LF-A + LOAD-HORIZON-A；四周加权与因果AR(1)，00/06/12/18冻结30 h、中间切24 h；保留LF-B和半周敏感性 | Q3预测与final gate |
 
 ## 架构冻结后建议新增的决策
 

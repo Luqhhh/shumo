@@ -8,6 +8,7 @@ from microgrid.problem.contracts import InfoItem, InfoSet
 from microgrid.problem.q3_load_forecast import (
     LOAD_FORECAST_MODEL_VERSION,
     LOAD_LAG_WEIGHTS,
+    LOAD_VERSION_HORIZON_STEPS,
     forecast_q3_load,
 )
 from microgrid.schemas import InputError
@@ -29,15 +30,15 @@ def _constant_history(decision_time: dt.datetime) -> tuple[InfoItem, ...]:
     return tuple(_load_item(start + dt.timedelta(minutes=10 * index)) for index in range(count))
 
 
-def test_approved_load_forecast_produces_24_hours_with_full_provenance() -> None:
+def test_approved_load_forecast_produces_30_hours_with_full_provenance() -> None:
     decision_time = dt.datetime(2025, 2, 5, 0, 0)
     info = InfoSet.from_raw(decision_time, _constant_history(decision_time))
 
     forecast = forecast_q3_load(info, data_version="attachment2-sha256")
 
-    assert len(forecast) == 144
+    assert len(forecast) == LOAD_VERSION_HORIZON_STEPS == 180
     assert forecast[0].valid_time == decision_time + dt.timedelta(minutes=10)
-    assert forecast[-1].valid_time == decision_time + dt.timedelta(hours=24)
+    assert forecast[-1].valid_time == decision_time + dt.timedelta(hours=30)
     assert all(point.power_kw == pytest.approx(1_000.0) for point in forecast)
     assert all(point.energy_kwh == pytest.approx(1_000.0 / 6.0) for point in forecast)
     assert all(point.ar1_phi == 0.0 for point in forecast)
@@ -73,7 +74,6 @@ def test_load_forecast_fits_the_approved_expanding_no_intercept_ar1() -> None:
     forecast = forecast_q3_load(
         InfoSet.from_raw(decision_time, tuple(history)),
         data_version="v",
-        horizon_steps=2,
     )
 
     assert forecast[0].ar1_phi == pytest.approx(0.5)
