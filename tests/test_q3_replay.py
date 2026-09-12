@@ -18,7 +18,9 @@ def test_full_planned_charge_is_kept_when_realized_supply_is_sufficient() -> Non
 
     assert result.executed_action.charge_kwh == pytest.approx(40.0)
     assert result.emergency_purchase_kwh == pytest.approx(0.0)
-    assert result.unattributed_surplus_kwh == pytest.approx(0.0)
+    assert result.grid_spill_kwh == pytest.approx(0.0)
+    assert result.pv_used_kwh == pytest.approx(20.0)
+    assert result.pv_curtailment_kwh == pytest.approx(0.0)
     assert result.state_end.energy_kwh == pytest.approx(6_036.0)
 
 
@@ -49,7 +51,9 @@ def test_emergency_only_fills_load_after_charge_reaches_zero() -> None:
     assert result.executed_action.charge_kwh == pytest.approx(0.0)
     assert result.executed_action.discharge_kwh == pytest.approx(0.0)
     assert result.emergency_purchase_kwh == pytest.approx(20.0)
-    assert result.unattributed_surplus_kwh == pytest.approx(0.0)
+    assert result.grid_spill_kwh == pytest.approx(0.0)
+    assert result.pv_used_kwh == pytest.approx(10.0)
+    assert result.pv_curtailment_kwh == pytest.approx(0.0)
     assert result.state_end.energy_kwh == pytest.approx(6_000.0)
 
 
@@ -67,7 +71,7 @@ def test_recourse_never_increases_planned_discharge() -> None:
     assert result.state_end.energy_kwh == pytest.approx(6_000.0 - 10.0 / 0.9)
 
 
-def test_surplus_is_retained_without_choosing_grid_or_pv_attribution() -> None:
+def test_attr_pv_first_spills_grid_before_curtailing_pv() -> None:
     result = apply_charge_curtailment(
         state_start=BatteryState(6_000.0),
         planned_action=BatteryAction(),
@@ -77,9 +81,34 @@ def test_surplus_is_retained_without_choosing_grid_or_pv_attribution() -> None:
     )
 
     assert result.emergency_purchase_kwh == pytest.approx(0.0)
-    assert result.unattributed_surplus_kwh == pytest.approx(150.0)
-    assert not hasattr(result, "grid_spill_kwh")
-    assert not hasattr(result, "pv_curtailment_kwh")
+    assert result.grid_spill_kwh == pytest.approx(100.0)
+    assert result.pv_used_kwh == pytest.approx(50.0)
+    assert result.pv_curtailment_kwh == pytest.approx(50.0)
+
+
+def test_attr_pv_first_keeps_all_pv_when_grid_spill_covers_surplus() -> None:
+    result = apply_charge_curtailment(
+        state_start=BatteryState(6_000.0),
+        planned_action=BatteryAction(),
+        confirmed_purchase_kwh=100.0,
+        actual_load_kwh=70.0,
+        actual_pv_kwh=20.0,
+    )
+
+    assert result.grid_spill_kwh == pytest.approx(50.0)
+    assert result.pv_used_kwh == pytest.approx(20.0)
+    assert result.pv_curtailment_kwh == pytest.approx(0.0)
+
+
+def test_replay_rejects_surplus_caused_only_by_fixed_discharge() -> None:
+    with pytest.raises(InputError, match="fixed planned discharge"):
+        apply_charge_curtailment(
+            state_start=BatteryState(6_000.0),
+            planned_action=BatteryAction(discharge_kwh=50.0),
+            confirmed_purchase_kwh=0.0,
+            actual_load_kwh=0.0,
+            actual_pv_kwh=0.0,
+        )
 
 
 def test_replay_rejects_negative_realized_energy() -> None:

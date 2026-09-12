@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 
 from ..schemas import InputError
-from .contracts import ENERGY_ABS_TOL_KWH, BatteryAction
+from .contracts import ENERGY_ABS_TOL_KWH, BatteryAction, IntervalResult
 from .q2_inputs import ActualInterval
 from .q3_plan_ledger import Q3EmergencySettlementEntry, Q3PlanLedger
 from .q3_replay import ChargeCurtailmentResult, apply_charge_curtailment
@@ -16,7 +16,7 @@ from .q3_window import Q3WindowInput
 
 @dataclass(frozen=True)
 class Q3ExecutedStep:
-    """One causal solve/commit/execute result before surplus attribution."""
+    """One causal solve/commit/execute result under ATTR-PV-FIRST."""
 
     window: Q3WindowInput
     solution: Q3WindowSolution
@@ -44,6 +44,26 @@ class Q3ExecutedStep:
                 raise ValueError("positive emergency energy requires a settlement entry")
         elif self.emergency_settlement is not None:
             raise ValueError("zero emergency energy must not create a settlement entry")
+
+    def to_interval_result(self) -> IntervalResult:
+        """Return the shared final interval payload for this executed step."""
+
+        return IntervalResult(
+            day=self.actual.day,
+            slot=self.actual.slot,
+            load_kw=self.actual.load_kw,
+            pv_kw=self.actual.pv_kw,
+            planned_purchase_kwh=self.planned_purchase_kwh,
+            adjusted_purchase_kwh=self.confirmed_purchase_kwh,
+            emergency_purchase_kwh=self.replay.emergency_purchase_kwh,
+            action=self.replay.executed_action,
+            state_start=self.replay.state_start,
+            state_end=self.replay.state_end,
+            source_ref=(
+                f"actual_load={self.actual.load_source_ref};actual_pv={self.actual.pv_source_ref}"
+            ),
+            pv_used_kwh=self.replay.pv_used_kwh,
+        )
 
 
 def _base_ledger(window: Q3WindowInput, solution: Q3WindowSolution) -> Q3PlanLedger:

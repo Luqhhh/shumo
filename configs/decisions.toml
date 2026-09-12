@@ -159,13 +159,16 @@ raw_weight=1/(MAE_h(decision_time)+1 kW)^2；误差历史valid_time<=当前decis
 已发生费用视为常数；正式费用必须重算实际回放，不能累计优化目标冒充成本。
 超出当日的合同变量仅作lookahead，不提交或收费；次日00:00重新生成版本0。
 缺失预测、历史或无可行解须显式阻断并记录，不静默回退到未批准的Q2预测。
+实际回放的剩余供给采用ATTR-PV-FIRST归属：优先保留实际光伏用于本地消纳，
+surplus先记为不超过q_final的S_grid，剩余部分才记为不超过PV_actual的S_PV；
+不得把固定计划放电造成的额外过供伪装成合同余电或弃光，此时回放显式失败。
 敏感性保留最新PV版本、56日误差历史、epsilon=0.1/5/10 kW、PCHIP、
 LOAD半周半衰期、LF-B及终端价值0.8v/1.2v，不自动选入正式主结果。
 """
-rationale = "A在本会话明确批准D_MODEL_Q3；按现有滚动MILP提案与C线可复现证据冻结实现口径，epsilon取已有1 kW复算基准；Q3所需滚动、终端和年度条件完整收进本decision，不依赖未接入gate的隐含批准。"
-confirmed_by = "A（本会话用户）"
-confirmed_at = "2026-09-12"
-source = "2026-09-12本会话用户批准消息；docs/q3_model.md；docs/c_forecast_version_evidence.md；B分支b4113b0的Q3/MPC/TERMINAL/YEAR_BOUNDARY提案；C线7b90599"
+rationale = "A在本会话明确批准D_MODEL_Q3；按现有滚动MILP提案与C线可复现证据冻结实现口径，epsilon取已有1 kW复算基准；Q3所需滚动、终端和年度条件完整收进本decision，不依赖未接入gate的隐含批准。C成员于2026-09-13明确选择ATTR-PV-FIRST作为Q3实际结果归属假设。"
+confirmed_by = "A（本会话用户）；C（本会话用户确认ATTR-PV-FIRST）"
+confirmed_at = "2026-09-13"
+source = "2026-09-12本会话用户批准消息；2026-09-13 C成员本会话ATTR-PV-FIRST选择；docs/q3_model.md；docs/c_forecast_version_evidence.md；B分支b4113b0的Q3/MPC/TERMINAL/YEAR_BOUNDARY提案；C线7b90599"
 
 [decisions.D_MODEL_Q4_2]
 status = "proposed"

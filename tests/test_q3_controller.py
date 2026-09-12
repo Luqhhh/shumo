@@ -134,6 +134,14 @@ def test_base_plan_executes_only_first_slot_and_records_actual_emergency() -> No
     assert executed.emergency_settlement is not None
     assert executed.emergency_settlement.cost_cny == pytest.approx(150.0)
 
+    interval = executed.to_interval_result()
+    assert interval.planned_purchase_kwh == pytest.approx(50.0)
+    assert interval.adjusted_purchase_kwh == pytest.approx(50.0)
+    assert interval.emergency_purchase_kwh == pytest.approx(30.0)
+    assert interval.pv_used_kwh == pytest.approx(30.0)
+    assert interval.action == executed.replay.executed_action
+    assert interval.state_end == executed.replay.state_end
+
     rows = settlement_rows(
         (executed.ledger_after,),
         emergency_entries=(executed.emergency_settlement,),
@@ -166,6 +174,22 @@ def test_revision_updates_only_unfrozen_today_slots_and_executes_first_action() 
     assert executed.confirmed_purchase_kwh == pytest.approx(10.0)
     assert executed.replay.emergency_purchase_kwh == pytest.approx(0.0)
     assert executed.emergency_settlement is None
+
+
+def test_controller_interval_result_uses_attr_pv_first() -> None:
+    window = _base_window()
+    solution = solve_q3_window_milp(window)
+    executed = execute_q3_window_step(
+        window=window,
+        solution=solution,
+        actual=_actual(window.decision_time.date(), 0, load_kw=480.0, pv_kw=600.0),
+        current_ledger=None,
+    )
+
+    interval = executed.to_interval_result()
+    assert executed.replay.grid_spill_kwh == pytest.approx(50.0)
+    assert executed.replay.pv_curtailment_kwh == pytest.approx(20.0)
+    assert interval.pv_used_kwh == pytest.approx(80.0)
 
 
 def test_controller_rejects_actual_from_a_different_slot() -> None:

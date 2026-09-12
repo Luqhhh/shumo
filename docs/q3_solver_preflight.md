@@ -187,10 +187,10 @@ charge-to-discharge、重新求解或使用 emergency 给电池充电。PV/grid 
 归属优先级仍不是该 contract 的一部分，实现时不得顺手添加。
 
 单步控制器现已完成计划版本更新、第一格 charge-curtailment 回放和紧急费用记录。
-但现有 `IntervalResult` 必须填写 `pv_used_kwh`，因此正式 runner 前仍需团队确认：
-出现总 surplus 时，是优先保留光伏并把合同电记为未利用，还是优先利用已付费合同
-电并把光伏记为弃光。两者不改变本题结算总成本，但会改变弃光/合同浪费指标；该
-归属不得由实现者暗中决定。
+2026-09-13，C成员选择 `ATTR-PV-FIRST`：总 surplus 先归入不超过合同量的
+`grid_spill`，剩余部分才归入不超过实际PV的 `pv_curtailment`。该规则不改变
+费用，但固定了弃光/合同浪费指标；若两类可用来源全部扣除后仍有 surplus，说明
+计划放电本身造成过供，回放显式失败。单步结果现可无歧义转换成 `IntervalResult`。
 
 ## 7. 版本计划与结果审计接口
 
