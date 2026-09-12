@@ -155,6 +155,14 @@ class Q3WindowInput:
     points: tuple[Q3WindowPoint, ...]
 
     def __post_init__(self) -> None:
+        if self.planning_event != _planning_event(self.decision_time):
+            raise ValueError("Q3 planning_event does not match decision_time")
+        expected_snapshot = _latest_snapshot_issue(self.decision_time)
+        if (
+            self.load_snapshot_issue_time != expected_snapshot
+            or self.pv_snapshot_issue_time != expected_snapshot
+        ):
+            raise ValueError("Q3 input must retain the latest visible forecast snapshots")
         if not 1 <= len(self.points) <= LOAD_MPC_WINDOW_STEPS:
             raise ValueError("Q3 window input must contain 1..144 points")
         for step, point in enumerate(self.points, start=1):

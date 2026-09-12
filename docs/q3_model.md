@@ -53,6 +53,8 @@ Q4 对应使用附件4实际结算价格，其计划价格可见性仍需各自�
 Q3 仅在00/06/12/18改变当日尚未开始的合同。已执行时隙冻结；“之前已确认”
 不等于“未来永不准调整”。发布之间合同固定，十分钟电池控制不得重写合同。
 跨日 lookahead 变量不是次日已经提交的合同，次日00:00才生成自己的版本0。
+其固定价成本只作为当前优化的 `lookahead_surrogate_cost`，避免把次日外网电当成
+免费能源；不写交易账本，也不进入正式累计结算。
 账本保存每次 `issue_time/target_slot/previous_committed_kwh/new_committed_kwh/
 delta_kwh/transaction_price/is_frozen`；最终调整表输出总量而不是增量。
 

@@ -20,7 +20,8 @@
 | 结构化 sidecar | 已实现精确字段与引用检查 | `problem/q3_sidecars.py` | runner 后续登记路径与哈希 |
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
 | 实际回放 | 最小 recourse 已实现 | `problem/q3_replay.py` | 不得扩展成任意 redispatch |
-| Q3 solver/runner | 未实现 | `problem/q3.py` 明确报错 | 预测与 ledger 输入准备后实现 |
+| 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
+| Q3 年度 runner | 未实现 | `problem/q3.py` 明确报错 | 组装滚动、回放和 artifacts |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
 ## 2. 剩余的 P0 阻断
@@ -63,6 +64,9 @@
 - 统一 `Q3WindowInput` 对齐144格负载/PV/右端点价格/合同状态/SOC；00:00新计划、
   06/12/18可调整、非发布时间固定、次日仅lookahead四种模式互斥；未来版本、
   过期 ledger 和年末未截断窗口均显式失败；年末改用6000 kWh硬约束且移除残值。
+- 单窗口 SciPy/HiGHS MILP 覆盖合同量、逐版增减、充放电互斥、SOC、PV消纳、
+  合同余电、预测紧急电量及其互斥；独立 validator 重新计算全部物理残差和经济
+  分项。完整144格合成窗口、固定合同短缺、调整增加和年末不可达均已测试。
 
 以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
 
@@ -72,10 +76,9 @@
 ## 4. 最短实施路径
 
 ```text
-1. 实现单窗口 Q3 MILP + 独立 validator
-2. 把窗口解接入计划版本、charge curtailment 与 settlement
-3. 写入三份 sidecar 和 CaseResult
-4. 按合成窗口、1日、7日、1月、全年逐级验证
+1. 把窗口解接入计划版本、charge curtailment 与 settlement
+2. 写入三份 sidecar 和 CaseResult
+3. 先完成合成1日滚动测试，再依次做真实1日、7日、1月、全年
 ```
 
 ## 5. 求解器开工验收
@@ -97,6 +100,7 @@
 - [x] 修正版年度 actual adapter 已选择性整合；
 - [x] 三份 sidecar 的精确结构、预测引用、往返、拒绝覆盖和哈希测试通过；
 - [x] 不含未来 actual 的 `Q3WindowInput` 已通过对齐、版本、ledger和年末contract test；
+- [x] 单窗口 Q3 MILP 与独立 validator 已通过1格和完整144格合成测试；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-在求解器、独立 validator 和年度 runner 完成前，正式年度 runner仍不能返回成功。
+在滚动控制、实际回放结算和年度 runner 完成前，正式年度 runner仍不能返回成功。
