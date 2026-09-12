@@ -11,7 +11,7 @@ from functools import lru_cache
 
 import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, milp
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, vstack
 
 from .contracts import ENERGY_ABS_TOL_KWH as TOL
 from .contracts import MAX_BUS_ENERGY_KWH as M
@@ -26,6 +26,7 @@ from .q4_common import (
     reserve_start_from_config,
 )
 from .q4_forecasts import ForecastSnapshot
+from .q4_risk_history import procurement_floor_activation, procurement_margins
 
 FIELDS = (
     "grid",
@@ -53,7 +54,10 @@ def forecast_reserve_start(forecast: ForecastSnapshot):
             "price_method": forecast.price_method,
             "pv_blend": forecast.traces.get("pv_blend", {}).get("parameters"),
             "optimization": forecast.traces.get(
-                "pv_bias", forecast.traces.get("terminal_value_rule", {})
+                "pv_bias",
+                forecast.traces.get(
+                    "terminal_value_rule", forecast.traces.get("safety_procurement", {})
+                ),
             ).get("parameters"),
             "terminal_reserve": None
             if forecast.model_version == "q4-v2"
@@ -137,6 +141,11 @@ def validate_dispatch(
     if plan.energy[0] < energy_lower_bound(forecast.slots[0], reserve_start) - TOL:
         issues.append("initial_energy_lower_bound")
     permissions = ledger.permissions(forecast.slots[0], forecast.slots)
+    margins = procurement_margins(forecast)
+    if "safety_procurement" in forecast.traces and plan.solver_record.get(
+        "procurement_floor_active"
+    ) != list(procurement_floor_activation(forecast, permissions)):
+        issues.append("procurement_floor_mask_binding")
     for k, (flow, load, pv, permission, slot) in enumerate(
         zip(
             plan.flows, forecast.load_kwh, forecast.pv_kwh, permissions, forecast.slots, strict=True
@@ -189,6 +198,12 @@ def validate_dispatch(
                 issues.append(f"{k}:adjustment_constraint")
         elif max(plus, minus, w) > TOL:
             issues.append(f"{k}:nontrade_delta")
+        if (
+            permission != "fixed"
+            and margins[k] > 0
+            and grid + d < max(0.0, load - pv + margins[k]) - TOL
+        ):
+            issues.append(f"{k}:safety_procurement_floor")
         remaining = int((YEAR_END - (slot + STEP)) / STEP)
         if (
             plan.energy[k + 1] < 6000 - remaining * 0.9 * M - TOL
@@ -374,6 +389,25 @@ def build_dispatch_problem(
     if forecast.slots[-1] + STEP == YEAR_END:
         lower[-1] = upper[-1] = 6000
     matrix = csc_matrix((coefficients, structure.indices, structure.indptr), shape=structure.shape)
+    margins = procurement_margins(forecast)
+    extra_rows, extra_columns, extra_values, floors = [], [], [], []
+    for k, (permission, margin, load, pv) in enumerate(
+        zip(permissions, margins, forecast.load_kwh, forecast.pv_kwh, strict=True)
+    ):
+        floor = max(0.0, load - pv + margin)
+        if permission != "fixed" and margin > 0 and floor > 0:
+            row = len(floors)
+            extra_rows.extend((row, row))
+            extra_columns.extend((k * WIDTH + G, k * WIDTH + D))
+            extra_values.extend((1.0, 1.0))
+            floors.append(floor)
+    if floors:
+        extra = csc_matrix(
+            (extra_values, (extra_rows, extra_columns)), shape=(len(floors), len(objective))
+        )
+        matrix = vstack((matrix, extra), format="csc")
+        rlo = np.concatenate((rlo, floors))
+        rhi = np.concatenate((rhi, np.full(len(floors), np.inf)))
     return DispatchProblem(permissions, objective, integrality, lower, upper, matrix, rlo, rhi)
 
 
@@ -528,6 +562,10 @@ def solve_dispatch(
             "solver_validation_failed", "roundoff objective change exceeds numerical tolerance"
         )
     gap = max(0.0, float(result.fun) - float(result.mip_dual_bound)) + numeric_cost_error
+    if "safety_procurement" in forecast.traces:
+        record["procurement_floor_active"] = list(
+            procurement_floor_activation(forecast, permissions)
+        )
     record["roundoff_corrections"] = corrections
     record["objective_raw_solver"] = float(result.fun)
     record["objective"] = value
@@ -582,6 +620,20 @@ def reuse_tail(
     permissions = ledger.permissions(forecast.slots[0], forecast.slots)
     if any(permission in ("new_day", "adjustable") for permission in permissions):
         return reject("contract_permissions")
+    floor_mask = None
+    if "safety_procurement" in forecast.traces:
+        previous_mask = previous.solver_record.get("procurement_floor_active")
+        if (
+            not isinstance(previous_mask, list)
+            or len(previous_mask) != len(previous.flows)
+            or any(type(value) is not bool for value in previous_mask)
+        ):
+            return reject("procurement_floor_mask")
+        floor_mask = list(procurement_floor_activation(forecast, permissions))
+        if any(old and not new for old, new in zip(previous_mask[1:], floor_mask, strict=True)):
+            # Removing a floor relaxes the conditioned problem. The original
+            # parent lower bound cannot certify this larger feasible set.
+            return reject("procurement_floor_relaxed")
     flows = tuple(
         tuple(0.0 if i in (A, B, W) else value for i, value in enumerate(flow))
         for flow in previous.flows[1:]
@@ -607,6 +659,8 @@ def reuse_tail(
         "window_start": str(forecast.slots[0]),
         "contract_hash": contract_hash(ledger, forecast),
     }
+    if floor_mask is not None:
+        record["procurement_floor_active"] = floor_mask
     plan = replace(
         previous,
         flows=flows,

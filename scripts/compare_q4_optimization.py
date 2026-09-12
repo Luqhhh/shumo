@@ -8,12 +8,13 @@ from itertools import zip_longest
 from pathlib import Path
 
 import numpy as np
-from compare_q4_pv_blend import checked_run, period_metrics
+from compare_q4_pv_blend import period_metrics
+from compare_q4_solver_runs import checked
 
 from microgrid.dataio import sha256_file
 from microgrid.problem.q4_common import (
     ACTION_START,
-    MODEL_VERSION,
+    SAFETY_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -30,15 +31,17 @@ def main():
     parser.add_argument("--candidate-run", required=True)
     parser.add_argument("--end-time", default=str(YEAR_END))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--case", choices=("q4_2", "q4_3"), default="q4_3")
+    parser.add_argument("--mechanism", choices=("terminal", "safety"), default="terminal")
     args = parser.parse_args()
+    version = SAFETY_MODEL_VERSION if args.mechanism == "safety" else TERMINAL_MODEL_VERSION
+    trace_key = "safety_procurement" if args.mechanism == "safety" else "terminal_value_rule"
     end = dt.datetime.fromisoformat(args.end_time)
     if args.output.exists() or not ACTION_START < end <= YEAR_END or end.time() != dt.time():
         raise InputError("preserve prior evidence; end requires exclusive midnight")
-    baseline = "q4-3-v3-engineering-annual-main-001"
-    before, bcfg, bs, bd = checked_run(args.baseline_repo, baseline, MODEL_VERSION, end)
-    after, acfg, cs, cd = checked_run(
-        args.candidate_repo, args.candidate_run, TERMINAL_MODEL_VERSION, end
-    )
+    baseline = args.case.replace("_", "-") + "-v3-engineering-annual-main-001"
+    before, bcfg, bs, bd = checked(args.baseline_repo, args.case, baseline, end)
+    after, acfg, cs, cd = checked(args.candidate_repo, args.case, args.candidate_run, end, version)
     ignored = ("model_version", "optimization", "end_time")
     if {k: v for k, v in bcfg.items() if k not in ignored} != {
         k: v for k, v in acfg.items() if k not in ignored
@@ -68,8 +71,14 @@ def main():
         ]:
             if a[key] != b[key]:
                 raise InputError("planning comparison changed a raw forecast")
-        if a["traces"] != {k: v for k, v in b["traces"].items() if k != "terminal_value_rule"}:
+        if a["traces"] != {k: v for k, v in b["traces"].items() if k != trace_key}:
             raise InputError("planning comparison changed another provenance")
+        if args.mechanism == "safety":
+            if a["terminal_value"] != b["terminal_value"]:
+                raise InputError("safety procurement changed ordinary terminal value")
+            changed += any(point["margin_kwh"] > 0 for point in b["traces"][trace_key]["points"])
+            forecasts += 1
+            continue
         expected = (
             0.9 * float(np.quantile(a["prices"], 0.75, method="linear"))
             if len(a["slots"]) == 144
@@ -90,7 +99,10 @@ def main():
         args.output,
         {
             "ok": True,
-            "mechanism": "TERMINAL-UPPER-QUARTILE",
+            "mechanism": "SAFETY-PROCUREMENT"
+            if args.mechanism == "safety"
+            else "TERMINAL-UPPER-QUARTILE",
+            "case_id": args.case,
             "full_annual": end == YEAR_END,
             "end_time": str(end),
             "scope": "one mechanism on inspected development data; causal historical replay, not untouched holdout",
@@ -99,7 +111,7 @@ def main():
             "forecast_checks": {
                 "forecasts": forecasts,
                 "raw_point_forecasts_and_provenance_exact": True,
-                "terminal_value_changed": changed,
+                "changed_policy_snapshots": changed,
             },
             "results": {"baseline": a, "candidate": b},
             "delta_candidate_minus_baseline": {k: b[k] - a[k] for k in a},

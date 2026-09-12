@@ -36,6 +36,7 @@ from .q4_common import (
     BLEND_MODEL_VERSION,
     MODEL_VERSION,
     RESERVE_START,
+    SAFETY_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -46,6 +47,7 @@ from .q4_common import (
     jsonable,
     pv_bias_parameters,
     pv_blend_parameters,
+    safety_procurement_parameters,
     terminal_quartile_parameters,
 )
 from .q4_evidence import (
@@ -95,7 +97,11 @@ def _snapshot_from_dict(data):
 def _restore_blend_forecaster(inputs, time_at, run_dir, committed_size, saved_forecast):
     """Replay only the committed forecast prefix and ended history at recovery."""
     service = _initialize_forecaster(
-        inputs, "q4_3", "main", ACTION_START, model_version=saved_forecast["model_version"]
+        inputs,
+        saved_forecast["case_id"],
+        saved_forecast["price_method"],
+        ACTION_START,
+        model_version=saved_forecast["model_version"],
     )
     official = defaultdict(list)
     for item in inputs.official:
@@ -241,18 +247,23 @@ def run_q4(context: CaseContext) -> CaseResult:
         require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
         model_version = BIAS_MODEL_VERSION
     planning_method = context.metadata.get("planning_method", "v3")
-    if planning_method not in ("v3", "terminal-quartile"):
+    if planning_method not in ("v3", "terminal-quartile", "safety-procurement"):
         raise InputError("unknown Q4 planning experiment")
     if planning_method != "v3":
         if (
-            context.case_id != "q4_3"
+            context.case_id
+            not in (("q4_2", "q4_3") if planning_method == "safety-procurement" else ("q4_3",))
             or method != "main"
             or pv_method != "v3"
             or context.metadata.get("solver_method", "scipy") != "scipy"
         ):
             raise InputError("terminal experiment requires unmixed Q4-3/main")
         require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
-        model_version = TERMINAL_MODEL_VERSION
+        model_version = (
+            SAFETY_MODEL_VERSION
+            if planning_method == "safety-procurement"
+            else TERMINAL_MODEL_VERSION
+        )
     from .q4_solver_methods import solver_method_parameters
 
     solver_method = context.metadata.get("solver_method", "scipy")
@@ -301,6 +312,8 @@ def run_q4(context: CaseContext) -> CaseResult:
         config["optimization"] = pv_bias_parameters()
     if model_version == TERMINAL_MODEL_VERSION:
         config["optimization"] = terminal_quartile_parameters()
+    if model_version == SAFETY_MODEL_VERSION:
+        config["optimization"] = safety_procurement_parameters()
     if solver_method != "scipy":
         config["solver_method"] = solver_method
         config["solver_method_parameters"] = solver_parameters
@@ -331,7 +344,13 @@ def run_q4(context: CaseContext) -> CaseResult:
             inputs = load_q4_inputs(context.repo_root, context.case_id)
         if not resume:
             if (
-                model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
+                model_version
+                in (
+                    BLEND_MODEL_VERSION,
+                    BIAS_MODEL_VERSION,
+                    TERMINAL_MODEL_VERSION,
+                    SAFETY_MODEL_VERSION,
+                )
                 or solver_method != "scipy"
             ):
                 _seal_source_snapshot(context.repo_root, run_dir, code_hash, manifest)
@@ -375,7 +394,12 @@ def run_q4(context: CaseContext) -> CaseResult:
                         checkpoint["forecast"],
                     )
                     if model_version
-                    in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
+                    in (
+                        BLEND_MODEL_VERSION,
+                        BIAS_MODEL_VERSION,
+                        TERMINAL_MODEL_VERSION,
+                        SAFETY_MODEL_VERSION,
+                    )
                     else _initialize_forecaster(inputs, context.case_id, method, time_at)
                 )
             if jsonable(service.training_state()) != checkpoint["training_state"]:

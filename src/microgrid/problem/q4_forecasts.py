@@ -15,6 +15,7 @@ from .q4_common import (
     BIAS_MODEL_VERSION,
     BLEND_MODEL_VERSION,
     MODEL_VERSION,
+    SAFETY_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -25,6 +26,7 @@ from .q4_common import (
 )
 from .q4_pv_bias import LongPVBias
 from .q4_pv_blend import LongPVBlend
+from .q4_risk_history import JointRiskHistory
 
 
 class LagAR:
@@ -133,6 +135,7 @@ class Q4Forecaster:
             BLEND_MODEL_VERSION,
             BIAS_MODEL_VERSION,
             TERMINAL_MODEL_VERSION,
+            SAFETY_MODEL_VERSION,
         ):
             raise ValueError("unknown Q4 forecast model version")
         if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION) and (
@@ -148,6 +151,9 @@ class Q4Forecaster:
             else None
         )
         self.correction_key = "pv_bias" if model_version == BIAS_MODEL_VERSION else "pv_blend"
+        if model_version == SAFETY_MODEL_VERSION and price_method != "main":
+            raise ValueError("safety procurement trial is scoped to main")
+        self.risk = JointRiskHistory() if model_version == SAFETY_MODEL_VERSION else None
         self.load = LagAR((1008, 2016, 3024, 4032), (8 / 15, 4 / 15, 2 / 15, 1 / 15))
         self.price = LagAR((144, 1008, 2016), (0.5, 0.3, 0.2))
         self.pv = LagAR(tuple(144 * i for i in range(1, 8)), (1 / 7,) * 7)
@@ -176,6 +182,22 @@ class Q4Forecaster:
                 }[item.kind]
                 series.add(item.valid_time, float(item.value))
                 if item.kind == "pv_actual_kw":
+                    if self.risk is not None:
+                        if (
+                            not self.load.last_time
+                            == self.price.last_time
+                            == self.pv.last_time
+                            == item.valid_time
+                        ):
+                            raise Q4Error(
+                                "invalid_history", "joint actual series are not synchronized"
+                            )
+                        self.risk.observe(
+                            item.valid_time,
+                            self.load.values[-1],
+                            self.pv.values[-1],
+                            self.price.values[-1],
+                        )
                     if self.blend is not None:
                         self.blend.observe(item.valid_time, float(item.value))
                     for forecast, lead in self.official.pop(item.valid_time, []):
@@ -202,6 +224,8 @@ class Q4Forecaster:
             },
             "lead_errors": dict(self.errors),
         }
+        if self.risk is not None:
+            state["safety_procurement"] = self.risk.witness()
         if self.blend is not None:
             state[self.correction_key] = self.blend.witness()
         return state
@@ -305,6 +329,8 @@ class Q4Forecaster:
         if self.blend is not None:
             historical, _ = self.pv.predict(count, correction=False)
             pv, traces[self.correction_key] = self.blend.apply(time, pv, historical)
+        if self.risk is not None:
+            traces["safety_procurement"] = self.risk.apply(time, load, pv, price)
         payload = {
             "case": self.case_id,
             "issue": str(time),

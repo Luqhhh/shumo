@@ -16,7 +16,7 @@ from microgrid.problem.q4_evidence import check_inventory, check_model_binding, 
 from microgrid.schemas import InputError
 
 
-def checked(repo, case, run_id, end):
+def checked(repo, case, run_id, end, version=MODEL_VERSION):
     run = repo / "outputs/runs" / case / run_id
     issues = check_inventory(repo, run) + check_model_binding(repo, run)
     if issues:
@@ -30,7 +30,7 @@ def checked(repo, case, run_id, end):
     status = "success" if actual_end == YEAR_END else "diagnostic_success"
     audit = read_json(run / "evidence_manifest.json")["controller_audit"]
     if (
-        config["model_version"] != MODEL_VERSION
+        config["model_version"] != version
         or config["price_method"] != "main"
         or actual_end < end
         or summary["status"] != status

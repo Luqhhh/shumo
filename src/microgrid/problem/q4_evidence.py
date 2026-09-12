@@ -27,6 +27,7 @@ from .q4_common import (
     BIAS_MODEL_VERSION,
     BLEND_DECISIONS,
     BLEND_MODEL_VERSION,
+    SAFETY_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -183,7 +184,8 @@ def check_model_binding(repo: Path, run_dir: Path, export: dict | None = None) -
         ):
             issues.append("solver experiment is not unmixed v3/main")
         if (
-            config["model_version"] in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
+            config["model_version"]
+            in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION, SAFETY_MODEL_VERSION)
             or method != "scipy"
         ):
             ids.append("D_OPTIMIZATION_Q4")

@@ -22,6 +22,7 @@ MODEL_VERSION = "q4-v3-reserve"
 BLEND_MODEL_VERSION = "q4-v4-pv-blend-long"
 BIAS_MODEL_VERSION = "q4-v4-pv-bias-long"
 TERMINAL_MODEL_VERSION = "q4-v4-terminal-upper-quartile"
+SAFETY_MODEL_VERSION = "q4-v4-safety-procurement"
 BLEND_DECISIONS = ("D_PV_BLEND_LONG_Q4", "D_EVAL_PV_BLEND_LONG_Q4")
 
 
@@ -68,6 +69,25 @@ def terminal_quartile_parameters() -> dict:
     }
 
 
+def safety_procurement_parameters() -> dict:
+    return {
+        "schema_version": 1,
+        "mechanism": "SAFETY-PROCUREMENT",
+        "error_window_days": 28,
+        "cold_start_days": 7,
+        "start": str(ACTION_START),
+        "activation": str(ACTION_START + dt.timedelta(days=7)),
+        "lead_buckets_hours": [[0, 6], [6, 12], [12, 18], [18, 24]],
+        "quantile": 0.8,
+        "quantile_method": "linear",
+        "sample_weighting": "equal_original_issue_target_pairs",
+        "margin": "max(0, q80 of realized original net-demand error in kWh)",
+        "planning_constraint": "grid + discharge >= max(0, raw_load - raw_pv + margin) only for procurement permissions and margin > 0",
+        "grid_bound": "unchanged original Q4",
+        "point_forecasts": "unchanged",
+    }
+
+
 def energy_lower_bound(
     time_at: dt.datetime, reserve_start: dt.datetime | None = RESERVE_START
 ) -> float:
@@ -81,7 +101,13 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
     expected = {"start": str(RESERVE_START), "minimum_energy_kwh": 6000.0}
     if (
         config["model_version"]
-        not in (MODEL_VERSION, BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
+        not in (
+            MODEL_VERSION,
+            BLEND_MODEL_VERSION,
+            BIAS_MODEL_VERSION,
+            TERMINAL_MODEL_VERSION,
+            SAFETY_MODEL_VERSION,
+        )
         or config.get("terminal_reserve") != expected
     ):
         raise Q4Error("config_mismatch", "unknown Q4 model or terminal reserve configuration")
@@ -94,15 +120,24 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
             != json.dumps(pv_blend_parameters(), sort_keys=True)
         ):
             raise Q4Error("config_mismatch", "PV-BLEND-LONG configuration differs from approval")
-    elif config["model_version"] in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION):
+    elif config["model_version"] in (
+        BIAS_MODEL_VERSION,
+        TERMINAL_MODEL_VERSION,
+        SAFETY_MODEL_VERSION,
+    ):
         if (
-            config.get("case_id") != "q4_3"
+            config.get("case_id")
+            not in (
+                ("q4_2", "q4_3") if config["model_version"] == SAFETY_MODEL_VERSION else ("q4_3",)
+            )
             or config.get("price_method") != "main"
             or config.get("pv_blend") is not None
             or json.dumps(config.get("optimization"), sort_keys=True)
             != json.dumps(
                 pv_bias_parameters()
                 if config["model_version"] == BIAS_MODEL_VERSION
+                else safety_procurement_parameters()
+                if config["model_version"] == SAFETY_MODEL_VERSION
                 else terminal_quartile_parameters(),
                 sort_keys=True,
             )

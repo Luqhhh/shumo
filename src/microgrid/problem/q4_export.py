@@ -24,6 +24,7 @@ from .q4_common import (
     BIAS_MODEL_VERSION,
     BLEND_DECISIONS,
     BLEND_MODEL_VERSION,
+    SAFETY_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -313,7 +314,8 @@ def _export_q4(repo: Path, result: CaseResult, output: Path, performance: Perfor
             }
         )
     if (
-        config["model_version"] in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
+        config["model_version"]
+        in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION, SAFETY_MODEL_VERSION)
         or config.get("solver_method", "scipy") != "scipy"
     ):
         decision_snapshot["D_OPTIMIZATION_Q4"] = decisions["D-OPTIMIZATION-Q4"]
