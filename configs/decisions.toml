@@ -149,17 +149,17 @@ confirmed_at = "2026-09-12"
 source = "2026-09-12本会话用户批准消息；docs/q3_model.md；docs/c_forecast_version_evidence.md；B分支b4113b0的Q3/MPC/TERMINAL/YEAR_BOUNDARY提案；C线7b90599"
 
 [decisions.D_MODEL_Q4_2]
-status = "pending"
-choice = ""
-rationale = ""
+status = "proposed"
+choice = "按 docs/q4_model_cards.md 的 Q4-2 卡及 docs/q4_implementation_plan.md v2：共享因果预测滚动MILP、分case合同权限、实际反馈与逐版结算；完整范围以模型卡为准。"
+rationale = "用户请求审阅并落实设计；已核对价格域、模板结构和反馈代数，尚未进行预测效果、MILP或全年运行验证。"
 confirmed_by = ""
 confirmed_at = ""
 source = "按 case 拆分：波动电价下重算 Q2；批准需覆盖 Q2 基础模型与价格信息条件扩展；不依赖 D_RESAMPLE。"
 
 [decisions.D_MODEL_Q4_3]
-status = "pending"
-choice = ""
-rationale = ""
+status = "proposed"
+choice = "按 docs/q4_model_cards.md 的 Q4-3 卡及 docs/q4_implementation_plan.md v2：共享因果预测滚动MILP、分case合同权限、实际反馈与逐版结算；完整范围以模型卡为准。"
+rationale = "用户请求审阅并落实设计；已核对价格域、模板结构和反馈代数，尚未进行预测效果、MILP或全年运行验证。"
 confirmed_by = ""
 confirmed_at = ""
 source = "按 case 拆分：波动电价下重算 Q3；批准需覆盖 Q3 基础模型与价格信息条件扩展。"
