@@ -12,9 +12,11 @@
 | 小时到十分钟重采样 | 已批准并实现 | `problem/q3_resampling.py` | 直接复用，不在 solver 重写 |
 | PV 版本组合 | 已批准并有生产实现 | `problem/q3_pv_forecast.py` | 接入统一 Q3 input bundle |
 | 负载预测 | 已批准并有生产实现 | `problem/q3_load_forecast.py` | 接入统一 Q3 input bundle |
-| 统一 Q3 input bundle | 缺失 | 依赖 B 的实际数据适配器 | 等 B 修复整日缺失检查后复用，不另写全年读取器 |
-| 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | A 确认正式 artifact 承载后补序列化 |
+| 年度 actual adapter | 已选择性整合 | `problem/q2_inputs.py` | 复用，不另写全年读取器 |
+| 统一 Q3 input bundle | 缺失 | 预测层、actual adapter 均已就绪 | machine decision 补录后组装 |
+| 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | 已接结构化 sidecar |
 | 结算账本 | 计划/调整部分已实现 | `problem/q3_plan_ledger.py` | 紧急费用等待实际回放规则澄清 |
+| 结构化 sidecar | 已实现接口与往返测试 | `problem/q3_sidecars.py` | runner 后续登记路径与哈希 |
 | Q3 gate | 已闭合 | 已检查 `D_LOAD_FORECAST/D_SETTLE/D_MODEL_Q3` | 保持阻断回归测试 |
 | 实际回放 | 缺失 | 批准模型卡已有物理式 | 先澄清预测充电遇实际短缺的动作规则 |
 | Q3 solver/runner | 未实现 | `problem/q3.py` 明确报错 | 预测与 ledger 输入准备后实现 |
@@ -23,25 +25,16 @@
 ## 2. 仅剩的 P0 接口阻断
 
 人工 gate 已由队长闭合，不需要再次表决 `LOAD-A/LF-A`、`SETTLE-A-v2`、
-`VERSION-B/WEIGHT-B/HISTORY-A` 或 `epsilon=1`。现在只剩：
+`VERSION-B/WEIGHT-B/HISTORY-A` 或 `epsilon=1`。队长提出的 HORIZON-B、charge
+curtailment recourse 和结构化 sidecar 已得到 C 成员明确认可，精确文本见
+[`q3_interface_decision_addendum.md`](q3_interface_decision_addendum.md)。现在只剩：
 
-1. **24 h 尾部冲突**：批准口径同时要求每十分钟做 24 h MPC，又要求下一次
-   发布前沿用当前 24 h PV snapshot。06:10 起 snapshot 尾部不够 24 h。必须由
-   团队在缩短窗口、因果基线补尾、仅发布时刻做完整优化三者中澄清一种。
-2. **实际短缺时的充电动作冲突**：电池动作在时隙左端决定，但 actual 在右端才
-   完整可见；若原动作安排充电而实际供给不足，批准账本又禁止“紧急购电与充电
-   同时发生”。需要明确是取消充电、允许时隙内自动响应，还是把该情形视为回放
-   不可行。
-3. **审计结果承载**：`IntervalResult` 只保存最终执行轨迹，不能表达
-   `100 -> 80 -> 100` 的两笔费用。A 需要确认使用结构化 sidecar，还是升级
-   `CaseResult/result_io` schema；不能把整张账本塞入 metadata。
-4. **B 输入依赖**：B 分支最新 `ba02252` 已补 expected-day 完整性和右端点
-   对齐测试，可作为年度 actual adapter 候选；但该分支同时携带旧
-   `decisions.toml`，会把当前已批准的 Q3 口径退回 `proposed`，因此不能整分支
-   合并。应由 A review 后选择性整合 adapter 与对应测试，C 不另写一套原始表读取。
+1. **machine decision 待人工补录**：Agent 不得改写 approved decision。需由队长
+   将 HORIZON-B 和 charge curtailment recourse 亲自补入 Q3 的机器批准记录。
+2. **PV tail baseline 算法仍未选**：HORIZON-B 只确定“因果补尾”，没有批准
+   baseline 公式。需单独形成小 decision 并加入 Q3 gate 后才能实现。
 
-前两项属于批准文本的实现澄清，不能由 Agent自行决定；后两项是 shared contract
-与集成工作，需要 A review。
+以上均不能由 Agent自行补进正式模型。
 
 ## 3. 已提前补强的绿色测试
 
@@ -60,6 +53,8 @@
   provenance、未来 actual 不可见和历史缺口显式失败。
 - P00/P06/P12/P18 不可变快照、逐版 delta、已执行时隙冻结和
   `100 -> 110 -> 90 -> 95` 的 SETTLE-A-v2 手算费用。
+- 三份 JSONL sidecar 的完整版本/来源保留、行数、SHA-256、相对路径和拒绝覆盖；
+- B actual adapter 的每日144格、expected-day、负载/PV网格与右端点测试。
 
 以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
 
@@ -70,8 +65,8 @@
 ## 4. 最短实施路径
 
 ```text
-1. 请 A 确认 ledger/sidecar shared contract
-2. 团队澄清 horizon/tail 与实际短缺充电规则
+1. 队长人工补录 HORIZON-B 与 charge curtailment recourse
+2. 团队批准 PV tail baseline 小 decision
 3. 组装不含未来 actual 的 Q3WindowInput
 4. 实现单窗口 Q3 MILP + 独立 validator
 5. 接入十分钟回放、settlement 和 run artifacts
@@ -88,10 +83,11 @@
 - [x] PV/负载候选有可复现的真实数据证据；
 - [x] PV/负载生产预测器及因果、缺失历史、provenance 测试通过；
 - [x] 计划版本、冻结和逐版调整费用的内存 contract 与手算测试通过；
-- [ ] horizon/tail 矛盾已由团队澄清；
-- [ ] 实际短缺时的充电动作已由团队澄清；
-- [ ] shared ledger/provenance 承载方式已由 A 确认；
-- [ ] 修正版年度 actual adapter 已合并；
+- [ ] HORIZON-B 已由队长人工补入 machine decision，tail baseline 已批准；
+- [ ] charge curtailment 已由队长人工补入 machine decision；
+- [x] shared ledger/provenance 采用结构化 sidecar；
+- [x] 修正版年度 actual adapter 已选择性整合；
+- [x] 三份 sidecar 的结构、往返、拒绝覆盖和哈希测试通过；
 - [ ] 不含未来 actual 的 `Q3WindowInput` 已通过 contract test；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
