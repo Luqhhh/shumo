@@ -13,7 +13,7 @@
   citecolor=black,
   urlcolor=blue,
   pdfauthor={},
-  pdfsubject={CUMCM 2026 C Stage 0 draft},
+  pdfsubject={CUMCM 2026 C manuscript draft},
   pdfkeywords={microgrid, CUMCM 2026 C, draft}
 }
 \pagestyle{plain}
@@ -21,11 +21,17 @@
 \setlength{\parskip}{0.25em}
 \newcommand{\PH}[1]{\textbf{[待计算/待确认：#1]}}
 \newcommand{\SourceRef}[1]{\texttt{\small #1}}
+\newcommand{\FigurePlaceholder}[3]{%
+  \begin{figure}[htbp]
+    \centering
+    \fbox{\parbox[c][3.0cm][c]{0.88\linewidth}{\centering
+      \textbf{图占位：#1}\par\medskip
+      \small #2}}
+    \caption{#1（待绘制）}\label{#3}
+  \end{figure}}
 \input{settings}
 
-% Bibliography fallback: if biblatex is installed, use it; otherwise use a
-% truly empty manual bibliography in draft mode.  No fabricated research
-% references are introduced.
+% Use the same verified references in the biblatex and fallback builds.
 \IfFileExists{biblatex.sty}{%
   \IfFileExists{gb7714-2015.bbx}{%
     \usepackage[backend=biber,style=gb7714-2015]{biblatex}%
@@ -35,11 +41,5 @@
   \addbibresource{references.bib}%
   \newcommand{\PrintReferences}{\printbibliography[title=参考文献]}%
 }{%
-  \newcommand{\PrintReferences}{%
-    \section*{参考文献}%
-    \begin{thebibliography}{9}%
-    \bibitem{cumcm2026format} 全国大学生数学建模竞赛组委会. 全国大学生数学建模竞赛论文格式规范（2026 年修订稿）[S]. 2026.
-    \end{thebibliography}%
-    \noindent\PH{正式模型研究参考文献待补充；不得虚构研究文献}%
-  }%
+  \newcommand{\PrintReferences}{\input{references_fallback}}%
 }

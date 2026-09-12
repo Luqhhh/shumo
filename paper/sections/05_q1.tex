@@ -1,35 +1,86 @@
-\section{问题 1}
+\section{问题一：单日购电与储能协同优化}
+\subsection{决策变量与目标函数}
+以全天144个区间为统一决策时域，设置购电量$g_k$、母线侧充电量$c_k$与放电量$d_k$、光伏消纳量$u_k$、电池储电量$E_k$，并引入二进制变量$z_k$描述充放电互斥。由于问题一在日初确定完整计划，电价和预测供需均作为已知参数，优化目标为
+\begin{equation}
+  \min J=\sum_{k=0}^{143}p_kg_k.
+  \label{eq:objective}
+\end{equation}
+费用最小与购电量最小并非同一目标：储能转换会损耗电量，但跨时段转移可能减少高价时段购电，因此需要直接按电价加权确定调度方案。
 
-\subsection{任务与信息条件}
-每天 0:00 制定当天计划；储能设备在 0:00 与 24:00 的储电量相同。
+\subsection{约束条件}
+\subsubsection{微网供需平衡}
+每个区间内，外网购电、储能放电与消纳光伏共同满足负载和储能充电需求，即
+\begin{equation}
+  g_k+d_k+u_k=\ell_k+c_k,\qquad k=0,\ldots,143.
+  \label{eq:balance}
+\end{equation}
+其中，购电量非负，光伏消纳量不得超过给定预测量：
+\begin{equation}
+  g_k\ge0,\qquad 0\le u_k\le v_k.
+  \label{eq:pv}
+\end{equation}
+差值$v_k-u_k$为弃光电量。保留$u_k$能够在光伏富余且储能受限时维持模型可行性，而不引入售电收入。
 
-\subsection{模型表达}
-Q1 采用已批准的变量定义：计划购电量 $g_k$、母线侧充电量 $c_k$、母线侧放电量 $d_k$、实际消纳光伏 $u_k$ 和电池内部储能 $E_k$。目标为最小化计划购电费用
-\[
-\min \sum_{k=0}^{143} price_k\, g_k .
-\]
-供需关系为
-\[
-g_k + d_k + u_k = load_k + c_k ,
-\]
-未消纳光伏不计售电收入。电池动态采用
-\[
-E_{k+1}=E_k+0.9c_k-\frac{d_k}{0.9},
-\]
-并满足 $1200\le E_k\le10800$、$E_0=E_{144}=6000$、
-$0\le c_k,d_k\le 5000/6$。每个区间使用二进制变量 $z_k$ 表达充放电互斥。
+\subsubsection{储能状态递推与运行边界}
+充入母线侧电量$c_k$时，电池内部增加$\eta_{\mathrm c}c_k$；向母线放出$d_k$时，内部需要减少$d_k/\eta_{\mathrm d}$。因此
+\begin{equation}
+  E_{k+1}=E_k+\eta_{\mathrm c}c_k-\frac{d_k}{\eta_{\mathrm d}}
+  =E_k+0.9c_k-\frac{d_k}{0.9}.
+  \label{eq:state}
+\end{equation}
+对所有状态边界施加
+\begin{equation}
+  1200\le E_k\le10800,\quad k=0,\ldots,144;
+  \qquad E_0=E_{144}=6000.
+  \label{eq:bounds}
+\end{equation}
+日末恢复条件避免通过消耗初始储能而低估单日购电费用，并使该日计划在储能初末状态上保持一致。
 
-\subsection{求解过程}
-Q1 使用 SciPy/HiGHS 的 MILP 入口求解，每个十分钟区间对应一个二进制互斥变量。求解器返回状态与 objective 被如实记录；随后执行独立复算，不直接以 solver 的 success 作为最终验证。
+\subsubsection{充放电功率与互斥约束}
+由功率上限得到单区间电量上限
+\begin{equation}
+  M=P_{\max}\Delta t=\frac{5000}{6}\ \mathrm{kWh}.
+  \label{eq:M}
+\end{equation}
+利用二进制变量将互斥要求表示为
+\begin{equation}
+  0\le c_k\le Mz_k,\qquad
+  0\le d_k\le M(1-z_k),\qquad z_k\in\{0,1\}.
+  \label{eq:mutex}
+\end{equation}
+当$z_k=1$时只允许充电，当$z_k=0$时只允许放电；两种情况下均允许设备待机。$M$直接取自设备功率上限，无需额外设定任意大的常数。
 
-\subsection{结果展示}
-\IfFileExists{generated/q1_result_tables.tex}{%
-  \input{generated/q1_result_tables}%
-  \noindent 上述表 1 和表 2 与内部结果快照同源，对应 run \QOneRunId；全天购电量为 \QOneTotalPurchaseKwh{} kWh，全天购电费为 \QOneTotalCostCny{} 元。
-}{%
-  \input{generated/draft_tables}%
-  \PH{表 1、表 2 的正式数值待计算；本稿不填 0。}
-}
+\subsection{模型求解}
+式\eqref{eq:objective}--\eqref{eq:mutex}构成混合整数线性规划模型。按$(g,c,d,u,E,z)$排列变量，共有721个连续变量和144个二进制变量；供需平衡与储能递推形成288个线性等式，充放电互斥形成288个线性不等式，其余条件通过变量上下界给出。
 
-\subsection{检验与讨论}
-独立复算检查了供需平衡、电池动态、充放电互斥、功率边界、储能边界、终端储能和费用一致性。当前 HiGHS 解得出的结果通过上述检查；这不构成对全局最优性的额外数学证明。
+采用Python中SciPy 1.17.1的\texttt{milp}接口调用HiGHS求解器\cite{scipyMilp,highs}。先由原始数据生成电价和区间电量数组，再组装目标系数、约束矩阵及变量边界，求得完整调度序列。随后使用未舍入结果独立复算各区间供需平衡、储能变化和购电费用，最后汇总题目要求的指定时段与四小时结果。
+
+本次求解返回最优状态，目标值与求解器报告的下界均为35\,126.948589元，相对最优间隙为0。因此，在本文给定模型及求解器数值精度下，该方案达到报告的最优值；这一结论不表示实际预测误差和未建模费用已被覆盖。
+
+\FigurePlaceholder{问题一模型建立与求解流程}{输入与时间对齐$\rightarrow$电量换算$\rightarrow$目标及约束构建$\rightarrow$MILP求解$\rightarrow$独立复算$\rightarrow$结果汇总。}{fig:workflow}
+
+\subsection{计算结果}
+\input{tables/q1_results}
+按十分钟区间求和，全天购电量为59\,482.699 kWh，购电费用为35\,126.949元。指定区间购电量见表\ref{tab:q1-purchase}，四小时累计充放电量与初末储电量见表\ref{tab:q1-battery}。表中电量和费用保留三位小数，约束检验与费用复算使用未舍入值。
+
+需要区分四小时汇总与十分钟控制：同一四小时段的累计充电量和累计放电量可以均大于零，表示设备在不同十分钟区间切换运行方式，并不意味着同一区间同时充放电。例如4:00--8:00累计充电833.333 kWh、放电6\,365.841 kWh，而逐区间互斥检验仍通过。
+
+\subsection{能量收支与调度分析}
+计算所得全天充电量为20\,740.666 kWh，放电量为16\,799.940 kWh。对式\eqref{eq:state}累加，并利用日初、日末储能相等，可得
+\begin{equation}
+  \sum_k d_k=\eta_{\mathrm c}\eta_{\mathrm d}\sum_k c_k
+  =0.81\sum_k c_k.
+  \label{eq:roundtrip}
+\end{equation}
+因而全天充放电转换损耗为3\,940.727 kWh。对式\eqref{eq:balance}累加，有
+\begin{equation}
+  \sum_k g_k=\sum_k\ell_k-\sum_k u_k
+               +\sum_k(c_k-d_k).
+  \label{eq:dailybalance}
+\end{equation}
+本次结果中$\sum_k(v_k-u_k)=0$，即在给定预测和运行约束下，55\,482.836 kWh光伏预测电量全部得到消纳。负载与光伏之差约为55\,541.972 kWh，加上充放电损耗后得到全天购电量。这说明储能的作用应结合购电时段与电价评价，不能仅用总购电量判断方案优劣。
+
+从时段分布看，0:00--4:00累计充电4\,500.000 kWh且无放电，16:00--20:00累计放电5\,780.132 kWh且无充电；20:00--24:00的运行还受到日末恢复要求约束。指定的10:00--10:10、14:00--14:10和20:00--20:10区间购电量为零，表示这些区间由光伏消纳与储能放电共同覆盖其电量需求，不能据此推断全天脱离外网运行。
+
+\FigurePlaceholder{问题一十分钟购电与充放电计划}{横轴为日内时间；绘制购电、充电及放电区间电量，单位为kWh；充放电采用可区分的柱形或折线。}{fig:dispatch}
+\FigurePlaceholder{问题一储电量轨迹与运行边界}{绘制145个边界储电量，标出1\,200与10\,800 kWh上下界，以及0:00、24:00的6\,000 kWh状态。}{fig:soc}
