@@ -382,6 +382,7 @@ def solve_dispatch(
     *,
     reserve_start=RESERVE_START,
     performance=None,
+    solver_method="scipy",
 ) -> DispatchPlan:
     matrix_started = time.perf_counter() if performance is not None else None
     cache_before = constraint_structure.cache_info() if performance is not None else None
@@ -413,7 +414,11 @@ def solve_dispatch(
             warnings.filterwarnings(
                 "ignore", message="Unrecognized options detected:.*", category=RuntimeWarning
             )
-            result = milp(
+            from .q4_solver_methods import solve_with_method
+
+            result = solve_with_method(
+                solver_method,
+                milp,
                 objective,
                 integrality=integrality,
                 bounds=Bounds(lower, upper),
@@ -460,6 +465,9 @@ def solve_dispatch(
         "contract_hash": contract_hash(ledger, forecast),
         "schema_version": 1,
     }
+    if solver_method != "scipy":
+        record["solver_method"] = solver_method
+        record["solver_method_record"] = result.solver_method_record
     # HiGHS may report an infinite relative gap when the optimum is zero.
     # Preserve this undefined metric as text; strict JSON must stay writable.
     nonfinite_metrics = {}

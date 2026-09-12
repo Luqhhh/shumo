@@ -85,6 +85,7 @@ def run_case(
     end_time: str | None = None,
     price_method: str = "main",
     pv_method: str = "v3",
+    solver_method: str = "scipy",
     resume: bool = False,
 ) -> CaseResult:
     """Dispatch one formal case after decision gating."""
@@ -107,10 +108,16 @@ def run_case(
         raise ModelNotImplementedError(case_id, f"case {case_id}: no registered runner")
 
     if case_id not in ("q4_2", "q4_3") and (
-        end_time is not None or price_method != "main" or pv_method != "v3" or resume
+        end_time is not None
+        or price_method != "main"
+        or pv_method != "v3"
+        or solver_method != "scipy"
+        or resume
     ):
         raise InputError("diagnostic end/price method/resume options are available only for Q4")
     metadata = {"price_method": price_method, "resume": resume}
+    if solver_method != "scipy":
+        metadata["solver_method"] = solver_method
     if pv_method != "v3":
         metadata["pv_method"] = pv_method
     if end_time is not None:

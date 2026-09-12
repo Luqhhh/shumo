@@ -311,7 +311,10 @@ def _export_q4(repo: Path, result: CaseResult, output: Path, performance: Perfor
                 for decision_id in BLEND_DECISIONS
             }
         )
-    if config["model_version"] == BIAS_MODEL_VERSION:
+    if (
+        config["model_version"] == BIAS_MODEL_VERSION
+        or config.get("solver_method", "scipy") != "scipy"
+    ):
         decision_snapshot["D_OPTIMIZATION_Q4"] = decisions["D-OPTIMIZATION-Q4"]
     atomic_json(
         run_dir / "export_manifest.json",

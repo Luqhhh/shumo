@@ -172,7 +172,16 @@ def check_model_binding(repo: Path, run_dir: Path, export: dict | None = None) -
                 f"{issue.decision_id}: {issue.reason}"
                 for issue in decision_issues(repo, BLEND_DECISIONS)
             )
-        if config["model_version"] == BIAS_MODEL_VERSION:
+        from .q4_solver_methods import solver_method_parameters
+
+        method = config.get("solver_method", "scipy")
+        if config.get("solver_method_parameters") != solver_method_parameters(method):
+            issues.append("solver method parameters mismatch")
+        if method != "scipy" and (
+            config["model_version"] != "q4-v3-reserve" or config["price_method"] != "main"
+        ):
+            issues.append("solver experiment is not unmixed v3/main")
+        if config["model_version"] == BIAS_MODEL_VERSION or method != "scipy":
             ids.append("D_OPTIMIZATION_Q4")
             issues.extend(
                 f"{issue.decision_id}: {issue.reason}"
@@ -463,7 +472,12 @@ def audit_controller_chain(
         else:
             plan = (
                 solve_dispatch(
-                    state, window, ledger, reserve_start=reserve_start, performance=performance
+                    state,
+                    window,
+                    ledger,
+                    reserve_start=reserve_start,
+                    performance=performance,
+                    solver_method=config.get("solver_method", "scipy"),
                 )
                 if reconstruct
                 else plan_from_dict(next(plans, {}))
@@ -532,6 +546,8 @@ def audit_controller_chain(
             or abs(solver.get("objective", float("inf")) - plan.objective) > 1e-5
         ):
             raise InputError(f"{slot}: dispatch plan/solver mismatch: {problems}")
+        if solver.get("solver_method", "scipy") != config.get("solver_method", "scipy"):
+            raise InputError(f"{slot}: solver method identity mismatch")
         intent = BatteryAction(**execution["execution"]["intent"])
         if (
             max(

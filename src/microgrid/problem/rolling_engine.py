@@ -238,6 +238,14 @@ def run_q4(context: CaseContext) -> CaseResult:
             raise InputError("PV-BIAS-LONG trial is scoped to Q4-3/main")
         require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
         model_version = BIAS_MODEL_VERSION
+    from .q4_solver_methods import solver_method_parameters
+
+    solver_method = context.metadata.get("solver_method", "scipy")
+    solver_parameters = solver_method_parameters(solver_method)
+    if solver_method != "scipy":
+        if pv_method != "v3" or method != "main":
+            raise InputError("solver experiments require unmixed v3/main")
+        require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
     run_id = context.run_id or new_run_id(context.case_id, context.repo_root)
     resume = bool(context.metadata.get("resume", False))
     run_dir = (
@@ -276,6 +284,9 @@ def run_q4(context: CaseContext) -> CaseResult:
         config["pv_blend"] = pv_blend_parameters()
     elif model_version == BIAS_MODEL_VERSION:
         config["optimization"] = pv_bias_parameters()
+    if solver_method != "scipy":
+        config["solver_method"] = solver_method
+        config["solver_method_parameters"] = solver_parameters
     started = time.perf_counter()
     stage = "input_preflight"
     step_count = 0
@@ -302,7 +313,10 @@ def run_q4(context: CaseContext) -> CaseResult:
         with performance.measure("input_preflight"):
             inputs = load_q4_inputs(context.repo_root, context.case_id)
         if not resume:
-            if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION):
+            if (
+                model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION)
+                or solver_method != "scipy"
+            ):
                 _seal_source_snapshot(context.repo_root, run_dir, code_hash, manifest)
             write_manifest(run_dir, manifest)
             atomic_json(run_dir / "input_snapshot.json", inputs.snapshot)
@@ -420,7 +434,13 @@ def run_q4(context: CaseContext) -> CaseResult:
             else:
                 performance.counters["tail_reuse_skipped:refresh_or_no_parent"] += 1
             if plan is None:
-                plan = solve_dispatch(state, current, ledger, performance=performance)
+                plan = solve_dispatch(
+                    state,
+                    current,
+                    ledger,
+                    performance=performance,
+                    **({"solver_method": solver_method} if solver_method != "scipy" else {}),
+                )
                 performance.counters["fresh_solves"] += 1
                 solve_count += 1
             else:

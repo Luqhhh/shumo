@@ -115,6 +115,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             end_time=args.end_time,
             price_method=args.price_method,
             pv_method=args.pv_method,
+            solver_method=args.solver_method,
             resume=args.resume,
         )
     except PendingDecisionError as exc:
@@ -172,6 +173,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("v3", "blend-long", "bias-long"),
         default="v3",
         help="Q4-3/main approved PV correction trial; default retains v3",
+    )
+    p_run.add_argument(
+        "--solver-method",
+        choices=("scipy", "eliminate-fixed"),
+        default="scipy",
+        help="optional authorized Q4 solver experiment",
     )
     p_run.add_argument(
         "--resume",
