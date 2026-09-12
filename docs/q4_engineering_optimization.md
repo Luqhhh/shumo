@@ -117,3 +117,7 @@ O3/O4暂未实施。周基准中矩阵约0.36–0.41秒；完整checkpoint的年
 uv run --locked python scripts/compare_q4_engineering_runs.py --before-repo outputs/evidence/q4_optimization/before --after-repo outputs/evidence/q4_optimization/after_release --output outputs/evidence/q4_optimization/comparison-new.json
 uv run --locked python scripts/diagnose_q4_costs.py --main2 q4-2-v3-annual-main-001 --lag2 q4-2-v3-annual-lag1-001 --main3 q4-3-v3-annual-main-001 --lag3 q4-3-v3-annual-lag1-001 --output outputs/evidence/q4_optimization/cost_diagnostics-new
 ```
+
+## 后续：O3和O4已实施
+
+上述O1/O2/O5记录之后，用户要求继续，现已分别完成[O3账本持久化瘦身](q4_checkpoint_optimization.md)和[O4稀疏结构缓存](q4_sparse_structure_optimization.md)。两项均保留批准的v3模型和原费用；新增schema 3拒绝跨版本续跑，真实两条周轨迹与原工程版本逐条一致，306个真实母求解窗口矩阵等价。O6建模候选与O7新策略全年对照仍未实施。

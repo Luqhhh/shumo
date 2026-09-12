@@ -11,7 +11,7 @@ from functools import lru_cache
 
 import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, milp
-from scipy.sparse import coo_matrix
+from scipy.sparse import csc_matrix
 
 from .contracts import ENERGY_ABS_TOL_KWH as TOL
 from .contracts import MAX_BUS_ENERGY_KWH as M
@@ -197,15 +197,97 @@ def validate_dispatch(
     return tuple(issues)
 
 
-def solve_dispatch(
+@dataclass(frozen=True)
+class ConstraintStructure:
+    shape: tuple[int, int]
+    indices: np.ndarray
+    indptr: np.ndarray
+    data: np.ndarray
+    rlo: np.ndarray
+    rhi: np.ndarray
+    # Per-slot row base and CSC positions for changing coefficients.
+    slots: tuple[tuple[int, tuple[int, ...]], ...]
+
+
+@lru_cache(maxsize=432)
+def constraint_structure(count: int, permissions: tuple[str, ...], version: int = 1):
+    """Immutable structural cache; retains explicit zeros and original row order."""
+    if version != 1 or len(permissions) != count:
+        raise ValueError("unknown constraint layout")
+    rows, columns, data, rlo, rhi, slots = [], [], [], [], [], []
+
+    def row(terms, lo=-np.inf, hi=np.inf):
+        positions = []
+        for column, value in terms:
+            positions.append(len(data))
+            rows.append(len(rlo))
+            columns.append(column)
+            data.append(value)
+        rlo.append(lo)
+        rhi.append(hi)
+        return positions
+
+    ebase = WIDTH * count
+    for k, permission in enumerate(permissions):
+        idx = variable_indices(count)[k]
+        base, changing = len(rlo), []
+        if permission == "adjustable":
+            row(((idx[G], 1), (idx[A], -1), (idx[B], 1)))
+            changing.append(row(((idx[A], 1), (idx[W], 0)), hi=0)[1])
+            changing.append(row(((idx[B], 1), (idx[W], 0)))[1])
+        row(((idx[G], 1), (idx[P], 1), (idx[D], 1), (idx[U], 1), (idx[C], -1), (idx[V], -1)))
+        row(((idx[P], 1), (idx[S], 1)))
+        row(((ebase + k + 1, 1), (ebase + k, -1), (idx[C], -0.9), (idx[D], 1 / 0.9)), 0, 0)
+        row(((idx[V], 1), (idx[G], -1)), hi=0)
+        row(((idx[C], 1), (idx[Z], -M)), hi=0)
+        row(((idx[D], 1), (idx[Z], M)), hi=M)
+        changing.append(row(((idx[U], 1), (idx[Y], 0)), hi=0)[1])
+        row(((idx[C], 1), (idx[Y], M)), hi=M)
+        changing.append(row(((idx[V], 1), (idx[Y], 0)))[1])
+        changing.append(row(((idx[S], 1), (idx[Y], 0)))[1])
+        slots.append((base, changing))
+    size = ebase + count + 1
+    # Equivalent to COO->CSC sorting, done once per structural cache key.
+    order = np.lexsort((rows, columns))
+    inverse = np.empty(len(order), dtype=np.int32)
+    inverse[order] = np.arange(len(order))
+    indptr = np.zeros(size + 1, dtype=np.int32)
+    indptr[1:] = np.cumsum(np.bincount(columns, minlength=size))
+    arrays = (
+        np.asarray(rows, dtype=np.int32)[order],
+        indptr,
+        np.asarray(data)[order],
+        np.array(rlo),
+        np.array(rhi),
+    )
+    for array in arrays:
+        array.flags.writeable = False
+    return ConstraintStructure(
+        (len(rlo), size),
+        *arrays,
+        tuple((base, tuple(int(inverse[i]) for i in changing)) for base, changing in slots),
+    )
+
+
+@dataclass(frozen=True)
+class DispatchProblem:
+    permissions: tuple[str, ...]
+    objective: np.ndarray
+    integrality: np.ndarray
+    lower: np.ndarray
+    upper: np.ndarray
+    matrix: csc_matrix
+    rlo: np.ndarray
+    rhi: np.ndarray
+
+
+def build_dispatch_problem(
     state: BatteryState,
     forecast: ForecastSnapshot,
     ledger: PurchaseLedger,
     *,
     reserve_start=RESERVE_START,
-    performance=None,
-) -> DispatchPlan:
-    matrix_started = time.perf_counter() if performance is not None else None
+) -> DispatchProblem:
     n = len(forecast.slots)
     if reserve_start != forecast_reserve_start(forecast):
         raise Q4Error("config_mismatch", "dispatch reserve does not match forecast model version")
@@ -214,20 +296,12 @@ def solve_dispatch(
             "terminal_reserve_infeasible", "current actual SOC below approved lower bound"
         )
     permissions = ledger.permissions(forecast.slots[0], forecast.slots)
+    structure = constraint_structure(n, permissions, 1)
     columns = variable_indices(n)
     size = WIDTH * n + n + 1
     lower, upper = np.zeros(size), np.full(size, np.inf)
     objective, integrality = np.zeros(size), np.zeros(size, dtype=int)
-    row_index, col_index, coefficients, rlo, rhi = [], [], [], [], []
-
-    def row(terms, lo=-np.inf, hi=np.inf):
-        index = len(rlo)
-        for column, coefficient in terms:
-            row_index.append(index)
-            col_index.append(column)
-            coefficients.append(coefficient)
-        rlo.append(lo)
-        rhi.append(hi)
+    coefficients, rlo, rhi = structure.data.copy(), structure.rlo.copy(), structure.rhi.copy()
 
     ebase = WIDTH * n
     lower[ebase:] = 1200
@@ -270,24 +344,22 @@ def solve_dispatch(
                 1.5 * forecast.prices[0],
                 0.5 * forecast.prices[0],
             )
-            row(((idx(G), 1), (idx(A), -1), (idx(B), 1)), previous, previous)
-            row(((idx(A), 1), (idx(W), -gmax)), hi=0)
-            row(((idx(B), 1), (idx(W), previous)), hi=previous)
+        base, changing = structure.slots[k]
+        if permission == "adjustable":
+            rlo[base] = rhi[base] = previous
+            rhi[base + 2] = previous
+            coefficients[changing[0]], coefficients[changing[1]] = -gmax, previous
+            base += 3
+            changing = changing[2:]
         objective[idx(U)] = 5 * price
-        row(
-            ((idx(G), 1), (idx(P), 1), (idx(D), 1), (idx(U), 1), (idx(C), -1), (idx(V), -1)),
-            load,
-            load,
+        rlo[base] = rhi[base] = load
+        rlo[base + 1] = rhi[base + 1] = pv
+        rhi[base + 8], rhi[base + 9] = gmax, pv
+        coefficients[changing[0]], coefficients[changing[1]], coefficients[changing[2]] = (
+            -load,
+            gmax,
+            pv,
         )
-        row(((idx(P), 1), (idx(S), 1)), pv, pv)
-        row(((ebase + k + 1, 1), (ebase + k, -1), (idx(C), -0.9), (idx(D), 1 / 0.9)), 0, 0)
-        row(((idx(V), 1), (idx(G), -1)), hi=0)
-        row(((idx(C), 1), (idx(Z), -M)), hi=0)
-        row(((idx(D), 1), (idx(Z), M)), hi=M)
-        row(((idx(U), 1), (idx(Y), -load)), hi=0)
-        row(((idx(C), 1), (idx(Y), M)), hi=M)
-        row(((idx(V), 1), (idx(Y), gmax)), hi=gmax)
-        row(((idx(S), 1), (idx(Y), pv)), hi=pv)
         remaining = int((YEAR_END - (slot + STEP)) / STEP)
         lower[ebase + k + 1] = max(
             energy_lower_bound(slot + STEP, reserve_start), 6000 - remaining * 0.9 * M
@@ -295,10 +367,38 @@ def solve_dispatch(
         upper[ebase + k + 1] = min(10800, 6000 + remaining * M / 0.9)
     if forecast.slots[-1] + STEP == YEAR_END:
         lower[-1] = upper[-1] = 6000
-    matrix = coo_matrix((coefficients, (row_index, col_index)), shape=(len(rlo), size)).tocsc()
-    constraints = LinearConstraint(matrix, np.array(rlo), np.array(rhi))
+    matrix = csc_matrix((coefficients, structure.indices, structure.indptr), shape=structure.shape)
+    return DispatchProblem(permissions, objective, integrality, lower, upper, matrix, rlo, rhi)
+
+
+def solve_dispatch(
+    state: BatteryState,
+    forecast: ForecastSnapshot,
+    ledger: PurchaseLedger,
+    *,
+    reserve_start=RESERVE_START,
+    performance=None,
+) -> DispatchPlan:
+    matrix_started = time.perf_counter() if performance is not None else None
+    cache_before = constraint_structure.cache_info() if performance is not None else None
+    problem = build_dispatch_problem(state, forecast, ledger, reserve_start=reserve_start)
+    n = len(forecast.slots)
+    permissions = problem.permissions
+    objective, integrality, lower, upper = (
+        problem.objective,
+        problem.integrality,
+        problem.lower,
+        problem.upper,
+    )
+    matrix, rlo, rhi = problem.matrix, problem.rlo, problem.rhi
+    constraints = LinearConstraint(matrix, rlo, rhi)
     if performance is not None:
         performance.record("matrix_build", time.perf_counter() - matrix_started)
+        cache_after = constraint_structure.cache_info()
+        performance.counters["sparse_structure_cache_hits"] += cache_after.hits - cache_before.hits
+        performance.counters["sparse_structure_cache_misses"] += (
+            cache_after.misses - cache_before.misses
+        )
     attempts = []
     result = None
     for limit in (10.0, 60.0):
