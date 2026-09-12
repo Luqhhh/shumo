@@ -255,14 +255,12 @@ transaction_price / cost_cny
 已不能在剩余时间内完成全年，应先由团队调整求解频率、窗口或求解器，不能静默
 降低约束或关闭验证。
 
-## 10. 人工澄清记录区
+## 10. 决策收敛状态
 
-当前 Q3-M4/Q3-M7 与审计 sidecar 已由队长和 C 成员冻结。仅剩 tail baseline
-具体算法需要单独形成证据和人工确认；Agent 不填写确认字段。
+Q3-M4/Q3-M7、审计 sidecar、C-6 `TAIL-EXP2` 与 C-7
+`LOAD-HORIZON-A` 均已由队长和 C 成员按顺序确认。当前没有剩余人工模型口径；
+下一阶段是严格实现已批准的单窗口 MILP、独立 validator 和年度 runner。
 
-```text
-D_PV_TAIL_BASELINE 算法：
-
-confirmed_by：
-confirmed_at：
-```
+统一 `Q3WindowInput` 已把未来144格的负载/PV、右端点固定电价、当前合同模式和
+电池边界状态放到同一时间轴。年末窗口可显式截断，命中年度终点时使用
+`E_end=6000 kWh` 且不再叠加终端残值。该输入不包含 future actual。

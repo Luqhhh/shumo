@@ -130,6 +130,22 @@ def test_release_window_uses_snapshot_only() -> None:
     assert window.tail_point_count == 0
 
 
+def test_year_end_truncation_does_not_request_points_after_horizon_end() -> None:
+    decision_time = dt.datetime(2025, 12, 31, 18)
+    horizon_end = dt.datetime(2026, 1, 1)
+    window = build_q3_pv_window(
+        decision_time=decision_time,
+        snapshot=_snapshot(decision_time),
+        info_set=InfoSet(decision_time=decision_time),
+        tail_baseline=_ForbiddenTailBaseline(),
+        horizon_end=horizon_end,
+    )
+
+    assert len(window.points) == 36
+    assert window.points[-1].valid_time == horizon_end
+    assert window.tail_point_count == 0
+
+
 def test_1150_window_slices_snapshot_and_requests_only_the_5h50_tail(monkeypatch) -> None:
     issue_time = dt.datetime(2025, 2, 1, 6)
     snapshot = _snapshot(issue_time)

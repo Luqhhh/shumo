@@ -71,8 +71,8 @@ class Q3LoadWindow:
     points: tuple[LoadForecastPoint, ...]
 
     def __post_init__(self) -> None:
-        if len(self.points) != LOAD_MPC_WINDOW_STEPS:
-            raise ValueError("Q3 load MPC window must contain 144 ten-minute points")
+        if not 1 <= len(self.points) <= LOAD_MPC_WINDOW_STEPS:
+            raise ValueError("Q3 load MPC window must contain 1..144 ten-minute points")
         for step, point in enumerate(self.points, start=1):
             expected = self.decision_time + step * _STEP
             if point.valid_time != expected:
@@ -85,16 +85,30 @@ def build_q3_load_window(
     *,
     decision_time: dt.datetime,
     snapshot: LoadForecastSnapshot,
+    horizon_end: dt.datetime | None = None,
 ) -> Q3LoadWindow:
-    """Slice without reforecasting or accepting newly observed actual load."""
+    """Slice without reforecasting or accepting newly observed actual load.
+
+    ``horizon_end`` supports the approved annual-end truncation and cannot
+    extend the ordinary 24-hour window.
+    """
 
     _require_ten_minute_time("decision_time", decision_time)
     age = decision_time - snapshot.issue_time
     if age < dt.timedelta(0) or age >= dt.timedelta(hours=LOAD_SNAPSHOT_REFRESH_HOURS):
         raise InputError("load window must use the latest visible 6-hour snapshot")
 
+    window_steps = LOAD_MPC_WINDOW_STEPS
+    if horizon_end is not None:
+        _require_ten_minute_time("horizon_end", horizon_end)
+        horizon_seconds = (horizon_end - decision_time).total_seconds()
+        step_seconds = STEP_MINUTES * 60
+        if horizon_seconds <= 0 or horizon_seconds % step_seconds:
+            raise InputError("load horizon_end must be a later ten-minute boundary")
+        window_steps = min(LOAD_MPC_WINDOW_STEPS, int(horizon_seconds // step_seconds))
+
     by_time = {point.valid_time: point for point in snapshot.points}
-    targets = tuple(decision_time + step * _STEP for step in range(1, LOAD_MPC_WINDOW_STEPS + 1))
+    targets = tuple(decision_time + step * _STEP for step in range(1, window_steps + 1))
     try:
         points = tuple(by_time[target] for target in targets)
     except KeyError as exc:

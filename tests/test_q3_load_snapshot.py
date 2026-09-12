@@ -94,3 +94,17 @@ def test_mpc_cannot_read_a_future_load_forecast_version() -> None:
             decision_time=dt.datetime(2025, 2, 5, 11, 50),
             snapshot=future_snapshot,
         )
+
+
+def test_year_end_load_window_is_truncated_without_reforecast() -> None:
+    decision_time = dt.datetime(2025, 12, 31, 18)
+    snapshot = create_load_forecast_snapshot(_info(decision_time), data_version="v")
+    horizon_end = dt.datetime(2026, 1, 1)
+
+    window = build_q3_load_window(
+        decision_time=decision_time,
+        snapshot=snapshot,
+        horizon_end=horizon_end,
+    )
+    assert len(window.points) == 36
+    assert window.points[-1].valid_time == horizon_end

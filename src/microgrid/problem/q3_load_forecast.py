@@ -83,6 +83,12 @@ class LoadForecastPoint:
             raise ValueError("model_version and data_version must be non-empty")
 
 
+def load_forecast_id(point: LoadForecastPoint) -> str:
+    """Stable domain ID shared by window inputs and provenance sidecars."""
+
+    return f"load|decision={point.decision_time.isoformat()}|valid={point.valid_time.isoformat()}"
+
+
 def _load_history(info: InfoSet) -> dict[dt.datetime, tuple[float, str]]:
     history: dict[dt.datetime, tuple[float, str]] = {}
     for item in info.visible_items:

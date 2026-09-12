@@ -14,12 +14,12 @@
 | 负载预测 | 已批准并有30 h不可变版本 | `problem/q3_load_forecast.py`、`q3_load_snapshot.py` | 中间 MPC 仅切24 h窗口 |
 | 年度 actual adapter | 已选择性整合 | `problem/q2_inputs.py` | 复用，不另写全年读取器 |
 | PV snapshot/window | 接口与测试已实现 | `problem/q3_pv_snapshot.py` | 接入获批 `TAIL-EXP2` |
-| 统一 Q3 input bundle | 缺失 | 预测层、actual adapter、PV window 均已就绪 | tail 算法与负载覆盖澄清后组装 |
+| 统一 Q3 input bundle | 已实现并有 contract tests | `problem/q3_window.py` | solver 直接消费，不接 raw actual |
 | 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | 已接结构化 sidecar |
 | 结算账本 | 计划/调整部分已实现 | `problem/q3_plan_ledger.py` | 紧急费用等待实际回放实现 |
 | 结构化 sidecar | 已实现精确字段与引用检查 | `problem/q3_sidecars.py` | runner 后续登记路径与哈希 |
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
-| 实际回放 | 语义已冻结、实现缺失 | charge curtailment recourse | 不得扩展成任意 redispatch |
+| 实际回放 | 最小 recourse 已实现 | `problem/q3_replay.py` | 不得扩展成任意 redispatch |
 | Q3 solver/runner | 未实现 | `problem/q3.py` 明确报错 | 预测与 ledger 输入准备后实现 |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
@@ -32,6 +32,10 @@
 对称的负载覆盖断点也已由队长单独确认 C-7 `LOAD-HORIZON-A`：LOAD-A 仍只在
 00/06/12/18发布，每版冻结30小时；中间 MPC 仅从最近发布版本切取24小时，
 不重新预测。30小时只覆盖最长5小时50分钟缺口，不改变 Q2 更新机制。
+
+至此人工 decision blocker 已清零，统一 `Q3WindowInput` 也已完成。尚未完成的是
+单窗口 MILP、独立 validator 和年度 runner；这些是已批准口径的实现工作，不再
+需要新增模型选择。
 
 ## 3. 已提前补强的绿色测试
 
@@ -56,6 +60,9 @@
 - 三份 JSONL sidecar 的精确字段、完整版本链、预测ID引用、行数、SHA-256、
   相对路径和拒绝覆盖；
 - B actual adapter 的每日144格、expected-day、负载/PV网格与右端点测试。
+- 统一 `Q3WindowInput` 对齐144格负载/PV/右端点价格/合同状态/SOC；00:00新计划、
+  06/12/18可调整、非发布时间固定、次日仅lookahead四种模式互斥；未来版本、
+  过期 ledger 和年末未截断窗口均显式失败；年末改用6000 kWh硬约束且移除残值。
 
 以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
 
@@ -65,12 +72,10 @@
 ## 4. 最短实施路径
 
 ```text
-1. 组装不含未来 actual 的 Q3WindowInput
-2. 验证 PV/Load 两类不可变版本均只按最新发布时间切片
-3. 实现单窗口 Q3 MILP + 独立 validator
-4. 实现单窗口 Q3 MILP + 独立 validator
-5. 接入 charge curtailment 回放、settlement 和 run artifacts
-6. 按合成窗口、1日、7日、1月、全年逐级验证
+1. 实现单窗口 Q3 MILP + 独立 validator
+2. 把窗口解接入计划版本、charge curtailment 与 settlement
+3. 写入三份 sidecar 和 CaseResult
+4. 按合成窗口、1日、7日、1月、全年逐级验证
 ```
 
 ## 5. 求解器开工验收
@@ -91,7 +96,7 @@
 - [x] shared ledger/provenance 采用结构化 sidecar；
 - [x] 修正版年度 actual adapter 已选择性整合；
 - [x] 三份 sidecar 的精确结构、预测引用、往返、拒绝覆盖和哈希测试通过；
-- [ ] 不含未来 actual 的 `Q3WindowInput` 已通过 contract test；
+- [x] 不含未来 actual 的 `Q3WindowInput` 已通过对齐、版本、ledger和年末contract test；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-在 tail decision、窗口输入、求解器和回放均完成前，正式年度 runner不能返回成功。
+在求解器、独立 validator 和年度 runner 完成前，正式年度 runner仍不能返回成功。

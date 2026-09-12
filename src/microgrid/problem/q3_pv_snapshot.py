@@ -225,8 +225,8 @@ class Q3PVWindow:
     tail_point_count: int
 
     def __post_init__(self) -> None:
-        if len(self.points) != WINDOW_STEPS:
-            raise ValueError("Q3 PV MPC window must contain 144 points")
+        if not 1 <= len(self.points) <= WINDOW_STEPS:
+            raise ValueError("Q3 PV MPC window must contain 1..144 points")
         if self.attachment3_point_count + self.tail_point_count != len(self.points):
             raise ValueError("Q3 PV window source counts are inconsistent")
         forecast_ids = tuple(point.forecast_id for point in self.points)
@@ -244,8 +244,13 @@ def build_q3_pv_window(
     snapshot: PVForecastSnapshot,
     info_set: InfoSet,
     tail_baseline: PVTailBaseline | None = None,
+    horizon_end: dt.datetime | None = None,
 ) -> Q3PVWindow:
-    """Slice the latest snapshot and fill only its uncovered suffix."""
+    """Slice the latest snapshot and fill only its uncovered suffix.
+
+    ``horizon_end`` supports the approved annual-end truncation.  It never
+    extends the ordinary 24-hour window.
+    """
 
     _require_ten_minute_time("decision_time", decision_time)
     if info_set.decision_time != decision_time:
@@ -254,9 +259,18 @@ def build_q3_pv_window(
     if age < dt.timedelta(0) or age >= dt.timedelta(hours=SNAPSHOT_REFRESH_HOURS):
         raise InputError("PV window must use the latest visible 6-hour snapshot")
 
+    window_steps = WINDOW_STEPS
+    if horizon_end is not None:
+        _require_ten_minute_time("horizon_end", horizon_end)
+        horizon_seconds = (horizon_end - decision_time).total_seconds()
+        step_seconds = STEP_MINUTES * 60
+        if horizon_seconds <= 0 or horizon_seconds % step_seconds:
+            raise InputError("PV horizon_end must be a later ten-minute boundary")
+        window_steps = min(WINDOW_STEPS, int(horizon_seconds // step_seconds))
+
     targets = tuple(
         decision_time + dt.timedelta(minutes=STEP_MINUTES * step)
-        for step in range(1, WINDOW_STEPS + 1)
+        for step in range(1, window_steps + 1)
     )
     snapshot_by_time = {point.valid_time: point for point in snapshot.points}
     attachment_points: list[Q3PVWindowPoint] = []

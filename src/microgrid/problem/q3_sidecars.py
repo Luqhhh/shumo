@@ -19,7 +19,7 @@ from typing import Any
 from ..dataio import ensure_dir, sha256_file
 from ..schemas import InputError
 from .contracts import ENERGY_ABS_TOL_KWH, STEP_MINUTES, STEPS_PER_DAY, TimeGrid
-from .q3_load_forecast import LoadForecastPoint
+from .q3_load_forecast import LoadForecastPoint, load_forecast_id
 from .q3_plan_ledger import Q3PlanLedger
 from .q3_pv_snapshot import PVForecastSnapshot, TailForecast
 
@@ -31,12 +31,6 @@ SETTLEMENT_LEDGER_FILENAME = "settlement_ledger.jsonl"
 
 def _iso(value: dt.date | dt.datetime) -> str:
     return value.isoformat()
-
-
-def load_forecast_id(point: LoadForecastPoint) -> str:
-    """Stable ID used by provenance rows and plan-version references."""
-
-    return f"load|decision={point.decision_time.isoformat()}|valid={point.valid_time.isoformat()}"
 
 
 def _version_id(ledger: Q3PlanLedger, version: int) -> str:
