@@ -12,7 +12,7 @@ Q3 接口断点、模型预审和求解器开工条件已经汇总到
 - **题面证据**：C 题第 2 页问题 3 只明确“每天 0:00、6:00、12:00 和 18:00 可获得未来 24 小时整点的光伏发电功率预报”；附件 2 给全年实际负载/光伏，附件 3 只给光伏预报，题目没有提供负载预测或规定日内更新。
 - **推荐口径**：选 `LF-A`：0:00 因果生成当天负载预测；6:00 / 12:00 / 18:00 允许只用当时 `InfoSet` 中已观测的负载重新校正剩余时隙，明确标为 `MODELING_ASSUMPTION`；同时保留“0:00 后不更新”的 `LF-B` 对照。
 - **原因**：`LF-A` 能使用已发生的日内偏差改善剩余负载预测，仍满足因果性；保留 `LF-B` 可检验改善是否来自自建假设，避免把日内负载更新误写成题目条件。
-- **对代码的影响**：由团队新增并批准 `D_LOAD_FORECAST`；共享预测接口接收 `decision_time` 和经过滤的历史信息，每版记录 `valid_time / available_at / training_cutoff / model_version / data_version`；Q2 只使用 0:00 版，Q3 按批准口径保存日内版本。
+- **对代码的影响**：`D_LOAD_FORECAST` 已由 A 批准并接入 Q3 gate；共享预测接口接收 `decision_time` 和经过滤的历史信息，每版记录 `valid_time / available_at / training_cutoff / model_version / data_version`。本次批准只覆盖 Q3，不自动规定 Q2。
 
 ## Card C-2：Q4 决策时是否知道未来真实价格
 
@@ -26,7 +26,7 @@ Q3 接口断点、模型预审和求解器开工条件已经汇总到
 - **题面证据**：C 题第 2 页问题 3 规定“计划购电量高于调整购电量的部分”按交易时刻电价的 50% 违约，反向超出部分按 1.5 倍计价，但未说多次调整时的“计划”是 0:00 原计划还是上一版；`result3.xlsx` 只有一张“计划购电量”和一张“调整购电量”表，没有 issue-time / delta 栏。
 - **推荐口径**：选 `SETTLE-A`：把 0:00 计划视为版本 0，每次发布时刻将新计划与“上一版已确认计划”比较，仅对本次 delta 按本次交易时刻价格结算；同时将“最终版相对 0:00 版一次结算”的 `SETTLE-B` 作敏感性对照。
 - **原因**：Q3 允许在多个预报时刻调整，Q4 中每次“交易时刻电价”还会不同；`SETTLE-A` 能保留每次交易的经济后果，避免中间调整在最终表中无痕消失。但题面确实没有明文规定，所以必须由团队选择并报告 `SETTLE-B` 的敏感性。
-- **对代码的影响**：在 `D_SETTLE` 中批准比较基准；内部长表保存 `issue_time / target_slot / previous_committed_kwh / new_committed_kwh / delta_kwh / transaction_price / is_frozen`，费用层逐版累加；官方“调整购电量”工作表只导出每个时隙执行前的最终已确认量，不代替内部交易账本。
+- **对代码的影响**：`D_SETTLE` 已批准上一版比较基准；内部长表保存 `issue_time / target_slot / previous_committed_kwh / new_committed_kwh / delta_kwh / transaction_price / is_frozen`，费用层逐版累加；官方“调整购电量”工作表只导出每个时隙执行前的最终已确认量，不代替内部交易账本。
 
 ## Card C-4：附件 3 的小时预测如何转换成 10 分钟输入
 
@@ -42,7 +42,7 @@ Q3 接口断点、模型预审和求解器开工条件已经汇总到
 - **C 成员当前选择**：选 `LOAD-A`：基准预测使用 7/14/21/28 天前同一时刻负载，按一周半衰期赋权，即权重依次为 0.5333、0.2667、0.1333、0.0667；再使用截至当前决策时刻的历史残差拟合 expanding AR(1)，以最新可见残差修正未来预测。预测值下界为 0；Q3 在 00:00 / 06:00 / 12:00 / 18:00 因果更新。半周半衰期作为参数敏感性，`LF-B` 作为不作日内更新的机制对照。该选择已于2026-09-12由A在本会话明确确认，并记录为D_LOAD_FORECAST approved。
 - **原因**：这种方法利用了负载明显的周周期，同时让较新的同星期历史占更高权重；AR(1) 只修正当前已经观察到的偏差，不读取未来实际量。相较简单基线，改善在跨日 bootstrap 中保持稳定。半周与一周半衰期的差异并未达到稳健区分，因此不把一周半衰期宣称为唯一最优，只把它作为更平滑的主参数并保留敏感性分析。
 - **与 B 侧证据的待复核差异**：B 侧简报中的“过去 28 日同一时段均值”会混合不同星期类型，不等同于这里明确的 7/14/21/28 天同星期滞后组合，其约 784.54 kW 的 MAE 不能直接作为 `LOAD-A` 的验证结果。团队应先统一公式和评价窗口，再替换或补充该项证据；Q2 每天 0:00 的 24 小时预测参数也应由 B 线独立验证，不直接照搬 Q3 参数。
-- **对代码与测试的影响**：只有在团队确认算法并批准相应 decision 后才实现。当前 `scripts/audit_q3_load_forecast_candidates.py` 仅用于证据复算，不是正式预测模块。未来正式预测记录至少保存 `decision_time / valid_time / training_cutoff / lag_values / lag_weights / ar1_phi / latest_visible_residual / model_version / data_version / prediction_value`。测试必须覆盖：四个周滞后映射正确、权重和为 1、未来实际值不可见、AR(1) 只用当前及更早残差、四个发布时间形成独立版本、预测非负和 provenance 可追溯。
+- **对代码与测试的影响**：该算法已进入 `D_LOAD_FORECAST` 批准口径，可以实现生产预测模块；`scripts/audit_q3_load_forecast_candidates.py` 仍只用于证据复算，不得被正式 runner 直接当作生产接口。正式预测记录至少保存 `decision_time / valid_time / training_cutoff / lag_values / lag_weights / ar1_phi / latest_visible_residual / model_version / data_version / prediction_value`。测试必须覆盖：四个周滞后映射正确、权重和为 1、未来实际值不可见、AR(1) 只用当前及更早残差、四个发布时间形成独立版本、预测非负和 provenance 可追溯。
 
 ## 表决回复模板
 

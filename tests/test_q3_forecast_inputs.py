@@ -28,8 +28,13 @@ def _write_forecast_workbook(
                 value = None
             values.append(value)
         ws.append(["2025-02-01" if issue_hour == 0 else "", f"{issue_hour}:00", *values])
-        if duplicate_issue_hour == issue_hour:
-            ws.append(["", f"{issue_hour}:00", *values])
+    if duplicate_issue_hour is not None:
+        duplicate_values = [
+            float(duplicate_issue_hour * 100 + lead) for lead in EXPECTED_FORECAST_LEADS
+        ]
+        # Start a new date block so this fixture isolates duplicate issue/lead
+        # validation instead of first corrupting the four-row workbook layout.
+        ws.append(["2025-02-01", f"{duplicate_issue_hour}:00", *duplicate_values])
     wb.save(path)
 
 
