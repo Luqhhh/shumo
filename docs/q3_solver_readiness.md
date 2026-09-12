@@ -35,8 +35,10 @@
 3. **审计结果承载**：`IntervalResult` 只保存最终执行轨迹，不能表达
    `100 -> 80 -> 100` 的两笔费用。A 需要确认使用结构化 sidecar，还是升级
    `CaseResult/result_io` schema；不能把整张账本塞入 metadata。
-4. **B 输入依赖**：B 的 `d1df0b0` 不能原样合并。C 线应复用修正后的年度
-   actual adapter，不另写一套原始表读取和 replay。
+4. **B 输入依赖**：B 分支最新 `ba02252` 已补 expected-day 完整性和右端点
+   对齐测试，可作为年度 actual adapter 候选；但该分支同时携带旧
+   `decisions.toml`，会把当前已批准的 Q3 口径退回 `proposed`，因此不能整分支
+   合并。应由 A review 后选择性整合 adapter 与对应测试，C 不另写一套原始表读取。
 
 前两项属于批准文本的实现澄清，不能由 Agent自行决定；后两项是 shared contract
 与集成工作，需要 A review。
