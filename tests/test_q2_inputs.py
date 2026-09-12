@@ -435,7 +435,9 @@ def test_historical_info_items_are_causal_at_interval_end(tmp_path: Path) -> Non
     )
 
 
-@pytest.mark.parametrize("missing_day", [dt.date(2025, 1, 1), dt.date(2025, 1, 2), dt.date(2025, 1, 3)])
+@pytest.mark.parametrize(
+    "missing_day", [dt.date(2025, 1, 1), dt.date(2025, 1, 2), dt.date(2025, 1, 3)]
+)
 def test_load_q2_inputs_rejects_missing_expected_day(tmp_path: Path, missing_day: dt.date) -> None:
     expected_days = (
         dt.date(2025, 1, 1),
@@ -458,6 +460,7 @@ def test_load_q2_inputs_rejects_missing_expected_day(tmp_path: Path, missing_day
             pv_sheet_name="实际光伏",
             expected_days=expected_days,
         )
+
 
 def test_load_q2_inputs_rejects_day_missing_from_one_actual_table(tmp_path: Path) -> None:
     expected_days = (

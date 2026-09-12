@@ -263,7 +263,6 @@ def _require_complete_days(
             )
 
 
-
 def _require_expected_days(
     logical_name: str,
     path: Path,

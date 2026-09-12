@@ -10,7 +10,6 @@ from microgrid.checks import assert_release_ready, collect_blockers, load_select
 from microgrid.cli import main
 from microgrid.schemas import (
     InputError,
-    ModelNotImplementedError,
     PendingDecisionError,
     ReleaseBlockedError,
 )
@@ -209,6 +208,7 @@ def test_approved_decisions_reach_explicit_q2_input_error(tmp_path):
         run_case("q2", repo)
     # Dispatcher must not invent a fake solution or success.
     assert not (repo / "outputs").exists()
+
 
 def test_final_guard_has_no_permanent_stage0_blocker(tmp_path):
     repo = tmp_path / "repo"
