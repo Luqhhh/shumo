@@ -4,8 +4,9 @@
 
 Q3 接口断点、模型预审和求解器开工条件已经汇总到
 [`docs/q3_solver_preflight.md`](q3_solver_preflight.md) 与
-[`docs/q3_solver_readiness.md`](q3_solver_readiness.md)。HORIZON-B 接口已经冻结，
-现在只剩 Card C-6 的具体补尾算法需要团队回答，不能由实现者自行补齐。
+[`docs/q3_solver_readiness.md`](q3_solver_readiness.md)。HORIZON-B 接口已经冻结；
+Card C-6 的具体 PV 补尾算法和新发现的 Card C-7 负载覆盖长度需要团队回答，
+不能由实现者自行补齐。
 
 ## Card C-1：6:00 / 12:00 / 18:00 是否更新负载预测
 
@@ -52,6 +53,14 @@ Q3 接口断点、模型预审和求解器开工条件已经汇总到
 - **需要团队明确接受的代价**：2天半衰期是 `EMPIRICAL_CHOICE`，不是题面事实，也不是独立测试集证明的普适最优参数。若采用，必须保留候选比较并避免“最佳算法”的过度表述。
 - **对代码的影响**：只有团队批准后才能实现 `PVTailBaseline`。正式实现需保存 `training_cutoff=decision_time`、7条实际PV来源、`model_version=TAIL-EXP2/v1` 和固定 fallback reason；缺任一滞后时显式失败，只返回快照未覆盖的目标，不静默改用其他算法。
 
+## Card C-7：中间十分钟 MPC 的负载预测尾部怎样覆盖
+
+- **发现的接口矛盾**：现有 `forecast_q3_load` 只允许在00/06/12/18生成最多24小时预测。以06:00版本为例，它只覆盖至次日06:00；但11:50的固定24小时 MPC 需要负载预测至次日11:50，因此同样缺5小时50分钟。这个问题与附件3无关，不能用 `D_PV_TAIL_BASELINE` 顺便处理。
+- **推荐口径 `LOAD-HORIZON-A`**：仍只在00/06/12/18更新一次 LOAD-A，但每版直接生成未来30小时的不可变负载预测；中间 MPC 只切片未来24小时。这样保留“每6小时因果更新”和“固定24小时窗口”，也不创造新的预测算法。目标时刻所需7/14/21/28日滞后均早于发布时间，公式保持因果。
+- **备选 `LOAD-HORIZON-B`**：每10分钟重新运行一次 LOAD-A 并生成未来24小时。它会利用两次发布时间之间的新实际负载，预测可能更及时，但实质上把 LF-A 从“00/06/12/18更新”改成“每10分钟更新”，形成大量新版本，属于更明显的模型修改。
+- **不建议方案**：让窗口逐渐缩短会破坏已冻结的固定24小时 MPC；把最后一个负载值平移或填充会伪造预测语义。
+- **需要人工确认的点**：`LOAD-HORIZON-A` 虽不改变 LOAD-A 公式，但把每版输出从24小时延长到30小时；现有 approved 文本和生产代码没有写明这一点，因此 Agent 不自行扩展。队长确认后再改负载预测 horizon contract 和对应 snapshot/window 测试。
+
 ## 表决回复模板
 
 每位成员独立回复选项和一句理由，再开始讨论：
@@ -63,6 +72,7 @@ C-3：SETTLE-A / SETTLE-B；理由：
 C-4：RESAMPLE-LIN / RESAMPLE-PCHIP；理由：
 C-5：LOAD-A / 其他候选；理由：
 C-6：TAIL-EXP2 / TAIL-MEAN7 / 其他候选；理由：
+C-7：LOAD-HORIZON-A / LOAD-HORIZON-B；理由：
 ```
 
 各项达成共识后，再由参赛队逐项更新对应 decision；不批量改为 `approved`。

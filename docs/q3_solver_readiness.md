@@ -14,7 +14,7 @@
 | 负载预测 | 已批准并有生产实现 | `problem/q3_load_forecast.py` | 接入统一 Q3 input bundle |
 | 年度 actual adapter | 已选择性整合 | `problem/q2_inputs.py` | 复用，不另写全年读取器 |
 | PV snapshot/window | 接口与测试已实现 | `problem/q3_pv_snapshot.py` | tail 只留协议，不含算法 |
-| 统一 Q3 input bundle | 缺失 | 预测层、actual adapter、PV window 均已就绪 | tail 算法批准后组装 |
+| 统一 Q3 input bundle | 缺失 | 预测层、actual adapter、PV window 均已就绪 | tail 算法与负载覆盖澄清后组装 |
 | 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | 已接结构化 sidecar |
 | 结算账本 | 计划/调整部分已实现 | `problem/q3_plan_ledger.py` | 紧急费用等待实际回放实现 |
 | 结构化 sidecar | 已实现精确字段与引用检查 | `problem/q3_sidecars.py` | runner 后续登记路径与哈希 |
@@ -23,7 +23,7 @@
 | Q3 solver/runner | 未实现 | `problem/q3.py` 明确报错 | 预测与 ledger 输入准备后实现 |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
-## 2. 仅剩的 P0 建模阻断
+## 2. 剩余的 P0 阻断
 
 队长已确认 HORIZON-B、charge curtailment recourse、结构化 sidecar 与 B adapter
 整合边界可以冻结。精确文本见
@@ -31,6 +31,12 @@
 人工选择的模型算法是 **PV tail baseline**：HORIZON-B 只确定“严格因果补尾”，
 没有批准 baseline 公式。仓库已新增 pending 的 `D_PV_TAIL_BASELINE` 并接入 Q3
 与 final gate；接口可以实现，具体预测器和正式 Q3 runner 不得绕过该门禁。
+
+实现 `Q3WindowInput` 时又发现一个对称的负载覆盖断点：现有 LOAD-A 只允许
+00/06/12/18生成最多24小时预测，不能覆盖中间 MPC 的固定24小时窗口尾部。
+这不一定需要新算法，但必须由队长确认是“发布时间生成30小时、随后切片”还是
+“每10分钟重新预测24小时”。精确选项见 Card C-7；Agent 不擅自改变已批准的
+LF-A 更新频率或 horizon。
 
 ## 3. 已提前补强的绿色测试
 
@@ -83,7 +89,9 @@
 - [x] 计划版本、冻结和逐版调整费用的内存 contract 与手算测试通过；
 - [x] HORIZON-B snapshot/window 接口已冻结并通过切片、补尾范围和禁止重采样测试；
 - [x] charge curtailment recourse 已由队长与 C 成员冻结；
+- [x] charge curtailment 生产 contract 与公式级测试已实现，不做 spill 来源归属；
 - [ ] `D_PV_TAIL_BASELINE` 算法已由团队批准并实现；
+- [ ] LOAD-A 对中间 MPC 的24小时覆盖方式已由队长确认；
 - [x] shared ledger/provenance 采用结构化 sidecar；
 - [x] 修正版年度 actual adapter 已选择性整合；
 - [x] 三份 sidecar 的精确结构、预测引用、往返、拒绝覆盖和哈希测试通过；
