@@ -113,3 +113,54 @@ def test_final_required_set_is_explicit() -> None:
     assert "D_TIME_TEMPLATE_EXPORT" in FINAL_REQUIRED_DECISION_IDS
     assert "D_TIME_INTERNAL" in FINAL_REQUIRED_DECISION_IDS
     assert "D_RESAMPLE" in FINAL_REQUIRED_DECISION_IDS
+    assert "D_LOAD_FORECAST" in FINAL_REQUIRED_DECISION_IDS
+
+
+@pytest.mark.parametrize(
+    "broken", ["missing", "pending", "proposed", "confirmed_by", "confirmed_at"]
+)
+def test_q3_load_approval_blocks_dispatch_and_final_release(tmp_path: Path, monkeypatch, broken):
+    from microgrid.cases import CASE_RUNNERS, required_decisions, run_case
+    from microgrid.checks import collect_blockers
+
+    lines = []
+    for decision_id in FINAL_REQUIRED_DECISION_IDS:
+        if decision_id == "D_LOAD_FORECAST" and broken == "missing":
+            continue
+        status, by, at = "approved", "tester", "2026-09-12"
+        if decision_id == "D_LOAD_FORECAST":
+            if broken in ("pending", "proposed"):
+                status = broken
+            elif broken == "confirmed_by":
+                by = " "
+            elif broken == "confirmed_at":
+                at = " "
+        lines.extend(_decision_block(decision_id, status=status, confirmed_by=by, confirmed_at=at))
+    _write_decisions(tmp_path, lines)
+
+    def forbidden_runner(_context):
+        pytest.fail("Q3 runner must not be invoked without load approval")
+
+    monkeypatch.setitem(CASE_RUNNERS, "q3", forbidden_runner)
+    assert "D_LOAD_FORECAST" in required_decisions("q3")
+    with pytest.raises(PendingDecisionError) as excinfo:
+        run_case("q3", tmp_path)
+    assert excinfo.value.decision_ids == ["D-LOAD-FORECAST"]
+    assert any("D-LOAD-FORECAST" in blocker for blocker in collect_blockers(tmp_path, mode="final"))
+
+
+def test_q3_complete_approval_reaches_unimplemented_runner(tmp_path: Path):
+    from microgrid.cases import required_decisions, run_case
+    from microgrid.schemas import ModelNotImplementedError
+
+    lines = []
+    for decision_id in required_decisions("q3"):
+        lines.extend(
+            _decision_block(
+                decision_id, status="approved", confirmed_by="tester", confirmed_at="2026-09-12"
+            )
+        )
+    _write_decisions(tmp_path, lines)
+    with pytest.raises(ModelNotImplementedError):
+        run_case("q3", tmp_path)
+    assert not (tmp_path / "outputs").exists()

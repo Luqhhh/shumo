@@ -23,6 +23,7 @@ DECISION_IDS = (
     "D_STATE",
     "D_INFO",
     "D_RESAMPLE",
+    "D_LOAD_FORECAST",
     "D_SETTLE",
     "D_MODEL_Q1",
     "D_MODEL_Q2",

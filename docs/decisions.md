@@ -2,7 +2,7 @@
 
 机器可读状态以 `configs/decisions.toml` 为唯一来源。本文件只解释背景与依赖，不代替人工批准。
 
-Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。该计划建议新增 `D_LOAD_FORECAST` 和 `D_REALTIME_DISPATCH`，并要求团队重新核对一月状态与 Q4 价格可见性。在参赛队修改 `configs/decisions.toml` 前，这些都只是计划中的候选决策，不是已批准 gate。
+Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。2026-09-12 A已明确批准 `D_LOAD_FORECAST`（Q3 LOAD-A + LF-A）、`D_SETTLE` 和 `D_MODEL_Q3`。Q3与final gate均检查负载批准；完整口径见 [`q3_model.md`](q3_model.md)。`D_REALTIME_DISPATCH` 未单列，Q3控制边界收进 `D_MODEL_Q3`；Q2/Q4模型仍待各自批准。
 
 状态含义：
 
@@ -21,15 +21,15 @@ Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。�
 | D-STATE | 一月待机 6000 kWh；二月起连续运行、不每日重置；Q1 单独日终等式 | 跨日状态与终端条件 |
 | D-INFO | `available_at <= decision_time`；只按可获得时间使用信息；未来 actual 只用于回放结算 | 预测与计划输入 |
 | D-RESAMPLE | 已批准：接收上游唯一小时预测序列；LIN 主方案、PCHIP 敏感性；最近十分钟实际均值作边界代理；输出按右端点对齐 | Q3/Q4-3 预报处理 |
-| D-SETTLE | 调整、紧急费用与余电处理；owner B/C | 正式费用计算 |
+| D-SETTLE | 已批准：SETTLE-A-v2逐版增减量、正常合同全额付费、紧急5倍费率、显式能量等式 | 正式费用计算 |
+| D-LOAD-FORECAST | 已批准：Q3 LOAD-A + LF-A；四周加权与因果AR(1)，保留LF-B和半周敏感性 | Q3预测与final gate |
 
 ## 架构冻结后建议新增的决策
 
-下表只记录计划中的 decision 边界。当前配置中尚无这些 ID，因此不能写成“已批准”或认为现有 gate 已经检查它们。
+下表为剩余候选边界；已落地的 D_LOAD_FORECAST 见上表。
 
 | 建议 ID | 负责边界 | 不负责 |
 |---|---|---|
-| D-LOAD-FORECAST | Q2/Q3 的因果负载预测、日内是否更新、cold start、rolling-origin 与 provenance | 光伏重采样、费用结算 |
 | D-REALTIME-DISPATCH | actual replay 中每 10 分钟如何因果调整电池、紧急电量何时成为 residual | 调整/紧急费用怎样结算 |
 | D-PRICE-FORECAST（条件新增） | 仅当 Q4 未来实时价格不可提前见时，定义价格的因果预测 | 价格已日前公布的情形 |
 
@@ -45,7 +45,7 @@ Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。�
 |---|---|---|
 | D-MODEL_Q1 | Q1 单日目标、变量、约束、方法和求解器？ | Q1 模型实现 |
 | D-MODEL_Q2 | Q2 连续运行、紧急购电与历史信息模型？ | Q2 模型实现 |
-| D-MODEL_Q3 | Q3 预报发布时刻、调整购电与费用模型？ | Q3 模型实现 |
+| D-MODEL_Q3 | 已批准：见q3_model.md；24小时滚动MILP、PV版本加权、终端价值与年度约束 | 求解器尚未实现 |
 | D-MODEL_Q4_2 | 波动电价下重算 Q2；需覆盖 Q2 基础模型与价格信息条件扩展 | Q4-2 模型实现 |
 | D-MODEL_Q4_3 | 波动电价下重算 Q3；需覆盖 Q3 基础模型与价格信息条件扩展 | Q4-3 模型实现 |
 | D-EVAL | 正式比较、验证设计、证据标准及结论边界？ | 正式实验与结论 |

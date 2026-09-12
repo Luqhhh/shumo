@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -152,8 +153,8 @@ def summarize_errors(rows: pd.DataFrame) -> dict[str, dict[str, float | int]]:
 
 
 def evaluate(args: argparse.Namespace) -> dict[str, Any]:
-    if args.weight_epsilon_kw < 0:
-        raise ValueError("--weight-epsilon-kw must be non-negative")
+    if not math.isfinite(args.weight_epsilon_kw) or args.weight_epsilon_kw <= 0:
+        raise ValueError("--weight-epsilon-kw must be finite and positive")
 
     actual, by_valid, by_issue, history_arrays = build_inputs(args.actual, args.forecast)
     evaluation_start = dt.datetime.combine(args.evaluation_start, dt.time())

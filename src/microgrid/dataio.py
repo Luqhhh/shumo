@@ -621,12 +621,18 @@ def read_forecasts(path: str | Path) -> list[ForecastRecord]:
         ws = wb["Sheet1"]
         records: list[ForecastRecord] = []
         current_date_value: Any = None
-        for row in ws.iter_rows(min_row=2):
+        for row_index, row in enumerate(ws.iter_rows(min_row=2)):
+            block_offset = row_index % 4
+            if block_offset == 0:
+                current_date_value = None
             date_value = row[0].value if len(row) > 0 else None
-            if not (date_value is None or (isinstance(date_value, str) and not date_value.strip())):
+            has_date = not (
+                date_value is None or (isinstance(date_value, str) and not date_value.strip())
+            )
+            if has_date:
                 current_date_value = date_value
             if current_date_value is None:
-                continue
+                raise InputError(f"forecast date block has no date at row {row_index + 2}")
             clock_value = row[1].value if len(row) > 1 else None
             if clock_value is None:
                 continue
@@ -634,6 +640,10 @@ def read_forecasts(path: str | Path) -> list[ForecastRecord]:
                 issue = issue_time_from_forecast_label(current_date_value, clock_value)
             except TimeLabelError:
                 continue
+            if not has_date and issue.time() != _dt.time(block_offset * 6):
+                raise InputError(
+                    f"forecast issue time does not match inherited date block at row {row_index + 2}"
+                )
             for cell in row[2:]:
                 header = ws.cell(row=1, column=cell.column).value
                 match = FORECAST_LEAD_RE.search(str(header or ""))
