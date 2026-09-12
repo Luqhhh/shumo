@@ -37,6 +37,7 @@ from .q4_common import (
     MODEL_VERSION,
     RESERVE_START,
     STEP,
+    TERMINAL_MODEL_VERSION,
     YEAR_END,
     JsonlWriter,
     Q4Error,
@@ -45,6 +46,7 @@ from .q4_common import (
     jsonable,
     pv_bias_parameters,
     pv_blend_parameters,
+    terminal_quartile_parameters,
 )
 from .q4_evidence import (
     LOG_NAMES,
@@ -238,6 +240,19 @@ def run_q4(context: CaseContext) -> CaseResult:
             raise InputError("PV-BIAS-LONG trial is scoped to Q4-3/main")
         require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
         model_version = BIAS_MODEL_VERSION
+    planning_method = context.metadata.get("planning_method", "v3")
+    if planning_method not in ("v3", "terminal-quartile"):
+        raise InputError("unknown Q4 planning experiment")
+    if planning_method != "v3":
+        if (
+            context.case_id != "q4_3"
+            or method != "main"
+            or pv_method != "v3"
+            or context.metadata.get("solver_method", "scipy") != "scipy"
+        ):
+            raise InputError("terminal experiment requires unmixed Q4-3/main")
+        require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
+        model_version = TERMINAL_MODEL_VERSION
     from .q4_solver_methods import solver_method_parameters
 
     solver_method = context.metadata.get("solver_method", "scipy")
@@ -284,6 +299,8 @@ def run_q4(context: CaseContext) -> CaseResult:
         config["pv_blend"] = pv_blend_parameters()
     elif model_version == BIAS_MODEL_VERSION:
         config["optimization"] = pv_bias_parameters()
+    if model_version == TERMINAL_MODEL_VERSION:
+        config["optimization"] = terminal_quartile_parameters()
     if solver_method != "scipy":
         config["solver_method"] = solver_method
         config["solver_method_parameters"] = solver_parameters
@@ -314,7 +331,7 @@ def run_q4(context: CaseContext) -> CaseResult:
             inputs = load_q4_inputs(context.repo_root, context.case_id)
         if not resume:
             if (
-                model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION)
+                model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
                 or solver_method != "scipy"
             ):
                 _seal_source_snapshot(context.repo_root, run_dir, code_hash, manifest)
@@ -357,7 +374,8 @@ def run_q4(context: CaseContext) -> CaseResult:
                         checkpoint["log_sizes"]["forecasts"],
                         checkpoint["forecast"],
                     )
-                    if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION)
+                    if model_version
+                    in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
                     else _initialize_forecaster(inputs, context.case_id, method, time_at)
                 )
             if jsonable(service.training_state()) != checkpoint["training_state"]:

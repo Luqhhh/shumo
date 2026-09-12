@@ -16,10 +16,12 @@ from .q4_common import (
     BLEND_MODEL_VERSION,
     MODEL_VERSION,
     STEP,
+    TERMINAL_MODEL_VERSION,
     YEAR_END,
     Q4Error,
     jsonable,
     nonnegative,
+    terminal_quartile_parameters,
 )
 from .q4_pv_bias import LongPVBias
 from .q4_pv_blend import LongPVBlend
@@ -125,9 +127,15 @@ class Q4Forecaster:
         if case_id not in ("q4_2", "q4_3") or price_method not in ("main", "lag1"):
             raise ValueError("invalid forecast case or price method")
         self.case_id, self.source_hashes, self.price_method = case_id, source_hashes, price_method
-        if model_version not in ("q4-v2", MODEL_VERSION, BLEND_MODEL_VERSION, BIAS_MODEL_VERSION):
+        if model_version not in (
+            "q4-v2",
+            MODEL_VERSION,
+            BLEND_MODEL_VERSION,
+            BIAS_MODEL_VERSION,
+            TERMINAL_MODEL_VERSION,
+        ):
             raise ValueError("unknown Q4 forecast model version")
-        if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION) and (
+        if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION) and (
             case_id != "q4_3" or price_method != "main"
         ):
             raise ValueError("PV blend approval applies only to Q4-3/main")
@@ -313,6 +321,17 @@ class Q4Forecaster:
         terminal_value = (
             0.9 * sum(price) / 144 if count == 144 and slots[-1] + STEP < YEAR_END else 0.0
         )
+        if self.model_version == TERMINAL_MODEL_VERSION:
+            terminal_value = (
+                0.9 * float(np.quantile(price, 0.75, method="linear"))
+                if count == 144 and slots[-1] + STEP < YEAR_END
+                else 0.0
+            )
+            traces["terminal_value_rule"] = {
+                "parameters": terminal_quartile_parameters(),
+                "value": terminal_value,
+                "original_issue_time": str(time),
+            }
         return ForecastSnapshot(
             snapshot_id,
             self.case_id,

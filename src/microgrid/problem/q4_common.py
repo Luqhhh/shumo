@@ -21,6 +21,7 @@ RESERVE_START = YEAR_END - dt.timedelta(days=1)
 MODEL_VERSION = "q4-v3-reserve"
 BLEND_MODEL_VERSION = "q4-v4-pv-blend-long"
 BIAS_MODEL_VERSION = "q4-v4-pv-bias-long"
+TERMINAL_MODEL_VERSION = "q4-v4-terminal-upper-quartile"
 BLEND_DECISIONS = ("D_PV_BLEND_LONG_Q4", "D_EVAL_PV_BLEND_LONG_Q4")
 
 
@@ -55,6 +56,18 @@ def pv_bias_parameters() -> dict:
     return parameters
 
 
+def terminal_quartile_parameters() -> dict:
+    return {
+        "schema_version": 1,
+        "mechanism": "TERMINAL-UPPER-QUARTILE",
+        "quantile": 0.75,
+        "quantile_method": "linear",
+        "efficiency_factor": 0.9,
+        "application": "complete 144-point snapshots ending strictly before YEAR_END; otherwise zero",
+        "annual_reserve": "unchanged",
+    }
+
+
 def energy_lower_bound(
     time_at: dt.datetime, reserve_start: dt.datetime | None = RESERVE_START
 ) -> float:
@@ -67,7 +80,8 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
         return None
     expected = {"start": str(RESERVE_START), "minimum_energy_kwh": 6000.0}
     if (
-        config["model_version"] not in (MODEL_VERSION, BLEND_MODEL_VERSION, BIAS_MODEL_VERSION)
+        config["model_version"]
+        not in (MODEL_VERSION, BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
         or config.get("terminal_reserve") != expected
     ):
         raise Q4Error("config_mismatch", "unknown Q4 model or terminal reserve configuration")
@@ -80,13 +94,18 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
             != json.dumps(pv_blend_parameters(), sort_keys=True)
         ):
             raise Q4Error("config_mismatch", "PV-BLEND-LONG configuration differs from approval")
-    elif config["model_version"] == BIAS_MODEL_VERSION:
+    elif config["model_version"] in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION):
         if (
             config.get("case_id") != "q4_3"
             or config.get("price_method") != "main"
             or config.get("pv_blend") is not None
             or json.dumps(config.get("optimization"), sort_keys=True)
-            != json.dumps(pv_bias_parameters(), sort_keys=True)
+            != json.dumps(
+                pv_bias_parameters()
+                if config["model_version"] == BIAS_MODEL_VERSION
+                else terminal_quartile_parameters(),
+                sort_keys=True,
+            )
         ):
             raise Q4Error("config_mismatch", "PV-BIAS-LONG configuration differs from model card")
     elif config.get("pv_blend") is not None or config.get("optimization") is not None:

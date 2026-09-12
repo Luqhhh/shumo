@@ -52,7 +52,9 @@ def forecast_reserve_start(forecast: ForecastSnapshot):
             "case_id": forecast.case_id,
             "price_method": forecast.price_method,
             "pv_blend": forecast.traces.get("pv_blend", {}).get("parameters"),
-            "optimization": forecast.traces.get("pv_bias", {}).get("parameters"),
+            "optimization": forecast.traces.get(
+                "pv_bias", forecast.traces.get("terminal_value_rule", {})
+            ).get("parameters"),
             "terminal_reserve": None
             if forecast.model_version == "q4-v2"
             else {

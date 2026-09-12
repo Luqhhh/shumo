@@ -116,6 +116,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             price_method=args.price_method,
             pv_method=args.pv_method,
             solver_method=args.solver_method,
+            planning_method=args.planning_method,
             resume=args.resume,
         )
     except PendingDecisionError as exc:
@@ -179,6 +180,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("scipy", "eliminate-fixed", "lp-certified", "native-highs"),
         default="scipy",
         help="optional authorized Q4 solver experiment",
+    )
+    p_run.add_argument(
+        "--planning-method",
+        choices=("v3", "terminal-quartile"),
+        default="v3",
+        help="authorized single-factor Q4 planning experiment",
     )
     p_run.add_argument(
         "--resume",

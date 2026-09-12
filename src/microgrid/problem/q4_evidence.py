@@ -28,6 +28,7 @@ from .q4_common import (
     BLEND_DECISIONS,
     BLEND_MODEL_VERSION,
     STEP,
+    TERMINAL_MODEL_VERSION,
     YEAR_END,
     Q4Error,
     atomic_json,
@@ -181,7 +182,10 @@ def check_model_binding(repo: Path, run_dir: Path, export: dict | None = None) -
             config["model_version"] != "q4-v3-reserve" or config["price_method"] != "main"
         ):
             issues.append("solver experiment is not unmixed v3/main")
-        if config["model_version"] == BIAS_MODEL_VERSION or method != "scipy":
+        if (
+            config["model_version"] in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION)
+            or method != "scipy"
+        ):
             ids.append("D_OPTIMIZATION_Q4")
             issues.extend(
                 f"{issue.decision_id}: {issue.reason}"

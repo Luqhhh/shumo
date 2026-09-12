@@ -86,6 +86,7 @@ def run_case(
     price_method: str = "main",
     pv_method: str = "v3",
     solver_method: str = "scipy",
+    planning_method: str = "v3",
     resume: bool = False,
 ) -> CaseResult:
     """Dispatch one formal case after decision gating."""
@@ -111,11 +112,14 @@ def run_case(
         end_time is not None
         or price_method != "main"
         or pv_method != "v3"
+        or planning_method != "v3"
         or solver_method != "scipy"
         or resume
     ):
         raise InputError("diagnostic end/price method/resume options are available only for Q4")
     metadata = {"price_method": price_method, "resume": resume}
+    if planning_method != "v3":
+        metadata["planning_method"] = planning_method
     if solver_method != "scipy":
         metadata["solver_method"] = solver_method
     if pv_method != "v3":
