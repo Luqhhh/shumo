@@ -169,9 +169,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument(
         "--pv-method",
-        choices=("v3", "blend-long"),
+        choices=("v3", "blend-long", "bias-long"),
         default="v3",
-        help="Q4-3/main approved long-lead PV blend; default retains v3",
+        help="Q4-3/main approved PV correction trial; default retains v3",
     )
     p_run.add_argument(
         "--resume",

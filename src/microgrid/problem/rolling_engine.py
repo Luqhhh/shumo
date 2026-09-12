@@ -31,6 +31,7 @@ from .purchase_ledger import PurchaseLedger
 from .q4_checkpoint import CHECKPOINT_SCHEMA, ledger_witness, restore_ledger
 from .q4_common import (
     ACTION_START,
+    BIAS_MODEL_VERSION,
     BLEND_DECISIONS,
     BLEND_MODEL_VERSION,
     MODEL_VERSION,
@@ -42,6 +43,7 @@ from .q4_common import (
     append_json,
     atomic_json,
     jsonable,
+    pv_bias_parameters,
     pv_blend_parameters,
 )
 from .q4_evidence import (
@@ -91,7 +93,7 @@ def _snapshot_from_dict(data):
 def _restore_blend_forecaster(inputs, time_at, run_dir, committed_size, saved_forecast):
     """Replay only the committed forecast prefix and ended history at recovery."""
     service = _initialize_forecaster(
-        inputs, "q4_3", "main", ACTION_START, model_version=BLEND_MODEL_VERSION
+        inputs, "q4_3", "main", ACTION_START, model_version=saved_forecast["model_version"]
     )
     official = defaultdict(list)
     for item in inputs.official:
@@ -223,14 +225,19 @@ def run_q4(context: CaseContext) -> CaseResult:
     if method == "lag1":
         require_approved_decisions(context.repo_root, ("D_EVAL_Q4",))
     pv_method = context.metadata.get("pv_method", "v3")
-    if pv_method not in ("v3", "blend-long"):
-        raise InputError("Q4 pv_method must be v3 or blend-long")
+    if pv_method not in ("v3", "blend-long", "bias-long"):
+        raise InputError("Q4 pv_method must be v3, blend-long or bias-long")
     model_version = MODEL_VERSION
     if pv_method == "blend-long":
         if context.case_id != "q4_3" or method != "main":
             raise InputError("PV-BLEND-LONG is approved only for Q4-3/main")
         require_approved_decisions(context.repo_root, BLEND_DECISIONS)
         model_version = BLEND_MODEL_VERSION
+    elif pv_method == "bias-long":
+        if context.case_id != "q4_3" or method != "main":
+            raise InputError("PV-BIAS-LONG trial is scoped to Q4-3/main")
+        require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
+        model_version = BIAS_MODEL_VERSION
     run_id = context.run_id or new_run_id(context.case_id, context.repo_root)
     resume = bool(context.metadata.get("resume", False))
     run_dir = (
@@ -267,6 +274,8 @@ def run_q4(context: CaseContext) -> CaseResult:
     }
     if model_version == BLEND_MODEL_VERSION:
         config["pv_blend"] = pv_blend_parameters()
+    elif model_version == BIAS_MODEL_VERSION:
+        config["optimization"] = pv_bias_parameters()
     started = time.perf_counter()
     stage = "input_preflight"
     step_count = 0
@@ -293,7 +302,7 @@ def run_q4(context: CaseContext) -> CaseResult:
         with performance.measure("input_preflight"):
             inputs = load_q4_inputs(context.repo_root, context.case_id)
         if not resume:
-            if model_version == BLEND_MODEL_VERSION:
+            if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION):
                 _seal_source_snapshot(context.repo_root, run_dir, code_hash, manifest)
             write_manifest(run_dir, manifest)
             atomic_json(run_dir / "input_snapshot.json", inputs.snapshot)
@@ -334,7 +343,7 @@ def run_q4(context: CaseContext) -> CaseResult:
                         checkpoint["log_sizes"]["forecasts"],
                         checkpoint["forecast"],
                     )
-                    if model_version == BLEND_MODEL_VERSION
+                    if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION)
                     else _initialize_forecaster(inputs, context.case_id, method, time_at)
                 )
             if jsonable(service.training_state()) != checkpoint["training_state"]:

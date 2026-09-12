@@ -21,6 +21,7 @@ from .dispatch_feedback import ExecutionRecord
 from .purchase_ledger import Bill, ContractVersion, PurchaseLedger
 from .q4_common import (
     ACTION_START,
+    BIAS_MODEL_VERSION,
     BLEND_DECISIONS,
     BLEND_MODEL_VERSION,
     STEP,
@@ -310,6 +311,8 @@ def _export_q4(repo: Path, result: CaseResult, output: Path, performance: Perfor
                 for decision_id in BLEND_DECISIONS
             }
         )
+    if config["model_version"] == BIAS_MODEL_VERSION:
+        decision_snapshot["D_OPTIMIZATION_Q4"] = decisions["D-OPTIMIZATION-Q4"]
     atomic_json(
         run_dir / "export_manifest.json",
         {

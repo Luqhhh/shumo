@@ -20,6 +20,7 @@ YEAR_END = dt.datetime(2026, 1, 1)
 RESERVE_START = YEAR_END - dt.timedelta(days=1)
 MODEL_VERSION = "q4-v3-reserve"
 BLEND_MODEL_VERSION = "q4-v4-pv-blend-long"
+BIAS_MODEL_VERSION = "q4-v4-pv-bias-long"
 BLEND_DECISIONS = ("D_PV_BLEND_LONG_Q4", "D_EVAL_PV_BLEND_LONG_Q4")
 
 
@@ -42,6 +43,18 @@ def pv_blend_parameters() -> dict:
     }
 
 
+def pv_bias_parameters() -> dict:
+    """Agent's pre-recorded single-factor choice under D_OPTIMIZATION_Q4."""
+    parameters = pv_blend_parameters()
+    for key in ("mae_smoothing_kw", "weight_power"):
+        parameters.pop(key)
+    parameters.update(
+        mechanism="PV-BIAS-LONG",
+        correction="max(0, original_F + mean(realized_actual - saved_original_F))",
+    )
+    return parameters
+
+
 def energy_lower_bound(
     time_at: dt.datetime, reserve_start: dt.datetime | None = RESERVE_START
 ) -> float:
@@ -54,7 +67,7 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
         return None
     expected = {"start": str(RESERVE_START), "minimum_energy_kwh": 6000.0}
     if (
-        config["model_version"] not in (MODEL_VERSION, BLEND_MODEL_VERSION)
+        config["model_version"] not in (MODEL_VERSION, BLEND_MODEL_VERSION, BIAS_MODEL_VERSION)
         or config.get("terminal_reserve") != expected
     ):
         raise Q4Error("config_mismatch", "unknown Q4 model or terminal reserve configuration")
@@ -62,11 +75,21 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
         if (
             config.get("case_id") != "q4_3"
             or config.get("price_method") != "main"
+            or config.get("optimization") is not None
             or json.dumps(config.get("pv_blend"), sort_keys=True)
             != json.dumps(pv_blend_parameters(), sort_keys=True)
         ):
             raise Q4Error("config_mismatch", "PV-BLEND-LONG configuration differs from approval")
-    elif config.get("pv_blend") is not None:
+    elif config["model_version"] == BIAS_MODEL_VERSION:
+        if (
+            config.get("case_id") != "q4_3"
+            or config.get("price_method") != "main"
+            or config.get("pv_blend") is not None
+            or json.dumps(config.get("optimization"), sort_keys=True)
+            != json.dumps(pv_bias_parameters(), sort_keys=True)
+        ):
+            raise Q4Error("config_mismatch", "PV-BIAS-LONG configuration differs from model card")
+    elif config.get("pv_blend") is not None or config.get("optimization") is not None:
         raise Q4Error("config_mismatch", "v3 cannot claim a PV blend mechanism")
     return RESERVE_START
 

@@ -12,6 +12,7 @@ from microgrid.artifacts import source_tree_hash
 from microgrid.dataio import sha256_file
 from microgrid.problem.q4_common import (
     ACTION_START,
+    BIAS_MODEL_VERSION,
     BLEND_MODEL_VERSION,
     MODEL_VERSION,
     STEP,
@@ -67,14 +68,16 @@ def checked_run(repo, run_id, version, end):
     return run, config, summary, domain
 
 
-def compare_forecasts(before, after, end, inputs):
+def compare_forecasts(before, after, end, inputs, mechanism="blend"):
+    trace_key = "pv_bias" if mechanism == "bias" else "pv_blend"
+
     def rows(run):
         for row in json_rows(run / "forecasts.jsonl"):
             if dt.datetime.fromisoformat(row["issue_time"]) >= end:
                 break
             yield row
 
-    statistics = {label: {} for label in ("v3", "blend")}
+    statistics = {label: {} for label in ("v3", mechanism)}
     counts = {"forecasts": 0, "changed_pv_points": 0, "cold_pv_points": 0, "short_pv_points": 0}
     sentinel = object()
     for base, candidate in zip_longest(rows(before), rows(after), fillvalue=sentinel):
@@ -93,9 +96,9 @@ def compare_forecasts(before, after, end, inputs):
                 "price_method",
                 "source_hashes",
             )
-        ) or base["traces"] != {k: v for k, v in candidate["traces"].items() if k != "pv_blend"}:
+        ) or base["traces"] != {k: v for k, v in candidate["traces"].items() if k != trace_key}:
             raise InputError("single-factor PV comparison changed another forecast or provenance")
-        trace = candidate["traces"]["pv_blend"]
+        trace = candidate["traces"][trace_key]
         if len(trace["points"]) != len(base["slots"]) or len(candidate["pv_kwh"]) != len(
             base["slots"]
         ):
@@ -120,7 +123,7 @@ def compare_forecasts(before, after, end, inputs):
                 "6h" if i < 36 else None,
                 "0-6h" if i < 36 else "6-12h" if i < 72 else "12-18h" if i < 108 else "18-24h",
             ]
-            for label, value in (("v3", original), ("blend", new)):
+            for label, value in (("v3", original), (mechanism, new)):
                 for group in groups:
                     if group is not None:
                         statistics[label].setdefault(group, Errors()).add(actual, value * 6)
@@ -177,7 +180,10 @@ def main():
     parser.add_argument("--candidate-run", required=True)
     parser.add_argument("--end-time", default=str(YEAR_END))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--mechanism", choices=("blend", "bias"), default="blend")
     args = parser.parse_args()
+    label = args.mechanism
+    version = BIAS_MODEL_VERSION if label == "bias" else BLEND_MODEL_VERSION
     end = dt.datetime.fromisoformat(args.end_time)
     if not ACTION_START < end <= YEAR_END or end.time() != dt.time():
         raise InputError("PV comparison end must be an approved exclusive midnight")
@@ -187,10 +193,14 @@ def main():
         args.baseline_repo.resolve(), args.baseline_run, MODEL_VERSION, end
     )
     after, acfg, asummary, adomain = checked_run(
-        args.candidate_repo.resolve(), args.candidate_run, BLEND_MODEL_VERSION, end
+        args.candidate_repo.resolve(), args.candidate_run, version, end
     )
     configs = [
-        {k: v for k, v in c.items() if k not in ("model_version", "pv_blend", "end_time")}
+        {
+            k: v
+            for k, v in c.items()
+            if k not in ("model_version", "pv_blend", "optimization", "end_time")
+        }
         for c in (bcfg, acfg)
     ]
     if configs[0] != configs[1] or bsummary["source_hashes"] != asummary["source_hashes"]:
@@ -198,12 +208,12 @@ def main():
     inputs = load_q4_inputs(args.candidate_repo.resolve(), "q4_3")
     if inputs.source_hashes != asummary["source_hashes"]:
         raise InputError("PV comparison actual input differs from its saved snapshot")
-    forecast_metrics, counts = compare_forecasts(before, after, end, inputs)
+    forecast_metrics, counts = compare_forecasts(before, after, end, inputs, label)
     results = {
         label: period_metrics(run, domain, end)
-        for label, run, domain in (("v3", before, bdomain), ("blend", after, adomain))
+        for label, run, domain in (("v3", before, bdomain), (label, after, adomain))
     }
-    deltas = {k: results["blend"][k] - results["v3"][k] for k in results["v3"]}
+    deltas = {k: results[label][k] - results["v3"][k] for k in results["v3"]}
     if (
         abs(
             deltas["total_cost_cny"]
@@ -227,7 +237,7 @@ def main():
                 "cost_ledger.jsonl",
             )
         }
-        for label, run in (("v3", before), ("blend", after))
+        for label, run in (("v3", before), (label, after))
     }
     report = {
         "ok": True,
@@ -236,18 +246,18 @@ def main():
         "scope": "one approved PV mechanism on inspected development data; causal replay, not untouched holdout",
         "baseline_run_id": args.baseline_run,
         "candidate_run_id": args.candidate_run,
-        "mechanism": "PV-BLEND-LONG",
+        "mechanism": "PV-BIAS-LONG" if label == "bias" else "PV-BLEND-LONG",
         "forecast_checks": counts,
         "pv_metrics_kw": forecast_metrics,
         "results": results,
-        "delta_blend_minus_v3": deltas,
+        f"delta_{label}_minus_v3": deltas,
         "runtime_counts": {
             label: {k: s[k] for k in ("solve_count", "reused_tail_count")}
-            for label, s in (("v3", bsummary), ("blend", asummary))
+            for label, s in (("v3", bsummary), (label, asummary))
         },
         "performance": {
             label: read_json(run / "performance_summary.json")
-            for label, run in (("v3", before), ("blend", after))
+            for label, run in (("v3", before), (label, after))
         },
         "cost_reduction_percent": -100 * deltas["total_cost_cny"] / results["v3"]["total_cost_cny"],
         "source_artifact_sha256": proofs,
