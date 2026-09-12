@@ -19,6 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+solver-native = ["highspy==1.12.0"]
 dev = [
   "pytest>=8.2",
   "ruff>=0.6",

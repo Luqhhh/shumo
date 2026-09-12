@@ -176,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument(
         "--solver-method",
-        choices=("scipy", "eliminate-fixed", "lp-certified"),
+        choices=("scipy", "eliminate-fixed", "lp-certified", "native-highs"),
         default="scipy",
         help="optional authorized Q4 solver experiment",
     )

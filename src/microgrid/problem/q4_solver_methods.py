@@ -7,12 +7,22 @@ from scipy.optimize import Bounds, LinearConstraint
 
 from ..schemas import InputError
 
-METHODS = ("scipy", "eliminate-fixed", "lp-certified")
+METHODS = ("scipy", "eliminate-fixed", "lp-certified", "native-highs")
 
 
 def solver_method_parameters(method):
     if method == "scipy":
         return None
+    if method == "native-highs":
+        return {
+            "schema_version": 1,
+            "method": method,
+            "highspy_version": "1.12.0",
+            "threads": 1,
+            "cache_limit": 32,
+            "model_readback": "costs/bounds/integrality exact; coefficients only pinned 1e-9 small-threshold omissions",
+            "certificate": "original full matrix, physical and objective/bound checks",
+        }
     if method == "lp-certified":
         return {
             "schema_version": 1,
@@ -36,6 +46,12 @@ def solve_with_method(method, original, c, *, integrality, bounds, constraints, 
     solver_method_parameters(method)
     if method == "scipy":
         return original(
+            c, integrality=integrality, bounds=bounds, constraints=constraints, options=options
+        )
+    if method == "native-highs":
+        from .q4_native_highs import native_highs
+
+        return native_highs()(
             c, integrality=integrality, bounds=bounds, constraints=constraints, options=options
         )
     if method == "lp-certified":
