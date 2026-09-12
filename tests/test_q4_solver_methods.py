@@ -81,3 +81,79 @@ def test_fixed_solver_failure_is_not_reconstructed_as_success():
 def test_unknown_solver_method_is_rejected():
     with pytest.raises(InputError):
         solver_method_parameters("relax-everything")
+
+
+def test_lp_certificate_canonical_modes_at_same_lower_bound():
+    from microgrid.problem.q4_solver_methods import _lp_certificate
+
+    c = np.zeros(14)
+    c[1] = 1.0
+    integer = np.zeros(14)
+    integer[[7, 8, 11]] = 1
+    x = np.zeros(14)
+    x[1] = 2
+    x[[7, 8, 11]] = [0.2, 0.0, 0.0]
+    bound = Bounds(np.zeros(14), np.full(14, 10.0))
+    constraint = LinearConstraint(csc_matrix(np.eye(14)), np.zeros(14), np.full(14, 10.0))
+    candidate, reason = _lp_certificate(x, c, integer, bound, constraint, 2.0)
+    assert reason is None and candidate[7] == 1.0 and candidate[1] == 2.0
+    assert candidate[8] == candidate[11] == 0.0 and c @ candidate == 2.0
+
+
+@pytest.mark.parametrize("broken", ["matrix", "objective", "integrality", "nonfinite"])
+def test_lp_certificate_rejects_rounding_without_full_certificate(broken):
+    from microgrid.problem.q4_solver_methods import _lp_certificate
+
+    c = np.zeros(14)
+    c[1] = 1.0
+    integer = np.zeros(14)
+    integer[[7, 8, 11]] = 1
+    x = np.zeros(14)
+    x[1] = 2
+    bound = Bounds(np.zeros(14), np.full(14, 10.0))
+    matrix = np.eye(14)
+    lower = np.zeros(14)
+    upper = np.full(14, 10.0)
+    lower_bound = 2.0
+    if broken == "matrix":
+        upper[7] = 0.5
+    elif broken == "objective":
+        lower_bound = 1.0
+    elif broken == "integrality":
+        integer[1] = 1
+    else:
+        x[1] = np.nan
+    candidate, reason = _lp_certificate(
+        x, c, integer, bound, LinearConstraint(csc_matrix(matrix), lower, upper), lower_bound
+    )
+    assert candidate is None and reason
+
+
+def test_lp_failure_falls_back_to_unchanged_original_milp():
+    c = np.zeros(14)
+    integer = np.zeros(14)
+    integer[[7, 8, 11]] = 1
+    bounds = Bounds(np.zeros(14), np.ones(14))
+    constraint = LinearConstraint(csc_matrix(np.eye(14)), 0, 1)
+    seen = []
+
+    def original(cost, **kwargs):
+        seen.append(kwargs["integrality"].copy())
+        return (
+            OptimizeResult(status=2, x=None, fun=None)
+            if len(seen) == 1
+            else OptimizeResult(status=0, x=np.zeros(14), fun=0)
+        )
+
+    result = solve_with_method(
+        "lp-certified",
+        original,
+        c,
+        integrality=integer,
+        bounds=bounds,
+        constraints=constraint,
+        options={},
+    )
+    assert result.status == 0 and not result.solver_method_record["certified"]
+    np.testing.assert_array_equal(seen[0], np.zeros(14))
+    np.testing.assert_array_equal(seen[1], integer)
