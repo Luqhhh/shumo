@@ -20,7 +20,7 @@ from ..dataio import ensure_dir, sha256_file
 from ..schemas import InputError
 from .contracts import ENERGY_ABS_TOL_KWH, STEP_MINUTES, STEPS_PER_DAY, TimeGrid
 from .q3_load_forecast import LoadForecastPoint, load_forecast_id
-from .q3_plan_ledger import Q3PlanLedger
+from .q3_plan_ledger import Q3EmergencySettlementEntry, Q3PlanLedger
 from .q3_pv_snapshot import PVForecastSnapshot, TailForecast
 
 Q3_SIDECAR_SCHEMA_VERSION = 2
@@ -320,12 +320,12 @@ def plan_version_rows(
     return tuple(rows)
 
 
-def settlement_rows(ledgers: Iterable[Q3PlanLedger]) -> tuple[dict[str, Any], ...]:
-    """Return base-plan and non-zero adjustment billing events.
-
-    Emergency events belong to the actual replay layer. Until that layer
-    supplies them, this writer must neither infer nor fabricate them.
-    """
+def settlement_rows(
+    ledgers: Iterable[Q3PlanLedger],
+    *,
+    emergency_entries: Iterable[Q3EmergencySettlementEntry] = (),
+) -> tuple[dict[str, Any], ...]:
+    """Return base-plan, adjustment and supplied replay billing events."""
 
     rows: list[dict[str, Any]] = []
     grid = TimeGrid()
@@ -374,6 +374,31 @@ def settlement_rows(ledgers: Iterable[Q3PlanLedger]) -> tuple[dict[str, Any], ..
                     "cost_cny": entry.adjustment_cost_cny,
                 }
             )
+    seen_emergency: set[tuple[dt.date, int]] = set()
+    for entry in sorted(emergency_entries, key=lambda item: (item.day, item.slot)):
+        key = (entry.day, entry.slot)
+        if key in seen_emergency:
+            raise InputError(f"duplicate Q3 emergency settlement for {key}")
+        seen_emergency.add(key)
+        if entry.energy_kwh <= ENERGY_ABS_TOL_KWH:
+            continue
+        interval = grid.interval(entry.day, entry.slot)
+        rows.append(
+            {
+                "schema_version": Q3_SIDECAR_SCHEMA_VERSION,
+                "record_type": "emergency",
+                "issue_time": _iso(entry.settled_at),
+                "target_slot_start": _iso(interval.start),
+                "target_slot_end": _iso(interval.end),
+                "previous_committed_kwh": None,
+                "new_committed_kwh": None,
+                "delta_plus_kwh": 0.0,
+                "delta_minus_kwh": 0.0,
+                "energy_kwh": entry.energy_kwh,
+                "price_cny_per_kwh": entry.price_cny_per_kwh,
+                "cost_cny": entry.cost_cny,
+            }
+        )
     return tuple(rows)
 
 
@@ -411,6 +436,7 @@ def write_q3_sidecars(
     plan_ledgers: Iterable[Q3PlanLedger],
     forecast_links: Iterable[PlanSlotForecastLink],
     tail_forecasts: Iterable[TailForecast] = (),
+    emergency_entries: Iterable[Q3EmergencySettlementEntry] = (),
     overwrite: bool = False,
 ) -> Q3SidecarSet:
     """Validate and write the three accepted Q3 sidecar files."""
@@ -437,7 +463,7 @@ def write_q3_sidecars(
         forecast_links=links_tuple,
         known_forecast_ids=frozenset(str(row["forecast_id"]) for row in forecasts),
     )
-    settlements = settlement_rows(ledgers_tuple)
+    settlements = settlement_rows(ledgers_tuple, emergency_entries=emergency_entries)
 
     targets = (
         directory / FORECAST_PROVENANCE_FILENAME,

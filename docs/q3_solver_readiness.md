@@ -16,10 +16,10 @@
 | PV snapshot/window | 接口与测试已实现 | `problem/q3_pv_snapshot.py` | 接入获批 `TAIL-EXP2` |
 | 统一 Q3 input bundle | 已实现并有 contract tests | `problem/q3_window.py` | solver 直接消费，不接 raw actual |
 | 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | 已接结构化 sidecar |
-| 结算账本 | 计划/调整部分已实现 | `problem/q3_plan_ledger.py` | 紧急费用等待实际回放实现 |
+| 结算账本 | 计划/调整/紧急事件已实现 | `q3_plan_ledger.py`、`q3_sidecars.py` | 汇总进年度 artifacts |
 | 结构化 sidecar | 已实现精确字段与引用检查 | `problem/q3_sidecars.py` | runner 后续登记路径与哈希 |
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
-| 实际回放 | 最小 recourse 已实现 | `problem/q3_replay.py` | 不得扩展成任意 redispatch |
+| 实际回放 | 单步控制器已接入 | `q3_replay.py`、`q3_controller.py` | surplus 归属仍待人工口径 |
 | 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
 | Q3 年度 runner | 未实现 | `problem/q3.py` 明确报错 | 组装滚动、回放和 artifacts |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
@@ -34,9 +34,11 @@
 00/06/12/18发布，每版冻结30小时；中间 MPC 仅从最近发布版本切取24小时，
 不重新预测。30小时只覆盖最长5小时50分钟缺口，不改变 Q2 更新机制。
 
-至此人工 decision blocker 已清零，统一 `Q3WindowInput` 也已完成。尚未完成的是
-单窗口 MILP、独立 validator 和年度 runner；这些是已批准口径的实现工作，不再
-需要新增模型选择。
+此前的预测与模型 decision blocker 已清零，统一 `Q3WindowInput`、单窗口 MILP、
+独立 validator 和单步计划/回放控制器均已完成。实现时确认了一个先前刻意保留的
+结果归属问题：`unattributed_surplus` 必须拆成 `grid_spill` 与 `pv_curtailment`，
+才能无歧义填写现有 `IntervalResult.pv_used_kwh`。这不会改变费用，但会改变弃光和
+合同电浪费指标；团队确认归属顺序前，Agent 不自行选择。
 
 ## 3. 已提前补强的绿色测试
 
@@ -67,6 +69,9 @@
 - 单窗口 SciPy/HiGHS MILP 覆盖合同量、逐版增减、充放电互斥、SOC、PV消纳、
   合同余电、预测紧急电量及其互斥；独立 validator 重新计算全部物理残差和经济
   分项。完整144格合成窗口、固定合同短缺、调整增加和年末不可达均已测试。
+- 单步控制器把00:00解转换成版本0、把06/12/18解追加为新版本，只执行第一格
+  电池动作，并使用真实区间计算 charge curtailment 与紧急购电；紧急费用以区间
+  右端点入账，sidecar 不再推测或伪造 replay 事件。
 
 以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
 
@@ -76,9 +81,10 @@
 ## 4. 最短实施路径
 
 ```text
-1. 把窗口解接入计划版本、charge curtailment 与 settlement
-2. 写入三份 sidecar 和 CaseResult
-3. 先完成合成1日滚动测试，再依次做真实1日、7日、1月、全年
+1. 团队确认 surplus 的 PV/grid 归属顺序（只影响结果分项，不影响总成本）
+2. 将单步回放转换成 `IntervalResult`，组装合成1日滚动 driver
+3. 写入三份 sidecar 和 CaseResult
+4. 再依次做真实1日、7日、1月、全年
 ```
 
 ## 5. 求解器开工验收
@@ -101,6 +107,8 @@
 - [x] 三份 sidecar 的精确结构、预测引用、往返、拒绝覆盖和哈希测试通过；
 - [x] 不含未来 actual 的 `Q3WindowInput` 已通过对齐、版本、ledger和年末contract test；
 - [x] 单窗口 Q3 MILP 与独立 validator 已通过1格和完整144格合成测试；
+- [x] 单步计划版本更新、第一格回放和紧急结算 sidecar 已通过合成测试；
+- [ ] `unattributed_surplus` 的 grid/PV 归属由团队确认并写入结果 contract；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-在滚动控制、实际回放结算和年度 runner 完成前，正式年度 runner仍不能返回成功。
+在 surplus 归属、完整滚动 driver 和年度 runner 完成前，正式年度 runner仍不能返回成功。

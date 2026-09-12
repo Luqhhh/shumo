@@ -128,6 +128,34 @@ class Q3AdjustmentEntry:
 
 
 @dataclass(frozen=True)
+class Q3EmergencySettlementEntry:
+    """One realized residual-balancing purchase settled at interval end."""
+
+    day: dt.date
+    slot: int
+    settled_at: dt.datetime
+    energy_kwh: float
+    price_cny_per_kwh: float
+    cost_cny: float
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.slot < STEPS_PER_DAY:
+            raise ValueError("emergency settlement slot is outside the natural-day grid")
+        interval_end = dt.datetime.combine(self.day, dt.time()) + dt.timedelta(
+            minutes=STEP_MINUTES * (self.slot + 1)
+        )
+        if self.settled_at != interval_end:
+            raise ValueError("emergency settlement must use the interval right endpoint")
+        for name in ("energy_kwh", "price_cny_per_kwh", "cost_cny"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < -ENERGY_ABS_TOL_KWH:
+                raise ValueError(f"{name} must be finite and non-negative")
+        expected = 5.0 * self.price_cny_per_kwh * self.energy_kwh
+        if not math.isclose(self.cost_cny, expected, rel_tol=0.0, abs_tol=1e-9):
+            raise ValueError("emergency settlement cost must equal 5 * price * energy")
+
+
+@dataclass(frozen=True)
 class Q3PlanLedger:
     """Immutable version chain and its non-netted SETTLE-A-v2 transactions."""
 

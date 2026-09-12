@@ -7,7 +7,7 @@ import pytest
 
 from microgrid.problem.contracts import STEPS_PER_DAY, TimeGrid
 from microgrid.problem.q3_load_forecast import LOAD_FORECAST_MODEL_VERSION, LoadForecastPoint
-from microgrid.problem.q3_plan_ledger import Q3PlanLedger
+from microgrid.problem.q3_plan_ledger import Q3EmergencySettlementEntry, Q3PlanLedger
 from microgrid.problem.q3_pv_forecast import (
     PV_COMBINATION_MODEL_VERSION,
     CombinedPVForecast,
@@ -228,3 +228,29 @@ def test_plan_version_slot_end_uses_right_endpoint_contract(tmp_path: Path) -> N
     )
     grid = TimeGrid()
     assert rows[143]["target_slot_end"] == grid.boundary(dt.date(2025, 2, 1), 144).isoformat()
+
+
+def test_q3_sidecar_writes_supplied_emergency_event_at_right_endpoint(tmp_path: Path) -> None:
+    day = dt.date(2025, 2, 1)
+    entry = Q3EmergencySettlementEntry(
+        day=day,
+        slot=0,
+        settled_at=dt.datetime(2025, 2, 1, 0, 10),
+        energy_kwh=2.0,
+        price_cny_per_kwh=1.5,
+        cost_cny=15.0,
+    )
+    rows = load_q3_sidecar(
+        write_q3_sidecars(
+            tmp_path,
+            **_sidecar_kwargs(day),
+            emergency_entries=(entry,),
+        ).settlement_ledger.path
+    )
+
+    emergency = next(row for row in rows if row["record_type"] == "emergency")
+    assert emergency["issue_time"] == "2025-02-01T00:10:00"
+    assert emergency["target_slot_start"] == "2025-02-01T00:00:00"
+    assert emergency["target_slot_end"] == "2025-02-01T00:10:00"
+    assert emergency["energy_kwh"] == pytest.approx(2.0)
+    assert emergency["cost_cny"] == pytest.approx(15.0)

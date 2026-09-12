@@ -186,6 +186,12 @@ pv_available = pv_use + pv_curtailment
 charge-to-discharge、重新求解或使用 emergency 给电池充电。PV/grid spill 的
 归属优先级仍不是该 contract 的一部分，实现时不得顺手添加。
 
+单步控制器现已完成计划版本更新、第一格 charge-curtailment 回放和紧急费用记录。
+但现有 `IntervalResult` 必须填写 `pv_used_kwh`，因此正式 runner 前仍需团队确认：
+出现总 surplus 时，是优先保留光伏并把合同电记为未利用，还是优先利用已付费合同
+电并把光伏记为弃光。两者不改变本题结算总成本，但会改变弃光/合同浪费指标；该
+归属不得由实现者暗中决定。
+
 ## 7. 版本计划与结果审计接口
 
 现有 `IntervalResult` 能保存每个已执行时隙的初始计划量、最终确认量和紧急量，
