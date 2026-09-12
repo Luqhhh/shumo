@@ -32,6 +32,7 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_EFF",
         "D_STATE",
         "D_INFO",
+        "D_LOAD_FORECAST",
         "D_RESAMPLE",
         "D_SETTLE",
         "D_MODEL_Q3",

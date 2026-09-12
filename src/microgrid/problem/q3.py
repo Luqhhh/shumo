@@ -1,8 +1,8 @@
 """Q3 formal runner entry.
 
-Stage 1 dispatcher target.  The model is intentionally not implemented here:
-its objective, variables, constraints, settlement rules and solver require
-human-approved decisions (this case gate: D_MODEL_Q3, plus shared D_TIME_INTERNAL/D_EFF/D_STATE/D_INFO as applicable).
+The model card and decisions were approved on 2026-09-12, but the solver is
+not implemented. The dispatcher checks D_LOAD_FORECAST and D_MODEL_Q3 along
+with shared semantics, resampling and settlement before reaching this stub.
 """
 
 from __future__ import annotations

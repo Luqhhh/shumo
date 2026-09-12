@@ -27,6 +27,7 @@
 - `InfoSet.from_raw` 只保留 `available_at <= decision_time` 的可见项，计划器不能通过原始容器读取未来 actual。
 - A 组 shared-core 交付说明见 `docs/shared_api.md` 与 `docs/a_handoff.md`；B/C 接入接口，但在共享 decisions 未批准前不得实现正式模型。
 - Stage 1 共享建模架构的冻结版计划见 `docs/modeling_plan.md`；其中的候选口径不代替 `configs/decisions.toml` 的人工批准状态。
+- 2026-09-12 A明确批准 Q3 的 `D_LOAD_FORECAST`（LOAD-A + LF-A）、`D_SETTLE` 和 `D_MODEL_Q3`，完整口径见 `docs/q3_model.md`。Q3及final gate已接入负载批准；Q3求解器尚未实现，运行仍抛出 `ModelNotImplementedError`。Q2/Q4模型与D_EVAL仍待各自批准。
 - release guard 不再使用“Stage 0 永久阻断”常量，而是检查显式选择的正式 run artifacts。
 
 ## 常用命令

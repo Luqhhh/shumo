@@ -1,5 +1,7 @@
 # C 线 Q3 负载预测候选复核证据
 
+状态更新：A于2026-09-12在本会话明确确认LOAD-A + LF-A；现已记录D_LOAD_FORECAST并接入Q3/final gate，见 `q3_model.md`。以下保留审计时的证据及结论边界。
+
 本文只复核 Q3 负载预测候选的计算语义和预测误差，不批准
 `D_LOAD_FORECAST` 或 `D_MODEL_Q3`，也不向正式 runner 提供输入。
 

@@ -29,6 +29,8 @@ class Q3ForecastVersion:
     records: tuple[ForecastRecord, ...]
 
     def __post_init__(self) -> None:
+        if self.issue_time.time() not in tuple(_dt.time(hour) for hour in (0, 6, 12, 18)):
+            raise InputError("forecast issue time must be exactly 00:00/06:00/12:00/18:00")
         if not self.records:
             raise InputError(f"forecast version {self.issue_time} is empty")
         if any(record.issue_time != self.issue_time for record in self.records):
@@ -53,6 +55,8 @@ class Q3ForecastVersion:
                 raise InputError(
                     f"forecast lead {record.lead_hours} at {self.issue_time} is not finite"
                 )
+            if record.pv_forecast_kw < 0:
+                raise InputError("forecast PV power must be non-negative")
 
     def as_info_items(self) -> tuple[InfoItem, ...]:
         """Convert without selecting, interpolating or changing forecast values."""

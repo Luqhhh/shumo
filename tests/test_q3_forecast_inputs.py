@@ -69,3 +69,62 @@ def test_q3_forecast_archive_rejects_an_incomplete_publication(tmp_path):
 
     with pytest.raises(InputError, match="ordered leads 1..24"):
         load_q3_forecast_archive(path)
+
+
+@pytest.mark.parametrize("clock", ["1:00", "6:10", "18:01"])
+def test_archive_rejects_unapproved_issue_times(tmp_path, clock):
+    from openpyxl import load_workbook
+
+    path = tmp_path / "forecast.xlsx"
+    _write_forecast_workbook(path)
+    wb = load_workbook(path)
+    wb.active["B2"] = clock
+    wb.save(path)
+    wb.close()
+    with pytest.raises(InputError, match="issue time"):
+        load_q3_forecast_archive(path)
+
+
+def test_archive_rejects_negative_forecast_before_combination(tmp_path):
+    from openpyxl import load_workbook
+
+    path = tmp_path / "forecast.xlsx"
+    _write_forecast_workbook(path)
+    wb = load_workbook(path)
+    wb.active["C3"] = -1.0
+    wb.save(path)
+    wb.close()
+    with pytest.raises(InputError, match="non-negative"):
+        load_q3_forecast_archive(path)
+
+
+@pytest.mark.parametrize("missing_previous_release", [False, True])
+def test_archive_never_inherits_date_across_four_row_blocks(tmp_path, missing_previous_release):
+    from openpyxl import load_workbook
+
+    path = tmp_path / "forecast.xlsx"
+    _write_forecast_workbook(path)
+    wb = load_workbook(path)
+    ws = wb.active
+    if missing_previous_release:
+        # No duplicate issue key would reveal the wrong inherited date.
+        ws["B2"] = None
+    ws.append([None, "0:00", *([100.0] * 24)])
+    wb.save(path)
+    wb.close()
+    with pytest.raises(InputError, match="date block has no date"):
+        load_q3_forecast_archive(path)
+
+
+def test_archive_rejects_clock_reset_inside_inherited_date_block(tmp_path):
+    from openpyxl import load_workbook
+
+    path = tmp_path / "forecast.xlsx"
+    _write_forecast_workbook(path)
+    wb = load_workbook(path)
+    wb.active["B2"] = "6:00"
+    wb.active["B3"] = "0:00"
+    wb.save(path)
+    wb.close()
+    with pytest.raises(InputError, match="inherited date block"):
+        load_q3_forecast_archive(path)
