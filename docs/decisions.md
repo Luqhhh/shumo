@@ -2,7 +2,7 @@
 
 机器可读状态以 `configs/decisions.toml` 为唯一来源。本文件只解释背景与依赖，不代替人工批准。
 
-Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。2026-09-12 A已明确批准 `D_LOAD_FORECAST`（Q3 LOAD-A + LF-A）、`D_SETTLE` 和 `D_MODEL_Q3`。Q3与final gate均检查负载批准；完整口径见 [`q3_model.md`](q3_model.md)。`D_REALTIME_DISPATCH` 未单列，Q3控制边界收进 `D_MODEL_Q3`；Q2/Q4模型仍待各自批准。
+Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。2026-09-12 A已明确批准 `D_LOAD_FORECAST`（Q3 LOAD-A + LF-A）、`D_SETTLE` 和 `D_MODEL_Q3`。Q3与final gate均检查负载批准；完整口径见 [`q3_model.md`](q3_model.md)。本会话用户随后批准Q4 v2模型及相关范围，见[批准记录](approvals/2026-09-12-q4.md)。预测/反馈/窗口/年度范围收进各自Q4模型decision，模板/比较单列Q4专用decision；Q2模型仍待批准。
 
 状态含义：
 
@@ -16,7 +16,8 @@ Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。2
 | ID | 候选/最终口径 | 阻断 |
 |---|---|---|
 | D-TIME-INTERNAL | 自然日 144 区间、145 边界；输入功率标签按右端点对齐，原始样本作为前十分钟代表平均功率；内部 `e_k=P_k*(1/6)` | 内部模型计算 |
-| D-TIME-TEMPLATE-EXPORT | Q1 result1.xlsx 采用显式行序映射：内部 slot 0..143 写入计划购电量行序，保留官方标签不改写；其他 case 模板仍待核对 | Q1 正式导出已实现；其他 case 正式导出未实现 |
+| D-TIME-TEMPLATE-EXPORT | Q1 result1.xlsx 采用显式行序映射：内部 slot 0..143 写入计划购电量行序，保留官方标签不改写；Q2/Q3范围仍待批准 | Q1 正式导出已实现；Q4使用专用decision |
+| D-TIME-TEMPLATE-EXPORT-Q4 | 已批准：v2第8节显式列序、334日展开、费用分项及来源/读回；仅Q4-2/Q4-3 | 两主方案真实全年独立验证及Excel读回通过 |
 | D-EFF | `eta_c=eta_d=0.9`；行动量母线侧、储能电池内部；`E_{k+1}=E_k+0.9c_k-d_k/0.9` | 储能状态更新 |
 | D-STATE | 一月待机 6000 kWh；二月起连续运行、不每日重置；Q1 单独日终等式 | 跨日状态与终端条件 |
 | D-INFO | `available_at <= decision_time`；只按可获得时间使用信息；未来 actual 只用于回放结算 | 预测与计划输入 |
@@ -46,9 +47,11 @@ Stage 1 架构冻结版计划见 [`docs/modeling_plan.md`](modeling_plan.md)。2
 | D-MODEL_Q1 | Q1 单日目标、变量、约束、方法和求解器？ | Q1 模型实现 |
 | D-MODEL_Q2 | Q2 连续运行、紧急购电与历史信息模型？ | Q2 模型实现 |
 | D-MODEL_Q3 | 已批准：见q3_model.md；24小时滚动MILP、PV版本加权、终端价值与年度约束 | 求解器尚未实现 |
-| D-MODEL_Q4_2 | 波动电价下重算 Q2；需覆盖 Q2 基础模型与价格信息条件扩展 | Q4-2 模型实现 |
-| D-MODEL_Q4_3 | 波动电价下重算 Q3；需覆盖 Q3 基础模型与价格信息条件扩展 | Q4-3 模型实现 |
+| D-MODEL_Q4_2 | 已批准：Q4 v2完整基础模型及预测/反馈/窗口/年度；仅q4_2，不依赖Q2批准 | v3四策略各48096步通过、两主方案Excel读回通过 |
+| D-MODEL_Q4_3 | 已批准：Q4 v2完整基础模型及PV组合、调整/预测/反馈/窗口/年度；仅q4_3 | v3四策略各48096步通过、两主方案Excel读回通过 |
 | D-EVAL | 正式比较、验证设计、证据标准及结论边界？ | 正式实验与结论 |
+| D-TERMINAL-RESERVE-Q4 | 已批准：最后24小时所有预测及实际状态边界E≥6000，保留硬实际末态与失败阻断；仅q4_2/q4_3 | v3实现及241项工程测试通过，四条从初态独立48096步及末态核验通过 |
+| D-EVAL-Q4 | 已批准：Q4 v2第9—10节验证和四条价格主/lag1轨迹；仅q4_2/q4_3 | 独立验证和工程测试通过；四条全年轨迹各48096步核验通过 |
 
 D-INFO 是共享语义；每个 case 仍需自己的 `D_MODEL_*` 批准。
 
@@ -66,9 +69,9 @@ D-INFO 是共享语义；每个 case 仍需自己的 `D_MODEL_*` 批准。
 内部计算与正式导出分属两个 decision：
 
 - `D_TIME_INTERNAL` 控制 144 区间内部网格和输入右端点对齐；
-- `D_TIME_TEMPLATE_EXPORT` 控制 `result*.xlsx` 的正式数值映射。
+- 各case模板decision控制正式数值映射：Q4使用 `D_TIME_TEMPLATE_EXPORT_Q4`，原 `D_TIME_TEMPLATE_EXPORT` 保留Q1批准。
 
-`D_TIME_INTERNAL` 已批准只放行内部模型输入；`D_TIME_TEMPLATE_EXPORT` 已批准 Q1 的行序映射。其他 case 的正式导出仍需分别实现和核对。
+`D_TIME_INTERNAL` 已批准只放行内部模型输入；`D_TIME_TEMPLATE_EXPORT` 已批准 Q1 的行序映射。Q4专用映射及writer已落实，两主方案完整全年核验及正式数值读回通过；Q2/Q3模板范围未由此批准。
 
 ## 如何批准
 
@@ -84,4 +87,6 @@ confirmed_at = "2026-09-xx"
 source = "原始讨论或官方说明定位"
 ```
 
-Agent 不得代填 `confirmed_by` / `confirmed_at`，也不得自动把 `pending` / `proposed` 改成 `approved`。
+Agent 不得自行批准、冒填姓名或伪造确认时间。用户明确授权记录已审阅口径的批准时，
+可以如实转录用户原话、批准人身份和日期；本次Q4记录依据上链的本会话授权，
+批准模型/验收方法不代表批准结果或完成AI人工核验。

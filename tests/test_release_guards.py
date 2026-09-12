@@ -6,6 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from microgrid.approvals import (
+    DECISION_CASE_SCOPES,
+    FINAL_REQUIRED_DECISION_IDS,
+    template_export_decision_id,
+)
 from microgrid.cases import CASE_IDS, run_case
 from microgrid.checks import assert_release_ready, collect_blockers, load_selected_runs
 from microgrid.cli import main
@@ -16,22 +21,7 @@ from microgrid.schemas import (
     ReleaseBlockedError,
 )
 
-DECISION_IDS = (
-    "D_TIME_INTERNAL",
-    "D_TIME_TEMPLATE_EXPORT",
-    "D_EFF",
-    "D_STATE",
-    "D_INFO",
-    "D_RESAMPLE",
-    "D_LOAD_FORECAST",
-    "D_SETTLE",
-    "D_MODEL_Q1",
-    "D_MODEL_Q2",
-    "D_MODEL_Q3",
-    "D_MODEL_Q4_2",
-    "D_MODEL_Q4_3",
-    "D_EVAL",
-)
+DECISION_IDS = FINAL_REQUIRED_DECISION_IDS
 
 RESULT_BY_CASE = {
     "q1": "result1.xlsx",
@@ -55,6 +45,11 @@ def _write_decisions(repo: Path, *, approved: bool) -> None:
                 f'confirmed_by = "{"tester" if approved else ""}"',
                 f'confirmed_at = "{"2026-09-10" if approved else ""}"',
                 'source = "test fixture"',
+                *(
+                    [f"scope_cases = {json.dumps(DECISION_CASE_SCOPES[decision_id])}"]
+                    if decision_id in DECISION_CASE_SCOPES
+                    else []
+                ),
                 "",
             ]
         )
@@ -117,11 +112,12 @@ def _make_run(
         "template_file": str(template.relative_to(repo)),
         "template_sha256": _sha256_bytes(template),
         "decision_snapshot": {
-            "D_TIME_TEMPLATE_EXPORT": {
+            template_export_decision_id(case_id): {
                 "status": "approved",
                 "choice": "test choice",
                 "confirmed_by": "tester",
                 "confirmed_at": "2026-09-10",
+                **({"scope_cases": ["q4_2", "q4_3"]} if case_id in ("q4_2", "q4_3") else {}),
             }
         },
     }
@@ -299,3 +295,25 @@ def test_cli_run_case_returns_pending_code(tmp_path, capsys):
     assert code == 4
     captured = capsys.readouterr()
     assert "pending" in (captured.out + captured.err)
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+@pytest.mark.parametrize("broken", ["q1_snapshot", "scope_cases", "choice"])
+def test_q4_release_requires_its_current_export_snapshot(tmp_path, case_id, broken):
+    repo = _ready_repo(tmp_path)
+    path = repo / "outputs" / "runs" / case_id / f"{case_id}-run-test" / "export_manifest.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    decision_id = "D_TIME_TEMPLATE_EXPORT_Q4"
+    if broken == "q1_snapshot":
+        data["decision_snapshot"]["D_TIME_TEMPLATE_EXPORT"] = data["decision_snapshot"].pop(
+            decision_id
+        )
+    else:
+        data["decision_snapshot"][decision_id][broken] = (
+            ["q3"] if broken == "scope_cases" else "stale mapping"
+        )
+    path.write_text(json.dumps(data), encoding="utf-8")
+    blockers = collect_blockers(repo, mode="final")
+    assert any(
+        f"case {case_id}:" in blocker and "export decision" in blocker for blocker in blockers
+    )

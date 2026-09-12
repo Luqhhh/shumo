@@ -117,3 +117,44 @@ def test_approved_template_writer_exports_q1_and_reads_back(synthetic_template_r
         assert charge["E3"].value == pytest.approx(6000.0)
     finally:
         wb.close()
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+def test_q1_mapping_approval_does_not_authorize_q4_export(tmp_path, case_id):
+    _write_export_decision(tmp_path, status="approved")
+    result = CaseResult(case_id=case_id, run_id="run-1", status="success")
+    with pytest.raises(PendingDecisionError) as excinfo:
+        export_case_result(tmp_path, result)
+    assert excinfo.value.decision_ids == ["D_TIME_TEMPLATE_EXPORT_Q4"]
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+@pytest.mark.parametrize(
+    "broken",
+    ["missing", "pending", "proposed", "confirmed_by", "confirmed_at", "scope_cases", "complete"],
+)
+def test_q4_export_requires_complete_scoped_mapping_and_does_not_fake_writer(
+    tmp_path, case_id, broken
+):
+    status = broken if broken in ("pending", "proposed") else "approved"
+    by = " " if broken == "confirmed_by" else "tester"
+    at = " " if broken == "confirmed_at" else "2026-09-12"
+    scope = '["q3"]' if broken == "scope_cases" else '["q4_2", "q4_3"]'
+    (tmp_path / "configs").mkdir()
+    lines = (
+        []
+        if broken == "missing"
+        else [
+            "[decisions.D_TIME_TEMPLATE_EXPORT_Q4]",
+            f'status = "{status}"',
+            f'confirmed_by = "{by}"',
+            f'confirmed_at = "{at}"',
+            f"scope_cases = {scope}",
+        ]
+    )
+    (tmp_path / "configs" / "decisions.toml").write_text("\n".join(lines), encoding="utf-8")
+    result = CaseResult(case_id=case_id, run_id="run-1", status="success")
+    expected = InputError if broken == "complete" else PendingDecisionError
+    with pytest.raises(expected):
+        export_case_result(tmp_path, result)
+    assert not (tmp_path / "outputs").exists()

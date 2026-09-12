@@ -1,15 +1,79 @@
-\section{问题 4：波动电价下的 Q2 与 Q3}
+\section{问题4：波动电价下的连续购电与储能调度}
 
-\subsection{任务与信息条件}
-外网电价为实时波动价格，需要在附件 4 电价下重新计算问题 2 和问题 3，并分别保留 Q4-2 与 Q4-3 两套结果。
+\subsection{信息条件与合同权限}
+完整十分钟实际负载、光伏和附件4电价在区间结束后进入历史，未来价格用可见历史预测。2025年1月作为历史初始化期，2月1日以6\,000 kWh开始连续运行，直至2026年1月1日，不每日重置SOC。
 
-\subsection{Q4-2：波动电价下重算问题 2}
-\PH{Q4-2 模型与求解待 D-MODEL-Q4-2 确认。}
-\PH{Q4-2 结果待计算。}
+Q4-2使用历史负载与光伏，每日0:00提交全天144格初始合同$G_k^0$，此后当日冻结。Q4-3增加当时已发布的官方光伏预报，在6:00、12:00、18:00允许调整当日尚未开始区间的合同。次日购电变量仅作预期调度，次日0:00才提交，不提前计入实际账本。
 
-\subsection{Q4-3：波动电价下重算问题 3}
-\PH{Q4-3 模型与求解待 D-MODEL-Q4-3 确认。}
-\PH{Q4-3 结果待计算。}
+\subsection{因果预测与窗口}
+设$t$为最近已结束区间右端点，$h$为未来十分钟步数。负载功率及价格基线为
+\begin{align}
+ b_s^{\mathrm L}&=(8P_{s-1008}^{\mathrm L}+4P_{s-2016}^{\mathrm L}+2P_{s-3024}^{\mathrm L}+P_{s-4032}^{\mathrm L})/15,\\
+ b_s^p&=0.5p_{s-144}+0.3p_{s-1008}+0.2p_{s-2016}.
+\end{align}
+对序列$x$构造完整滞后残差$e_s^x=x_s-b_s^x$，对截至$t$的有效连续残差对拟合
+\begin{equation}
+ \phi_x=\operatorname{clip}\left(\frac{\sum_s e_{s-1}^xe_s^x}{\sum_s(e_{s-1}^x)^2},0,0.999\right),\qquad
+ \widehat x_{t+h}=\max(0,b_{t+h}^x+\phi_x^he_t^x).
+\end{equation}
+分母为零取$\phi_x=0$；缺少必要滞后、最新残差或连续记录时停止，不跨缺口连接样本。负载残差从满足四周滞后时才开始构造。权重为固定经验参数，不以全年误差反向调参。
 
-\subsection{两套结果的展示与讨论}
-\PH{两套结果的差异、原因与适用边界由参赛队决定，不预设比较实验。}
+Q4-2采用过去七日同slot光伏均值。Q4-3组合同一目标整点的全部可见官方版本，按原始提前小时数$j(v)$的已实现历史误差赋权
+\begin{equation}
+ w_v(t)=\frac{[\mathrm{MAE}_{j(v)}(t)+1\,\mathrm{kW}]^{-2}}
+ {\sum_a[\mathrm{MAE}_{j(a)}(t)+1\,\mathrm{kW}]^{-2}}.
+\end{equation}
+历史截止当前刷新时刻，误差桶为空时报错。唯一小时预测经线性插值生成十分钟右端点功率，左端代理为最近结束区间实际光伏均值，统一乘$1/6$转电量。
+
+三变量在0:00、6:00、12:00、18:00刷新，发布间冻结预测、权重和代理值。最近刷新时刻为$r$时，窗口为$[t,\min(r+24\mathrm h,T))$，其中$T$为年度终点。覆盖不足时显式停止，不缩短0:00窗口漏交全天合同，年末只预测必要目标。
+
+\subsection{共享滚动MILP}
+本节以$U_k$表示紧急电量，$V_k$表示光伏利用量，$S_k^{\mathrm{PV}},S_k^{\mathrm{grid}}$表示弃光及未用合同。设$M=5000/6$、$z_k,y_k\in\{0,1\}$，全部流量非负，约束为
+\begin{align}
+ G_k+V_k+D_k+U_k&=\widehat\ell_k+C_k+S_k^{\mathrm{grid}},\\
+ V_k+S_k^{\mathrm{PV}}&=\widehat v_k,\quad0\le S_k^{\mathrm{grid}}\le G_k,\\
+ E_{k+1}&=E_k+0.9C_k-D_k/0.9,\quad1200\le E_k\le10800,\\
+ C_k&\le Mz_k,\quad D_k\le M(1-z_k),\quad D_k\le\widehat\ell_k,\\
+ U_k&\le\widehat\ell_k y_k,\quad C_k\le M(1-y_k),\\
+ S_k^{\mathrm{grid}}&\le G_k^{\max}(1-y_k),\quad S_k^{\mathrm{PV}}\le\widehat v_k(1-y_k).
+\end{align}
+新增及次日虚拟合同的优化上界为$\widehat\ell_k+M$，可调整合同采用$\max(G_k^{\mathrm{prev}},\widehat\ell_k+M)$，冻结合同直接取确认量。该界利用非负价格与余电免费弃置条件，不是外网物理容量。
+
+调整量满足$G_k=G_k^{\mathrm{prev}}+\delta_k^+-\delta_k^-$，用$w_k\in\{0,1\}$约束$\delta_k^+\le G_k^{\max}w_k$、$\delta_k^-\le G_k^{\mathrm{prev}}(1-w_k)$。当前模型不免费实施未来调整。新增及虚拟合同区间集合为$\mathcal N_t$，当前可调整集合为$\mathcal A_t$，目标为
+\begin{equation}
+ \min J_t=\sum_{k\in\mathcal N_t}\widehat p_kG_k
+ +\widehat p_t\sum_{k\in\mathcal A_t}(1.5\delta_k^++0.5\delta_k^-)
+ +\sum_{k\in\mathcal H_t}5\widehat p_kU_k-v_rE_{\mathrm{end}}.
+\end{equation}
+交易使用当前第一预测区间价；过去费用视为常数。普通窗口$v_r$为0.9倍刷新时完整144格预测价均值，窗口触及$T$时去残值并约束$E_T=6000$。年度剩余$n$步还需满足必要可达界$6000-0.9nM\le E\le6000+nM/0.9$，与SOC边界相交。
+
+最后一天采用保守储能预留：对所有状态边界增加
+\begin{equation}
+ E(\tau)\ge6000\ \mathrm{kWh},\qquad T-24\mathrm h\le\tau\le T.
+\end{equation}
+提前跨入该日期的预测窗口同样施加此界，实际反馈后逐步检查；此前下界1200及上界10800保持原值。该选择减少最后一天先放电、再依赖冻结合同与有误差的预测充回目标的风险，可能增加费用。它不保证任意实际序列可行；仍要求实际末态$E_T=6000$，不满足$10^{-6}$ kWh绝对容差时保留失败并阻断正式导出。
+
+\subsection{实际反馈与逐版结算}
+每次仅执行当前合法意图$(\overline C,\overline D)$。在区间平均功率恒定、本地控制器及时限幅的附加假设下，实际负载$L$、光伏$P$和合同$G$形成固定保护
+\begin{align}
+ C&=\min(\overline C,\max(G+P-L,0)),\quad D=\min(\overline D,L),\\
+ U&=\max(L+C-G-P-D,0),\quad V=\min(P,L+C-D),\\
+ G_{\mathrm{use}}&=L+C-D-U-V,\quad S^{\mathrm{grid}}=G-G_{\mathrm{use}},\quad S^{\mathrm{PV}}=P-V.
+\end{align}
+保护只减少原动作，不用实际量重选经济动作，也不修补非法SOC或功率意图。控制不能及时响应时保留原动作与违规证据；实际后继SOC推进下一次求解。
+
+全年费用按实际账本重算：
+\begin{align}
+ F_{\mathrm{plan}}&=\sum_kp_k^{\mathrm{actual}}G_k^0,\\
+ F_{\mathrm{adjust}}&=\sum_vp_v^{\mathrm{trade,actual}}\sum_k(1.5\Delta_{v,k}^++0.5\Delta_{v,k}^-),\\
+ F_{\mathrm{emergency}}&=\sum_k5p_k^{\mathrm{actual}}U_k,\quad
+ F_{\mathrm{total}}=F_{\mathrm{plan}}+F_{\mathrm{adjust}}+F_{\mathrm{emergency}}.
+\end{align}
+增减量取相邻确认版本差额，交易价取交易时刻所在实际区间价，到区间结束才结算。未用合同付费，减购无退款，不以最终合同重复全额收费，不累计窗口目标冒充年费。Q4-2调整费为零。合同$10\to8\to9$、执行价2、交易价1和3、紧急量1的手例总费为$20+5.5+10=35.5$元。
+
+\subsection{求解、检验与比较}
+采用稀疏约束和SciPy/HiGHS，开启预处理，相对间隙阈值$10^{-4}$，10秒限制及超时最多60秒重试。只有求解成功且独立约束验证通过才接受。复用后缀必须满足同一预测版本和窗口终点、无合同事件、实际SOC精确一致及后缀完整可行；扣除已付合同和过去费用后，用绝对误差界重新判断尾问题间隙，不继承母问题相对间隙。
+
+Q4-2和Q4-3各自对比主价格预测与前一日同slot预测，形成四条独立连续实际SOC轨迹。报告6小时、24小时预测误差和重叠样本口径，以及实际费用、紧急量、弃光、未用合同、吞吐、初末SOC。预测误差下降不预设为费用下降，不将不同价格制度间成本差称为策略节省。
+
+\IfFileExists{tables/q4_results.tex}{\input{tables/q4_results}}{全年回放与实际末态正在核验，当前不报告全年费用结论。}

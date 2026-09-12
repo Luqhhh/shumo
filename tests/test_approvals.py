@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from microgrid.approvals import (
+    DECISION_CASE_SCOPES,
     FINAL_REQUIRED_DECISION_IDS,
     decision_issues,
     require_approved_decisions,
@@ -35,6 +36,10 @@ def _decision_block(
         lines.append(f'confirmed_by = "{confirmed_by}"')
     if confirmed_at is not None:
         lines.append(f'confirmed_at = "{confirmed_at}"')
+    if decision_id in DECISION_CASE_SCOPES:
+        import json
+
+        lines.append(f"scope_cases = {json.dumps(DECISION_CASE_SCOPES[decision_id])}")
     lines.extend(['source = "test"', ""])
     return lines
 
@@ -114,6 +119,8 @@ def test_final_required_set_is_explicit() -> None:
     assert "D_TIME_INTERNAL" in FINAL_REQUIRED_DECISION_IDS
     assert "D_RESAMPLE" in FINAL_REQUIRED_DECISION_IDS
     assert "D_LOAD_FORECAST" in FINAL_REQUIRED_DECISION_IDS
+    assert "D_TIME_TEMPLATE_EXPORT_Q4" in FINAL_REQUIRED_DECISION_IDS
+    assert "D_EVAL_Q4" in FINAL_REQUIRED_DECISION_IDS
 
 
 @pytest.mark.parametrize(
@@ -164,3 +171,85 @@ def test_q3_complete_approval_reaches_unimplemented_runner(tmp_path: Path):
     with pytest.raises(ModelNotImplementedError):
         run_case("q3", tmp_path)
     assert not (tmp_path / "outputs").exists()
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+@pytest.mark.parametrize("approval_kind", ["model", "reserve"])
+@pytest.mark.parametrize(
+    "broken", ["missing", "pending", "proposed", "confirmed_by", "confirmed_at", "scope_cases"]
+)
+def test_q4_model_approval_blocks_dispatch_and_release(
+    tmp_path, monkeypatch, case_id, broken, approval_kind
+):
+    from microgrid.cases import CASE_RUNNERS, run_case
+    from microgrid.checks import collect_blockers
+
+    target = "D_MODEL_" + case_id.upper() if approval_kind == "model" else "D_TERMINAL_RESERVE_Q4"
+    lines = []
+    for decision_id in FINAL_REQUIRED_DECISION_IDS:
+        if decision_id == target and broken == "missing":
+            continue
+        block = _decision_block(
+            decision_id, status="approved", confirmed_by="tester", confirmed_at="2026-09-12"
+        )
+        if decision_id == target:
+            if broken in ("pending", "proposed"):
+                block = [
+                    line.replace('status = "approved"', f'status = "{broken}"') for line in block
+                ]
+            elif broken in ("confirmed_by", "confirmed_at"):
+                block = [f'{broken} = " "' if line.startswith(broken) else line for line in block]
+            elif broken == "scope_cases":
+                block = [
+                    'scope_cases = ["q3"]' if line.startswith("scope_cases") else line
+                    for line in block
+                ]
+        lines.extend(block)
+    _write_decisions(tmp_path, lines)
+
+    def forbidden_runner(_context):
+        pytest.fail("Q4 runner must not be invoked without its scoped approval")
+
+    monkeypatch.setitem(CASE_RUNNERS, case_id, forbidden_runner)
+    with pytest.raises(PendingDecisionError) as excinfo:
+        run_case(case_id, tmp_path)
+    assert excinfo.value.decision_ids == [target.replace("_", "-")]
+    assert any(
+        target.replace("_", "-") in blocker for blocker in collect_blockers(tmp_path, mode="final")
+    )
+
+
+@pytest.mark.parametrize("decision_id", tuple(DECISION_CASE_SCOPES))
+@pytest.mark.parametrize("scope", [None, [], ["q3"], ["q4_2", "q4_2"], ["q4_2", "q4_3", "q2"], [1]])
+def test_scoped_q4_approval_rejects_missing_or_wrong_scope(tmp_path, decision_id, scope):
+    import json
+
+    block = _decision_block(
+        decision_id, status="approved", confirmed_by="tester", confirmed_at="2026-09-12"
+    )
+    block = [line for line in block if not line.startswith("scope_cases")]
+    if scope is not None:
+        block.append(f"scope_cases = {json.dumps(scope)}")
+    _write_decisions(tmp_path, block)
+    issues = decision_issues(tmp_path, (decision_id,))
+    assert len(issues) == 1
+    assert "scope_cases" in issues[0].reason
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+def test_q4_complete_scope_reaches_input_preflight_without_q2_q3_or_export(tmp_path, case_id):
+    from microgrid.cases import required_decisions, run_case
+    from microgrid.schemas import InputError
+
+    lines = []
+    for decision_id in required_decisions(case_id):
+        lines.extend(
+            _decision_block(
+                decision_id, status="approved", confirmed_by="tester", confirmed_at="2026-09-12"
+            )
+        )
+    _write_decisions(tmp_path, lines)
+    with pytest.raises(InputError, match="inputs_manifest"):
+        run_case(case_id, tmp_path)
+    assert not list((tmp_path / "outputs").rglob("domain_result.json"))
+    assert list((tmp_path / "outputs").rglob("failure.json"))

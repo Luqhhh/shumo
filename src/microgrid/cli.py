@@ -108,7 +108,14 @@ def cmd_smoke(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
     try:
-        result = run_case(args.case, repo, run_id=args.run_id)
+        result = run_case(
+            args.case,
+            repo,
+            run_id=args.run_id,
+            end_time=args.end_time,
+            price_method=args.price_method,
+            resume=args.resume,
+        )
     except PendingDecisionError as exc:
         print(f"case {args.case}: blocked by pending decisions: {', '.join(exc.decision_ids)}")
         print(str(exc))
@@ -148,6 +155,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("--case", choices=CASE_IDS, required=True, help=", ".join(CASE_IDS))
     p_run.add_argument("--run-id", default=None, help="explicit run id for this execution")
+    p_run.add_argument(
+        "--end-time",
+        default=None,
+        help="Q4 diagnostic exclusive midnight end; partial runs cannot be selected as formal results",
+    )
+    p_run.add_argument(
+        "--price-method",
+        choices=("main", "lag1"),
+        default="main",
+        help="Q4 causal price prediction method",
+    )
+    p_run.add_argument(
+        "--resume",
+        action="store_true",
+        help="Q4 resume an explicit run at its source-bound checkpoint",
+    )
     p_run.set_defaults(func=cmd_run)
 
     return parser

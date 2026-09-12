@@ -16,7 +16,14 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from .approvals import FINAL_REQUIRED_DECISION_IDS, DecisionIssue, decision_issues, load_decisions
+from .approvals import (
+    FINAL_REQUIRED_DECISION_IDS,
+    DecisionIssue,
+    decision_issues,
+    load_decisions,
+    normalize_decision_id,
+    template_export_decision_id,
+)
 from .schemas import ReleaseBlockedError
 
 REQUIRED_CASES = ("q1", "q2", "q3", "q4_2", "q4_3")
@@ -185,18 +192,20 @@ def _check_run_evidence(
                     )
                 elif export_manifest.get("template_sha256") != _sha256(template_path):
                     blockers.append(f"case {case_id}: export_manifest template_sha256 mismatch")
-            current_decision = load_decisions(repo).get("D-TIME-TEMPLATE-EXPORT", {})
-            snapshot = export_manifest.get("decision_snapshot", {}).get(
-                "D_TIME_TEMPLATE_EXPORT", {}
-            )
+            decision_id = template_export_decision_id(case_id)
+            current_decision = load_decisions(repo).get(normalize_decision_id(decision_id), {})
+            snapshot = export_manifest.get("decision_snapshot", {}).get(decision_id)
             if not isinstance(snapshot, dict):
                 blockers.append(f"case {case_id}: export_manifest has no export decision snapshot")
             else:
-                for field in ("status", "choice", "confirmed_by", "confirmed_at"):
+                fields = ("status", "choice", "confirmed_by", "confirmed_at")
+                if case_id in ("q4_2", "q4_3"):
+                    fields += ("scope_cases",)
+                for field in fields:
                     if str(snapshot.get(field)) != str(current_decision.get(field)):
                         blockers.append(
                             f"case {case_id}: export decision snapshot differs from current "
-                            f"D_TIME_TEMPLATE_EXPORT.{field}"
+                            f"{decision_id}.{field}"
                         )
     return blockers
 

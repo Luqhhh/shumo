@@ -149,20 +149,132 @@ confirmed_at = "2026-09-12"
 source = "2026-09-12本会话用户批准消息；docs/q3_model.md；docs/c_forecast_version_evidence.md；B分支b4113b0的Q3/MPC/TERMINAL/YEAR_BOUNDARY提案；C线7b90599"
 
 [decisions.D_MODEL_Q4_2]
-status = "proposed"
-choice = "按 docs/q4_model_cards.md 的 Q4-2 卡及 docs/q4_implementation_plan.md v2：共享因果预测滚动MILP、分case合同权限、实际反馈与逐版结算；完整范围以模型卡为准。"
-rationale = "用户请求审阅并落实设计；已核对价格域、模板结构和反馈代数，尚未进行预测效果、MILP或全年运行验证。"
-confirmed_by = ""
-confirmed_at = ""
-source = "按 case 拆分：波动电价下重算 Q2；批准需覆盖 Q2 基础模型与价格信息条件扩展；不依赖 D_RESAMPLE。"
+status = "approved"
+scope_cases = ["q4_2"]
+choice = """
+按 docs/q4_implementation_plan.md v2 第1—7、9—10节及 Q4-2 模型卡实现完整
+共享因果点预测滚动MILP，SciPy milp/HiGHS；本卡包含Q4-2所需基础模型，
+不依赖尚未批准的D_MODEL_Q2，也不依赖D_RESAMPLE或附件3。
+LOAD-A采用7/14/21/28天同slot的8/4/2/1归一化权重及连续历史残差AR(1)；
+PV为七日同slot均值；价格为日/周/两周滞后0.5/0.3/0.2基线及残差AR(1)。
+仅使用InfoSet可见历史，00/06/12/18刷新，版本间冻结并切片；残差初始化、
+连续性、非负预测、缺历史报错及预测来源快照均遵循v2第2—3节。
+00:00提交当天144格唯一G0，此后合同冻结；每10分钟只执行当前电池动作；
+次日lookahead合同为虚拟量，不落账，不免费实施未来调整。Q4-2调整费严格为0。
+窗口为[t,min(r+24h,年度终点))，发布间收缩；覆盖不足显式missing_forecast，
+不以缩短00:00窗口漏交合同。MILP完整流、模式互斥及Gmax界按v2第4节。
+采用D_TIME_INTERNAL/D_EFF/D_STATE/D_INFO/D_SETTLE；实际量只用于固定保护
+和结束后结算。在十分钟平均功率恒定、本地控制器及时限幅的附加假设下，
+按v2第5节负荷优先反馈减少合法意图动作；非法意图不clip，响应假设不成立
+则execution_infeasible。计划费按G0及实际区间价，紧急费为5倍实际区间价，
+未用合同付费、无退款，以独立实际账本重算年度费用，不累计窗口目标。
+一月初始化E=6000，2025-02-01至2026-01-01连续334日、48096步，不每日重置。
+v_r=0.9*刷新时完整144格预测价均值；年度终点进入窗口时去残值并约束E_end=6000。
+年度必要可达界、实际端点失败terminal_infeasible及绝对1e-6 kWh/相对0容差按v2。
+求解status=0且独立校验通过才接受，gap=1e-4，10秒及超时最多60秒重试；
+缓存证书、checkpoint来源绑定、失败现场和正式产物按v2，不填零或回退未批准策略。
+导出与价格主/lag1比较分别由D_TIME_TEMPLATE_EXPORT_Q4和D_EVAL_Q4批准。
+"""
+rationale = "本会话用户明确要求落实Q4模型及相关范围的批准记录，批准此前交付的v2实施规范；设计证据不代表预测、MILP、全年端点或导出读回已验证。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；设计交付提交f8b4af0；docs/q4_implementation_plan.md v2；docs/q4_model_cards.md"
 
 [decisions.D_MODEL_Q4_3]
-status = "proposed"
-choice = "按 docs/q4_model_cards.md 的 Q4-3 卡及 docs/q4_implementation_plan.md v2：共享因果预测滚动MILP、分case合同权限、实际反馈与逐版结算；完整范围以模型卡为准。"
-rationale = "用户请求审阅并落实设计；已核对价格域、模板结构和反馈代数，尚未进行预测效果、MILP或全年运行验证。"
-confirmed_by = ""
-confirmed_at = ""
-source = "按 case 拆分：波动电价下重算 Q3；批准需覆盖 Q3 基础模型与价格信息条件扩展。"
+status = "approved"
+scope_cases = ["q4_3"]
+choice = """
+按 docs/q4_implementation_plan.md v2 第1—7、9—10节及 Q4-3 模型卡实现完整
+共享因果点预测滚动MILP，SciPy milp/HiGHS；基础物理、LOAD-A与价格预测、
+发布锚定窗口、实际反馈、终端价值、年度6000端点、容差、求解失败、缓存及
+checkpoint规则与v2 Q4共同规范一致，本卡完整覆盖，不沿用Q3旧窗口口径。
+负载与价格仅使用InfoSet可见历史，00/06/12/18刷新、版本间冻结；负载四周
+8/4/2/1权重及残差AR(1)，价格日/周/两周0.5/0.3/0.2基线及残差AR(1)。
+PV使用同valid_time全部可见官方版本，按原始lead_hours已实现历史MAE赋权
+raw_w=1/(MAE_lead(decision_time)+1 kW)^2并归一化；误差截止当前刷新时刻，
+无有效桶样本报错。唯一小时预测经D_RESAMPLE的RESAMPLE-LIN及最近结束区间
+PV均值左端代理生成十分钟右端点功率，转kWh；发布间不更新代理或权重。
+00:00提交当天完整144格G0；06/12/18仅调整当日未开始时隙，相对上一版
+确认量逐版计算正负部，交易方向互斥；已执行slot冻结。次日虚拟合同不落账，
+不得提前免费实施未来调整。优化交易价使用当前第一预测区间价；实际交易价为
+交易时刻所在区间附件4实际价，到区间结束后补费用，不读取未来actual计划。
+计划费=sum(p_actual*G0)，调整费逐版=sum(p_trade_actual*(1.5*plus+0.5*minus))，
+紧急费=sum(5*p_actual*U)；无减购退款，不以最终G重复全额收费。
+采用D_TIME_INTERNAL/D_EFF/D_STATE/D_INFO/D_SETTLE/D_RESAMPLE；完整MILP
+流账本、负荷优先及时限幅保护、execution_infeasible/terminal_infeasible、
+2025-02-01至2026-01-01连续334日48096步及独立校验均按v2第2、4—7节。
+导出与价格主/lag1比较分别由D_TIME_TEMPLATE_EXPORT_Q4和D_EVAL_Q4批准。
+"""
+rationale = "本会话用户明确要求落实Q4模型及相关范围的批准记录，批准此前交付的v2实施规范；明确新增Q4窗口、反馈、预测和年度范围，不改写Q3既有批准。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；设计交付提交f8b4af0；docs/q4_implementation_plan.md v2；docs/q4_model_cards.md"
+
+[decisions.D_TERMINAL_RESERVE_Q4]
+status = "approved"
+scope_cases = ["q4_2", "q4_3"]
+choice = """
+在已批准Q4 v2模型上叠加最后24小时储能预留，形成q4-v3-reserve：
+reserve_start=2025-12-31 00:00，预测窗口内所有状态边界tau>=reserve_start
+约束E(tau)>=6000 kWh，包括提前进入该日期的窗口及当前实际状态。
+实际反馈后的状态同样检查，未满足则明确失败；此前下界1200、上界10800不变。
+保留实际年度终点E(2026-01-01 00:00)=6000 kWh及绝对1e-6 kWh/相对0容差，
+保留失败阻断，不clip、不用紧急电充电、不以未来actual修复计划；
+不改负载/PV/价格预测、经验参数、终端价值、合同权限、逐版费用或反馈规则。
+Q4-2/3各自主价格和lag1四条轨迹从2025-02-01实际初态E=6000独立连续重跑，
+不得从v2 checkpoint拼接或覆盖旧输出；完整主方案校验通过后才正式导出。
+"""
+rationale = "用户明确批准年末储能预留提案并要求继续实现、验证；新增路径约束用于降低末日放电后依赖预测充回的风险，不保证任意实际序列可行。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：批准该修订并继续实现、验证；docs/q4_terminal_reserve_proposal.md；docs/approvals/2026-09-12-q4-terminal-reserve.md"
+
+[decisions.D_TIME_TEMPLATE_EXPORT_Q4]
+status = "approved"
+scope_cases = ["q4_2", "q4_3"]
+choice = """
+批准 docs/q4_implementation_plan.md v2 第8节的Q4专用映射，仅写原模板副本。
+334天日期序号i对应row=i+2，slot k=0..143对应col=k+2（B:EO）；保留官方
+原标签，在export_manifest记录真实区间、原标签冲突及完整source_slot->cell映射。
+计划表写G0，EP=sum(G0)，EQ=planned_cost；Q4-3调整表写最终确认G，
+EP=sum(Gfinal)，EQ=adjustment_cost。总费用含紧急费写summary/论文表；
+允许输出副本新增明确命名的费用汇总表，列计划/调整/紧急/总费并纳入读回。
+充放电表展开334个六行块，首行2+6*i，B写六个四小时区间，C/D汇总实际
+充/放电；E/F在块第1/2行写0:00/24:00及真实日初/日末E，其余状态格空白。
+日期A按样式合并六行，清除副本原示例合并范围再复制样式，不改原件。
+紧急表逐日合并相邻U>共享容差的slot，写起止/总kWh，不跨日；无紧急量
+仍保留日期、空时间段和0，不保留省略行冒充全年。四展示日从同一全年轨迹提取。
+正式导出须完整来源绑定、独立全年物理/费用/实际端点校验和逐格读回通过，
+记录本decision及scope_cases快照；批准映射不表示已导出或官方已经勘误。
+"""
+rationale = "用户批准Q4相关范围；单列Q4导出decision，保留原D_TIME_TEMPLATE_EXPORT的Q1映射及已有快照。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；docs/q4_implementation_plan.md v2第8节；outputs/evidence/q4_design_audit.json为设计证据"
+
+[decisions.D_EVAL_Q4]
+status = "approved"
+scope_cases = ["q4_2", "q4_3"]
+choice = """
+批准 docs/q4_implementation_plan.md v2 第9—10节的Q4验证与价格比较范围。
+四条连续回放为Q4-2/3各自价格主方案和前一日同slot价格对照，其余假设相同，
+各策略独立连续真实SOC；保留负结果，不以全年误差反向调主参数。
+验证因果隔离、合同冻结/调整权限、预测尾部覆盖、虚拟合同不落账、残差
+初始化连续性、完整物理流、限充及不可及时响应分支、完美预测、35.5元逐版
+结算、非负价减购支配、实际年度末、求解失败、缓存破坏、checkpoint等价、
+来源override和模板读回。先真实单日/跨日/一周验证与性能评估，再全年。
+物理与年度端点采用绝对1e-6 kWh/相对0，未舍入费用独立重算总差<=0.01元。
+报告6h/24h预测MAE/RMSE及重叠样本口径、月指标、计划/调整/紧急/总费用、
+G0/Gfinal、外网实际用量sum(G_use+U)、紧急量/区间/天数、弃光、未用合同、
+吞吐、初末SOC、保护次数和运行/求解统计；展示舍入只在最后进行。
+预测误差下降不等于费用下降，不把不同实际价格制度间成本差称为策略节省；
+price-oracle仅作诊断、不自动为严格下界。未运行项记not_run，合成证据不进
+正式结果。批准方法不批准具体run选择、数值结论或AI人工核验。
+"""
+rationale = "用户批准Q4相关范围；新增Q4专用比较decision，不将Q4批准扩展为其他case的全局D_EVAL批准。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；docs/q4_implementation_plan.md v2第9—10节"
 
 [decisions.D_EVAL]
 status = "pending"

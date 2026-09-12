@@ -1,10 +1,14 @@
 # Q4 模型卡
 
-版本v2，2026-09-12，status=proposed，confirmed_by/confirmed_at均为空。
-完整可实施公式、接口、测试和任务顺序以[q4_implementation_plan.md](q4_implementation_plan.md)为准。
+版本v2，2026-09-12，status=approved，confirmed_by=本会话用户，confirmed_at=2026-09-12。
+批准来源见[本会话批准记录](approvals/2026-09-12-q4.md)，机器状态以 `configs/decisions.toml` 为准。
+完整v2公式、接口、测试和任务顺序以[q4_implementation_plan.md](q4_implementation_plan.md)为准。
+当前两卡叠加已批准的 `D_TERMINAL_RESERVE_Q4`，形成 `q4-v3-reserve`；
+最后24小时所有状态边界E≥6000，保留硬实际末态和失败阻断。见[v3补充](q4_v3_terminal_reserve.md)。
 
 ## D_MODEL_Q4_2
 
+- 批准范围：`scope_cases=["q4_2"]`；LOAD-A、反馈、窗口和年度边界随本卡单独批准。
 - 目标：附件4波动价格下重算Q2，输出result4-2.xlsx。
 - 基础模型：完整共享点预测MILP，00:00整日G0合同，此后冻结；每十分钟电池控制。
 - 预测：LOAD-A周滞后AR扩展到Q4；PV七日同slot均值；价格日/周滞后加AR。
@@ -17,6 +21,7 @@
 
 ## D_MODEL_Q4_3
 
+- 批准范围：`scope_cases=["q4_3"]`；预测、反馈、窗口和年度边界随本卡单独批准。
 - 目标：附件4波动价格下重算Q3，输出result4-3.xlsx。
 - 基础模型：与Q4-2共享；00:00合同，06/12/18可调整当天未开始slot，逐版计费。
 - 预测：同负载/价格；PV为可见官方版本按lead历史MAE平方倒数组合及RESAMPLE-LIN。
@@ -27,9 +32,12 @@
 ## 单独补齐的导出和比较范围
 
 Q4模板列序及扩展示例行映射见规范第8节，不能通过Q1的D_TIME_TEMPLATE_EXPORT
-批准自动放行。拟在实际实现阶段新增Q4专用导出decision及其gate/manifest检查，或
-显式扩展原decision的批准范围并保留旧Q1映射版本。两case主/对照比较范围见第9节，
-D_EVAL仍pending。上述范围未获确认前不生成“正式批准结果”。
+批准自动放行。`D_TIME_TEMPLATE_EXPORT_Q4` 已单独批准并接入导出/final及快照检查，
+`scope_cases=["q4_2","q4_3"]`，原Q1映射保持原值。两case主/对照比较范围见第9节，
+由已批准的 `D_EVAL_Q4` 同范围控制；全局 `D_EVAL` 仍pending。
+实现、全年独立验证和模板读回通过后才能形成候选正式结果。
 
-本轮证据只支持价格域、模板结构和反馈/费用代数；预测优劣、求解性能、实际年度可行性
-及Excel读回均not_run。用户提供的AI设计与本轮修订不能充当人工核验签名。
+批准记录轮证据支持价格域、模板结构和反馈/费用代数。后续v3实施已通过241项工程
+测试；v2完整成功与失败结果保留，新四条全年轨迹各48096步通过，v3年度末态及
+两主方案真实Excel读回通过，实际进度见[实施状态](q4_implementation_status.md)。
+用户提供的AI设计与本轮修订不能充当人工核验签名。

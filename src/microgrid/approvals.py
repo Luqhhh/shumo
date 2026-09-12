@@ -27,15 +27,29 @@ MODEL_DECISION_IDS = (
     "D_MODEL_Q4_2",
     "D_MODEL_Q4_3",
 )
+DECISION_CASE_SCOPES = {
+    "D_MODEL_Q4_2": ("q4_2",),
+    "D_MODEL_Q4_3": ("q4_3",),
+    "D_TIME_TEMPLATE_EXPORT_Q4": ("q4_2", "q4_3"),
+    "D_EVAL_Q4": ("q4_2", "q4_3"),
+    "D_TERMINAL_RESERVE_Q4": ("q4_2", "q4_3"),
+}
 FINAL_REQUIRED_DECISION_IDS = (
     *SHARED_DECISION_IDS,
     "D_TIME_TEMPLATE_EXPORT",
+    "D_TIME_TEMPLATE_EXPORT_Q4",
     "D_RESAMPLE",
     "D_LOAD_FORECAST",
     "D_SETTLE",
     *MODEL_DECISION_IDS,
     "D_EVAL",
+    "D_EVAL_Q4",
+    "D_TERMINAL_RESERVE_Q4",
 )
+
+
+def template_export_decision_id(case_id: str) -> str:
+    return "D_TIME_TEMPLATE_EXPORT_Q4" if case_id in ("q4_2", "q4_3") else "D_TIME_TEMPLATE_EXPORT"
 
 
 @dataclass(frozen=True)
@@ -68,7 +82,8 @@ def decision_issues(
 
     Missing entries block as hard as pending ones.  `confirmed_by` and
     `confirmed_at` must be non-empty strings; ``None`` and whitespace do not
-    count as human confirmation.
+    count as human confirmation. Q4 decisions must also declare their exact
+    case scope; a Q3 prediction or Q1 mapping approval cannot stand in for it.
     """
 
     decisions = load_decisions(repo_root)
@@ -92,6 +107,22 @@ def decision_issues(
                     DecisionIssue(
                         normalized,
                         f"approved decision has empty {field}",
+                        status=status,
+                    )
+                )
+        expected_scope = DECISION_CASE_SCOPES.get(normalized.replace("-", "_"))
+        if expected_scope is not None:
+            scope = record.get("scope_cases")
+            if (
+                not isinstance(scope, list)
+                or not all(isinstance(case, str) for case in scope)
+                or len(scope) != len(expected_scope)
+                or set(scope) != set(expected_scope)
+            ):
+                issues.append(
+                    DecisionIssue(
+                        normalized,
+                        f"approved decision scope_cases must be {list(expected_scope)!r}",
                         status=status,
                     )
                 )

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 
-from .approvals import require_approved_decisions
+from .approvals import require_approved_decisions, template_export_decision_id
 from .dataio import ensure_dir
 from .problem.contracts import CaseResult
 from .problem.validation import validate_complete_run
@@ -222,24 +222,45 @@ def export_case_result(
 ) -> Path:
     """Formal numeric export entry point, gated separately from internal time.
 
-    The D_TIME_TEMPLATE_EXPORT decision records the team's explicit mapping
-    interpretation.  Q1 is the only implemented writer; other cases still fail
+    Each case uses its mapping decision (Q4 has a separate scoped approval).
+    Q1 is the only implemented writer; other cases still fail
     explicitly rather than copying values into unverified templates.
     """
 
-    try:
-        require_approved_decisions(repo_root, (TEMPLATE_EXPORT_DECISION_ID,))
-    except PendingDecisionError as exc:
-        raise PendingDecisionError(
-            [TEMPLATE_EXPORT_DECISION_ID],
-            "formal result-template export requires fully approved D_TIME_TEMPLATE_EXPORT",
-        ) from exc
     if case_result.case_id not in EXPECTED_SHEETS:
         raise InputError(f"unknown result case_id: {case_result.case_id!r}")
+    decision_id = template_export_decision_id(case_result.case_id)
+    try:
+        require_approved_decisions(repo_root, (decision_id,))
+    except PendingDecisionError as exc:
+        raise PendingDecisionError(
+            [decision_id],
+            f"formal result-template export requires fully approved {decision_id}: {exc}",
+        ) from exc
     if case_result.is_synthetic:
-        raise InputError("synthetic Q1 result cannot be exported through the formal writer")
+        raise InputError("synthetic result cannot be exported through the formal writer")
     if case_result.status != "success":
-        raise InputError(f"Q1 result status is not success: {case_result.status!r}")
+        raise InputError(
+            f"{case_result.case_id} result status is not success: {case_result.status!r}"
+        )
+    if case_result.case_id in ("q4_2", "q4_3"):
+        from .problem.q4_export import export_q4
+
+        repo = Path(repo_root).resolve()
+        output = (
+            Path(output_path)
+            if output_path is not None
+            else repo
+            / "outputs"
+            / "runs"
+            / case_result.case_id
+            / case_result.run_id
+            / "results"
+            / TEMPLATE_BY_CASE[case_result.case_id]
+        )
+        if not output.is_absolute():
+            output = repo / output
+        return export_q4(repo, case_result, output)
     if case_result.case_id != "q1":
         raise NotImplementedError(
             f"numeric template export is implemented only for Q1, not {case_result.case_id!r}"

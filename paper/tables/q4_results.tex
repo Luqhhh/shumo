@@ -1,0 +1,42 @@
+% Generated candidate Q4 evidence; explicit run IDs; no run selection approval.
+\subsection{全年回放结果}
+各主方案及前一日同slot价格对照从6\,000 kWh独立连续运行。四条轨迹均覆盖334日、48\,096区间。完整轨迹实际年末储能6\,000 kWh，连续SOC、合同权限、实际输入及账本复核通过。表中只在展示时舍入。
+\begin{table}[htbp]\centering\small
+\caption{Q4实际费用与价格预测对照（费用单位：万元）}\label{tab:q4-annual}
+\begin{tabular}{llrrrr}\toprule
+条件 & 价格预测 & 计划费 & 调整费 & 紧急费 & 总费 \\ \midrule
+Q4-2 & 主方案 & 1296.3714 & 0.0000 & 421.7606 & 1718.1320 \\
+Q4-2 & lag1 & 1300.1209 & 0.0000 & 421.3081 & 1721.4290 \\
+Q4-3 & 主方案 & 1315.2016 & 45.7007 & 225.7140 & 1586.6164 \\
+Q4-3 & lag1 & 1319.0238 & 46.0643 & 224.8064 & 1589.8946 \\
+\bottomrule\end{tabular}\end{table}
+\begin{table}[htbp]\centering\small
+\caption{Q4预测误差（每格为MAE/RMSE；负载、光伏单位kW，价格单位元/kWh）}
+\begin{tabular}{lllrrr}\toprule
+条件 & 价格预测 & 窗口 & 负载 & 光伏 & 价格 \\ \midrule
+Q4-2 & 主方案 & 6h & 163.91/227.69 & 153.40/303.86 & 0.0511/0.0700 \\
+Q4-2 & 主方案 & 24h & 166.98/233.88 & 153.50/304.00 & 0.0539/0.0737 \\
+Q4-2 & lag1 & 6h & 163.91/227.69 & 153.40/303.86 & 0.0843/0.1238 \\
+Q4-2 & lag1 & 24h & 166.98/233.88 & 153.50/304.00 & 0.0844/0.1239 \\
+Q4-3 & 主方案 & 6h & 163.91/227.69 & 83.15/159.58 & 0.0511/0.0700 \\
+Q4-3 & 主方案 & 24h & 166.98/233.88 & 182.64/403.88 & 0.0539/0.0737 \\
+Q4-3 & lag1 & 6h & 163.91/227.69 & 83.15/159.58 & 0.0843/0.1238 \\
+Q4-3 & lag1 & 24h & 166.98/233.88 & 182.64/403.88 & 0.0844/0.1239 \\
+\bottomrule\end{tabular}\end{table}
+Q4-2主方案相对lag1的实际费用减少32969.31元（0.192\%），6小时价格MAE差为-0.033217元/kWh。保留这一结果，不根据全年费用重新调整预测权重。
+Q4-3主方案相对lag1的实际费用减少32782.15元（0.206\%），6小时价格MAE差为-0.033217元/kWh。保留这一结果，不根据全年费用重新调整预测权重。
+Q4-2主方案相对lag1紧急购电量增加1813.02 kWh。 Q4-3主方案相对lag1紧急购电量增加3026.48 kWh。 光伏MAE：Q4-3的6h/24h为83.15/182.64 kW，Q4-2为153.40/153.50 kW。短窗与长窗结论分别报告。
+6小时误差取每次刷新后首36格、不重叠；24小时误差按发布与目标对计数、窗口重叠，并截到观测末端。6小时样本数为48\,096，24小时为192\,168。Q4-2和Q4-3同时改变光伏信息及合同权限，费用差不单独归因于官方预报。预测样本数、月指标和费用分项保存在绑定显式run的证据目录。
+\IfFileExists{../outputs/evidence/q4_annual/q4_2_2025-12-21.pdf}{
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.92\textwidth]{../outputs/evidence/q4_annual/q4_2_2025-12-21.pdf}
+\caption{Q4-2主方案12月21日的实际量、合同、充放电和连续储能；取自同一全年轨迹。}
+\end{figure}
+}{}
+\IfFileExists{../outputs/evidence/q4_annual/q4_3_2025-12-21.pdf}{
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.92\textwidth]{../outputs/evidence/q4_annual/q4_3_2025-12-21.pdf}
+\caption{Q4-3主方案12月21日的实际量、合同、充放电和连续储能；取自同一全年轨迹。}
+\end{figure}
+}{}
+\noindent\textit{复现绑定：}候选运行编号为\texttt{q4-2-v3-annual-main-001, q4-2-v3-annual-lag1-001, q4-3-v3-annual-main-001, q4-3-v3-annual-lag1-001}；代码与配置快照、逐格账本及SHA256见各run目录及\texttt{outputs/evidence/q4\_annual/comparison.json}。具体运行选择与人工核验仍待参赛队确认。

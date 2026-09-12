@@ -37,7 +37,15 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_SETTLE",
         "D_MODEL_Q3",
     ),
-    "q4_2": ("D_TIME_INTERNAL", "D_EFF", "D_STATE", "D_INFO", "D_SETTLE", "D_MODEL_Q4_2"),
+    "q4_2": (
+        "D_TIME_INTERNAL",
+        "D_EFF",
+        "D_STATE",
+        "D_INFO",
+        "D_SETTLE",
+        "D_MODEL_Q4_2",
+        "D_TERMINAL_RESERVE_Q4",
+    ),
     "q4_3": (
         "D_TIME_INTERNAL",
         "D_EFF",
@@ -46,6 +54,7 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_RESAMPLE",
         "D_SETTLE",
         "D_MODEL_Q4_3",
+        "D_TERMINAL_RESERVE_Q4",
     ),
 }
 
@@ -73,6 +82,9 @@ def run_case(
     repo_root: str | Path = ".",
     *,
     run_id: str | None = None,
+    end_time: str | None = None,
+    price_method: str = "main",
+    resume: bool = False,
 ) -> CaseResult:
     """Dispatch one formal case after decision gating."""
 
@@ -93,5 +105,14 @@ def run_case(
 
         raise ModelNotImplementedError(case_id, f"case {case_id}: no registered runner")
 
-    context = CaseContext(repo_root=Path(repo_root), case_id=case_id, run_id=run_id)
+    if case_id not in ("q4_2", "q4_3") and (
+        end_time is not None or price_method != "main" or resume
+    ):
+        raise InputError("diagnostic end/price method/resume options are available only for Q4")
+    metadata = {"price_method": price_method, "resume": resume}
+    if end_time is not None:
+        metadata["end_time"] = end_time
+    context = CaseContext(
+        repo_root=Path(repo_root), case_id=case_id, run_id=run_id, metadata=metadata
+    )
     return runner(context)
