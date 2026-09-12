@@ -45,12 +45,20 @@ confirmed_at = "2026-09-10"
 source = "团队 pre-division 语义记录；题面 Q1-Q3 信息发布描述；Q4 价格可见性为显式额外假设；2026-09-10 用户明确批准"
 
 [decisions.D_RESAMPLE]
-status = "pending"
-choice = ""
-rationale = ""
-confirmed_by = ""
-confirmed_at = ""
-source = "附件3的1-24小时预报到10分钟输入的转换与边界；owner C，批准前只能研究证据。"
+status = "approved"
+choice = """
+D_RESAMPLE只负责接收已经由 forecast-combination 层合成的唯一小时预测序列，
+不负责选择 forecast vintage、计算 VERSION-B + WEIGHT-B 权重或处理 epsilon。
+以最近已结束十分钟实际 PV 区间均值作为当前决策边界的左端点代理；
+对 slot_end=t+10min ... t+24h 的十分钟右端点生成 RESAMPLE-LIN 主方案，
+并以 RESAMPLE-PCHIP 作为敏感性对照。整点必须精确命中已组合的小时预测值，
+跨午夜按真实 valid_time 连续，功率到区间电量统一使用
+power_kw * (1/6 h)。不得把点值插值改写为小时平均功率的区间重叠拆分。
+"""
+rationale = "C-4真实数据审计支持整点功率点值语义；线性插值边界清晰，PCHIP用于敏感性检验。版本组合、权重和epsilon属于独立的forecast-combination层。"
+confirmed_by = "lqh、xjn、jjt"
+confirmed_at = "2026-09-11T19:27:00+08:00"
+source = "C-4 decision card；提交 0b06e37；三位队员于 2026-09-11 19:27（北京时间）确认"
 
 [decisions.D_SETTLE]
 status = "pending"
