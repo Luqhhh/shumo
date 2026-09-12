@@ -13,8 +13,8 @@
 | PV 版本组合 | 已批准并有生产实现 | `problem/q3_pv_forecast.py` | 接入统一 Q3 input bundle |
 | 负载预测 | 已批准并有生产实现 | `problem/q3_load_forecast.py` | 接入统一 Q3 input bundle |
 | 统一 Q3 input bundle | 缺失 | 依赖 B 的实际数据适配器 | 等 B 修复整日缺失检查后复用，不另写全年读取器 |
-| 计划版本与冻结 | 缺失 | 批准模型卡已有字段 | shared contract + 序列化 + 测试先行 |
-| 结算账本 | 已批准、尚无生产实现 | `D_SETTLE`、`docs/q3_model.md` | 先建版本/费用 contract 与手算测试 |
+| 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | A 确认正式 artifact 承载后补序列化 |
+| 结算账本 | 计划/调整部分已实现 | `problem/q3_plan_ledger.py` | 紧急费用等待实际回放规则澄清 |
 | Q3 gate | 已闭合 | 已检查 `D_LOAD_FORECAST/D_SETTLE/D_MODEL_Q3` | 保持阻断回归测试 |
 | 实际回放 | 缺失 | 批准模型卡已有物理式 | 先澄清预测充电遇实际短缺的动作规则 |
 | Q3 solver/runner | 未实现 | `problem/q3.py` 明确报错 | 预测与 ledger 输入准备后实现 |
@@ -56,24 +56,24 @@
   和缺失因果历史显式失败；
 - 正式 `LOAD-A + LF-A` 的 24 小时输出、四周滞后、AR(1)、非负截断、
   provenance、未来 actual 不可见和历史缺口显式失败。
+- P00/P06/P12/P18 不可变快照、逐版 delta、已执行时隙冻结和
+  `100 -> 110 -> 90 -> 95` 的 SETTLE-A-v2 手算费用。
 
 以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
 
 - 预测 provenance 的正式 sidecar 序列化往返；
-- P00/P06/P12/P18 不可变快照、逐版 delta 和已执行时隙冻结；
-- 结算账单、紧急购电、合同电未利用与费用总计；
+- 紧急购电、合同电未利用与完整实际费用总计；
 - 求解器可行解、独立残差检查、两日 SOC 连续和年末条件。
 
 ## 4. 最短实施路径
 
 ```text
 1. 请 A 确认 ledger/sidecar shared contract
-2. 完成 plan version / settlement 手算测试
-3. 团队澄清 horizon/tail 与实际短缺充电规则
-4. 组装不含未来 actual 的 Q3WindowInput
-5. 实现单窗口 Q3 MILP + 独立 validator
-6. 接入十分钟回放、settlement 和 run artifacts
-7. 按合成窗口、1日、7日、1月、全年逐级验证
+2. 团队澄清 horizon/tail 与实际短缺充电规则
+3. 组装不含未来 actual 的 Q3WindowInput
+4. 实现单窗口 Q3 MILP + 独立 validator
+5. 接入十分钟回放、settlement 和 run artifacts
+6. 按合成窗口、1日、7日、1月、全年逐级验证
 ```
 
 ## 5. 求解器开工验收
@@ -85,6 +85,7 @@
 - [x] Q3 gate 与已批准 decision 一致；
 - [x] PV/负载候选有可复现的真实数据证据；
 - [x] PV/负载生产预测器及因果、缺失历史、provenance 测试通过；
+- [x] 计划版本、冻结和逐版调整费用的内存 contract 与手算测试通过；
 - [ ] horizon/tail 矛盾已由团队澄清；
 - [ ] 实际短缺时的充电动作已由团队澄清；
 - [ ] shared ledger/provenance 承载方式已由 A 确认；
