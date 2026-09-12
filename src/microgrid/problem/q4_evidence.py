@@ -50,6 +50,36 @@ ARTIFACT_NAMES = tuple(name + ".jsonl" for name in LOG_NAMES[:-1]) + (
 )
 
 
+def full_snapshot_sha256(snapshot: ForecastSnapshot) -> str:
+    """Cover the entire immutable snapshot, including all provenance fields."""
+    return hashlib.sha256(json.dumps(jsonable(snapshot), sort_keys=True).encode()).hexdigest()
+
+
+def forecast_view(snapshot: ForecastSnapshot, slot: dt.datetime, digest: str) -> dict:
+    start = int((slot - snapshot.issue_time) / STEP)
+    if start < 0 or start >= len(snapshot.slots) or snapshot.slots[start] != slot:
+        raise InputError("forecast view is outside its full snapshot")
+    return {
+        "view_schema_version": 1,
+        "full_snapshot_sha256": digest,
+        "slice_start": start,
+        "slice_length": len(snapshot.slots) - start,
+    }
+
+
+def valid_forecast_view(saved, expected):
+    return (
+        isinstance(saved, dict)
+        and saved.keys() == expected.keys()
+        and all(
+            type(saved[key]) is int
+            for key in ("view_schema_version", "slice_start", "slice_length")
+        )
+        and isinstance(saved["full_snapshot_sha256"], str)
+        and saved == expected
+    )
+
+
 def read_json(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -95,6 +125,10 @@ def check_model_binding(repo: Path, run_dir: Path, export: dict | None = None) -
     try:
         manifest = read_json(run_dir / "manifest.json")
         config = read_json(run_dir / "effective_config.json")
+        if type(config.get("evidence_schema_version", 1)) is not int or config.get(
+            "evidence_schema_version", 1
+        ) not in (1, 2):
+            issues.append("unknown Q4 forecast evidence schema")
         reserve = reserve_start_from_config(config)
         case = manifest["case_id"]
         if case not in ("q4_2", "q4_3") or config.get("case_id") != case:
@@ -324,7 +358,7 @@ def json_rows(path: Path):
 
 
 def audit_controller_chain(
-    run_dir: Path, inputs, *, plans_path: Path, reconstruct: bool = False
+    run_dir: Path, inputs, *, plans_path: Path, reconstruct: bool = False, performance=None
 ) -> dict:
     """Replay forecasts and independently check saved or reconstructed MILP plans.
 
@@ -378,6 +412,7 @@ def audit_controller_chain(
             if row != expected:
                 raise InputError(f"{slot}: forecast differs from causal history replay")
             snapshot = snapshot_from_dict(row)
+            snapshot_digest = full_snapshot_sha256(snapshot)
             refresh_count += 1
         window = snapshot.sliced(slot)
         solver, execution = next(solvers, None), next(executions, None)
@@ -409,7 +444,9 @@ def audit_controller_chain(
             reuse_count += 1
         else:
             plan = (
-                solve_dispatch(state, window, ledger, reserve_start=reserve_start)
+                solve_dispatch(
+                    state, window, ledger, reserve_start=reserve_start, performance=performance
+                )
                 if reconstruct
                 else plan_from_dict(next(plans, {}))
             )
@@ -490,6 +527,14 @@ def audit_controller_chain(
             raise InputError(f"{slot}: execution state discontinuity")
         if "intent" in solver and solver["intent"] != execution["execution"]["intent"]:
             raise InputError(f"{slot}: solver intent binding mismatch")
+        expected_view = forecast_view(snapshot, slot, snapshot_digest)
+        if config.get("evidence_schema_version", 1) == 2 or "forecast_view" in solver:
+            if not valid_forecast_view(solver.get("forecast_view"), expected_view):
+                raise InputError(f"{slot}: full snapshot/slice reference mismatch")
+            if not solver.get("reused_tail") and not valid_forecast_view(
+                plan.solver_record.get("forecast_view"), expected_view
+            ):
+                raise InputError(f"{slot}: saved native plan forecast view mismatch")
         if (
             "forecast_sha256" in solver
             and solver["forecast_sha256"]

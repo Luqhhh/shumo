@@ -24,6 +24,7 @@ from microgrid.problem.q4_evidence import (  # noqa: E402
 )
 from microgrid.problem.q4_export import load_replay_evidence  # noqa: E402
 from microgrid.problem.q4_inputs import load_q4_inputs  # noqa: E402
+from microgrid.problem.q4_performance import Performance  # noqa: E402
 from microgrid.problem.q4_validation import validate_q4_run  # noqa: E402
 from microgrid.problem.result_io import load_case_result  # noqa: E402
 from microgrid.schemas import InputError  # noqa: E402
@@ -60,6 +61,8 @@ def main() -> int:
         "original_artifact_hashes": original_hashes,
         "ok": False,
     }
+    performance = Performance()
+    performance.switch_phase("validation")
     try:
         config = read_json(run / "effective_config.json")
         export = (
@@ -70,20 +73,22 @@ def main() -> int:
         issues = check_model_binding(repo, run, export)
         if issues:
             raise InputError(";".join(issues))
-        inputs = load_q4_inputs(repo, args.case)
+        with performance.measure("input_preflight"):
+            inputs = load_q4_inputs(repo, args.case)
         if inputs.source_hashes != read_json(run / "input_snapshot.json")["source_hashes"]:
             raise InputError("current inputs differ from original input hashes")
         result = load_case_result(run / "domain_result.json")
         ledger, executions = load_replay_evidence(run, args.case)
-        validation = validate_q4_run(
-            result.intervals,
-            executions,
-            ledger,
-            end_time=dt.datetime.fromisoformat(config["end_time"]),
-            actual_inputs=inputs,
-            reserve_start=reserve_start_from_config(config),
-            timely_control=config["timely_control"],
-        )
+        with performance.measure("physical_validation"):
+            validation = validate_q4_run(
+                result.intervals,
+                executions,
+                ledger,
+                end_time=dt.datetime.fromisoformat(config["end_time"]),
+                actual_inputs=inputs,
+                reserve_start=reserve_start_from_config(config),
+                timely_control=config["timely_control"],
+            )
         report["independent_validation"] = validation
         atomic_json(target / "validation.json", validation)
         print(
@@ -95,9 +100,14 @@ def main() -> int:
         plans_path = target / "dispatch_plans.jsonl"
         if args.verified_plans is not None:
             shutil.copyfile(args.verified_plans, plans_path)
-        audit = audit_controller_chain(
-            run, inputs, plans_path=plans_path, reconstruct=args.verified_plans is None
-        )
+        with performance.measure("controller_chain_audit"):
+            audit = audit_controller_chain(
+                run,
+                inputs,
+                plans_path=plans_path,
+                reconstruct=args.verified_plans is None,
+                performance=performance,
+            )
         if args.verified_plans is not None:
             audit["plans_origin"] = "post_run_solver_reconstruction_rechecked"
             report["reconstructed_plans_source_sha256"] = sha256_file(args.verified_plans)
@@ -122,6 +132,7 @@ def main() -> int:
             and report["verifier_source_unchanged"]
         )
         atomic_json(target / "review_validation.json", report)
+        atomic_json(target / "performance_summary.json", performance.summary())
     if report["ok"]:
         write_inventory(
             run,

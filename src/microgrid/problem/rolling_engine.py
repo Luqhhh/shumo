@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
-import hashlib
 import json
 import time
 from collections import defaultdict
@@ -33,6 +32,7 @@ from .q4_common import (
     RESERVE_START,
     STEP,
     YEAR_END,
+    JsonlWriter,
     Q4Error,
     append_json,
     atomic_json,
@@ -42,11 +42,14 @@ from .q4_evidence import (
     LOG_NAMES,
     audit_controller_chain,
     checkpoint_log_hashes,
+    forecast_view,
+    full_snapshot_sha256,
     prefix_sha256,
     write_inventory,
 )
 from .q4_forecasts import ForecastSnapshot, Q4Forecaster
 from .q4_inputs import Q4Inputs, load_q4_inputs
+from .q4_performance import Performance
 from .q4_validation import validate_q4_run
 from .result_io import interval_from_dict, interval_to_dict, save_case_result
 
@@ -143,6 +146,17 @@ def _metrics(run_dir: Path, inputs: Q4Inputs, end: dt.datetime):
 
 
 def run_q4(context: CaseContext) -> CaseResult:
+    performance = Performance()
+    initial_resume = bool(context.metadata.get("resume", False))
+    writer = None
+
+    def write_log(path, value):
+        if writer is not None and not writer.closed:
+            writer.write(path.stem, value)
+        else:
+            with performance.measure("log_serialization_and_write"):
+                append_json(path, value)
+
     # This direct entry also gates approval; callers cannot bypass the dispatcher.
     from ..cases import required_decisions
 
@@ -173,6 +187,7 @@ def run_q4(context: CaseContext) -> CaseResult:
         raise InputError("resume requires explicit existing run_id and checkpoint")
     config = {
         "schema_version": 1,
+        "evidence_schema_version": 2,
         "model_version": MODEL_VERSION,
         "terminal_reserve": {"start": str(RESERVE_START), "minimum_energy_kwh": 6000.0},
         "case_id": context.case_id,
@@ -191,6 +206,7 @@ def run_q4(context: CaseContext) -> CaseResult:
     started = time.perf_counter()
     stage = "input_preflight"
     step_count = 0
+    prior_step_count = 0
     inputs = None
     intervals, executions = [], []
     ledger = PurchaseLedger(context.case_id)
@@ -210,14 +226,16 @@ def run_q4(context: CaseContext) -> CaseResult:
     )
     code_hash = source_tree_hash(context.repo_root)
     try:
-        inputs = load_q4_inputs(context.repo_root, context.case_id)
+        with performance.measure("input_preflight"):
+            inputs = load_q4_inputs(context.repo_root, context.case_id)
         if not resume:
             write_manifest(run_dir, manifest)
             atomic_json(run_dir / "input_snapshot.json", inputs.snapshot)
             atomic_json(run_dir / "effective_config.json", config)
             for name in LOG_NAMES:
                 (run_dir / f"{name}.jsonl").touch()
-            service = _initialize_forecaster(inputs, context.case_id, method, ACTION_START)
+            with performance.measure("forecast_ingest"):
+                service = _initialize_forecaster(inputs, context.case_id, method, ACTION_START)
         else:
             checkpoint = json.loads((run_dir / "checkpoint.json").read_text())
             if (
@@ -239,7 +257,8 @@ def run_q4(context: CaseContext) -> CaseResult:
                 ):
                     raise InputError(f"checkpoint committed log prefix hash mismatch: {name}")
             time_at = dt.datetime.fromisoformat(checkpoint["time"])
-            service = _initialize_forecaster(inputs, context.case_id, method, time_at)
+            with performance.measure("forecast_ingest"):
+                service = _initialize_forecaster(inputs, context.case_id, method, time_at)
             if jsonable(service.training_state()) != checkpoint["training_state"]:
                 raise InputError("checkpoint training state mismatch")
             for name, size in checkpoint["log_sizes"].items():
@@ -248,6 +267,8 @@ def run_q4(context: CaseContext) -> CaseResult:
             ledger = _ledger_from_dict(checkpoint["ledger"])
             state = BatteryState(checkpoint["energy_kwh"])
             forecast = _snapshot_from_dict(checkpoint["forecast"])
+            with performance.measure("forecast_evidence_hash"):
+                forecast_digest = full_snapshot_sha256(forecast)
             data = checkpoint["previous_plan"]
             previous_plan = DispatchPlan(
                 **{
@@ -262,8 +283,10 @@ def run_q4(context: CaseContext) -> CaseResult:
                     intervals.append(interval_from_dict(row["interval"]))
                     executions.append(_execution_from_dict(row["execution"]))
             step_count = len(intervals)
+            prior_step_count = step_count
             solve_count, reused_count, protection_count = checkpoint["counts"]
             write_manifest(run_dir, manifest, overwrite=True)
+        writer = JsonlWriter(run_dir, LOG_NAMES, performance=performance)
         official_by_issue = defaultdict(list)
         for item in inputs.official:
             official_by_issue[item.available_at].append(item)
@@ -273,55 +296,67 @@ def run_q4(context: CaseContext) -> CaseResult:
                 resume and time_at == dt.datetime.fromisoformat(checkpoint["time"])
             ):
                 index = inputs.index(time_at) - 1
-                service.ingest(
-                    InfoSet.from_raw(
-                        time_at,
-                        inputs.actual_info(index) + tuple(official_by_issue.get(time_at, [])),
+                with performance.measure("forecast_ingest"):
+                    service.ingest(
+                        InfoSet.from_raw(
+                            time_at,
+                            inputs.actual_info(index) + tuple(official_by_issue.get(time_at, [])),
+                        )
                     )
-                )
             elif resume:
                 resume = False
             refresh = time_at.time() in tuple(dt.time(hour) for hour in (0, 6, 12, 18))
             if refresh:
-                forecast = service.refresh(InfoSet.from_raw(time_at, ()))
-                append_json(run_dir / "forecasts.jsonl", forecast)
-            current = forecast.sliced(time_at)
+                with performance.measure("forecast_refresh"):
+                    forecast = service.refresh(InfoSet.from_raw(time_at, ()))
+                write_log(run_dir / "forecasts.jsonl", forecast)
+                with performance.measure("forecast_evidence_hash"):
+                    forecast_digest = full_snapshot_sha256(forecast)
+            with performance.measure("window_slice"):
+                current = forecast.sliced(time_at)
             stage = "dispatch"
-            plan = (
-                reuse_tail(previous_plan, state, current, ledger)
-                if previous_plan is not None and not refresh
-                else None
-            )
+            plan = None
+            if previous_plan is not None and not refresh:
+                with performance.measure("tail_reuse_validation"):
+                    plan = reuse_tail(
+                        previous_plan, state, current, ledger, diagnostics=performance.counters
+                    )
+            else:
+                performance.counters["tail_reuse_skipped:refresh_or_no_parent"] += 1
             if plan is None:
-                plan = solve_dispatch(state, current, ledger)
+                plan = solve_dispatch(state, current, ledger, performance=performance)
+                performance.counters["fresh_solves"] += 1
                 solve_count += 1
             else:
                 reused_count += 1
+                performance.counters["reused_tails"] += 1
             plan.solver_record.update(
                 {
                     "intent": jsonable(plan.intention()),
-                    "forecast_sha256": hashlib.sha256(
-                        json.dumps(jsonable(current), sort_keys=True).encode()
-                    ).hexdigest(),
+                    "forecast_view": forecast_view(forecast, time_at, forecast_digest),
                 }
             )
             if not plan.solver_record["reused_tail"]:
-                append_json(run_dir / "dispatch_plans.jsonl", plan)
-            append_json(run_dir / "solver_records.jsonl", plan.solver_record)
+                write_log(run_dir / "dispatch_plans.jsonl", plan)
+            write_log(run_dir / "solver_records.jsonl", plan.solver_record)
             stage = "contract_event"
-            version = ledger.submit(time_at, current.slots, tuple(flow[0] for flow in plan.flows))
+            with performance.measure("feedback_and_settlement"):
+                version = ledger.submit(
+                    time_at, current.slots, tuple(flow[0] for flow in plan.flows)
+                )
             if version:
-                append_json(run_dir / "contracts.jsonl", version)
+                write_log(run_dir / "contracts.jsonl", version)
             stage = "execution"
             index = inputs.index(time_at)
-            execution = apply_feedback(
-                plan.intention(),
-                state,
-                ledger.committed(time_at),
-                Measurement(inputs.load_kw[index] / 6, inputs.pv_kw[index] / 6),
-            )
+            with performance.measure("feedback_and_settlement"):
+                execution = apply_feedback(
+                    plan.intention(),
+                    state,
+                    ledger.committed(time_at),
+                    Measurement(inputs.load_kw[index] / 6, inputs.pv_kw[index] / 6),
+                )
             if execution.status != "success":
-                append_json(
+                write_log(
                     run_dir / "execution_feedback.jsonl",
                     {"slot_start": time_at, "execution": execution},
                 )
@@ -340,7 +375,7 @@ def run_q4(context: CaseContext) -> CaseResult:
                 "data/raw/附件2.xlsx",
                 execution.pv_used_kwh,
             )
-            append_json(
+            write_log(
                 run_dir / "execution_feedback.jsonl",
                 {
                     "slot_start": time_at,
@@ -349,13 +384,14 @@ def run_q4(context: CaseContext) -> CaseResult:
                 },
             )
             stage = "settlement"
-            bill = ledger.settle(
-                time_at,
-                available_at=time_at + STEP,
-                actual_price=inputs.prices[index],
-                emergency_kwh=execution.emergency_kwh,
-            )
-            append_json(run_dir / "cost_ledger.jsonl", bill)
+            with performance.measure("feedback_and_settlement"):
+                bill = ledger.settle(
+                    time_at,
+                    available_at=time_at + STEP,
+                    actual_price=inputs.prices[index],
+                    emergency_kwh=execution.emergency_kwh,
+                )
+            write_log(run_dir / "cost_ledger.jsonl", bill)
             intervals.append(interval)
             executions.append(execution)
             state = execution.state_end
@@ -370,39 +406,47 @@ def run_q4(context: CaseContext) -> CaseResult:
                     f"actual E({time_at})={state.energy_kwh} below 6000 kWh",
                 )
             if step_count % 36 == 0 or time_at == end:
-                # Advance the causal history before checkpointing at this boundary.
-                service.ingest(
-                    InfoSet.from_raw(
-                        time_at,
-                        inputs.actual_info(inputs.index(time_at) - 1)
-                        + tuple(official_by_issue.get(time_at, [])),
-                    )
-                    if time_at < YEAR_END
-                    else InfoSet.from_raw(time_at, inputs.actual_info(52559))
-                )
-                log_sizes, log_sha256 = checkpoint_log_hashes(run_dir, log_hash_cache)
-                atomic_json(
-                    run_dir / "checkpoint.json",
-                    {
-                        "schema_version": 2,
-                        "source_hash": code_hash,
-                        "source_hashes": inputs.source_hashes,
-                        "config": config,
-                        "time": time_at,
-                        "energy_kwh": state.energy_kwh,
-                        "ledger": {
-                            "case_id": ledger.case_id,
-                            "versions": ledger.versions,
-                            "bills": ledger.bills,
+                with performance.measure("checkpoint"):
+                    # Advance the causal history before checkpointing at this boundary.
+                    with performance.measure("forecast_ingest"):
+                        service.ingest(
+                            InfoSet.from_raw(
+                                time_at,
+                                inputs.actual_info(inputs.index(time_at) - 1)
+                                + tuple(official_by_issue.get(time_at, [])),
+                            )
+                            if time_at < YEAR_END
+                            else InfoSet.from_raw(time_at, inputs.actual_info(52559))
+                        )
+                    writer.flush()
+                    log_sizes, log_sha256 = checkpoint_log_hashes(run_dir, log_hash_cache)
+                    atomic_json(
+                        run_dir / "checkpoint.json",
+                        {
+                            "schema_version": 2,
+                            "source_hash": code_hash,
+                            "source_hashes": inputs.source_hashes,
+                            "config": config,
+                            "time": time_at,
+                            "energy_kwh": state.energy_kwh,
+                            "ledger": {
+                                "case_id": ledger.case_id,
+                                "versions": ledger.versions,
+                                "bills": ledger.bills,
+                            },
+                            "training_state": service.training_state(),
+                            "forecast": forecast,
+                            "previous_plan": previous_plan,
+                            "counts": [solve_count, reused_count, protection_count],
+                            "log_sizes": log_sizes,
+                            "log_sha256": log_sha256,
                         },
-                        "training_state": service.training_state(),
-                        "forecast": forecast,
-                        "previous_plan": previous_plan,
-                        "counts": [solve_count, reused_count, protection_count],
-                        "log_sizes": log_sizes,
-                        "log_sha256": log_sha256,
-                    },
-                    indent=None,
+                        indent=None,
+                    )
+                performance.counters["checkpoint_writes"] += 1
+                performance.counters["checkpoint_max_size_bytes"] = max(
+                    performance.counters["checkpoint_max_size_bytes"],
+                    (run_dir / "checkpoint.json").stat().st_size,
                 )
                 # The next loop must not ingest this boundary a second time.
                 resume = True
@@ -412,15 +456,18 @@ def run_q4(context: CaseContext) -> CaseResult:
                     f"{context.case_id}/{method}: {time_at.date()} steps={step_count} solves={solve_count} reused={reused_count} E={state.energy_kwh:.6f}",
                     flush=True,
                 )
+        writer.close()
+        performance.switch_phase("validation")
         stage = "independent_validation"
-        validation = validate_q4_run(
-            tuple(intervals),
-            tuple(executions),
-            ledger,
-            end_time=end,
-            actual_inputs=inputs,
-            reserve_start=RESERVE_START,
-        )
+        with performance.measure("physical_validation"):
+            validation = validate_q4_run(
+                tuple(intervals),
+                tuple(executions),
+                ledger,
+                end_time=end,
+                actual_inputs=inputs,
+                reserve_start=RESERVE_START,
+            )
         if not context.is_synthetic and any(
             sha256_file(context.repo_root / path) != digest
             for path, digest in inputs.source_hashes.items()
@@ -438,12 +485,15 @@ def run_q4(context: CaseContext) -> CaseResult:
         result = CaseResult(
             context.case_id, run_id, status, context.is_synthetic, intervals=tuple(intervals)
         )
+        performance.switch_phase("report")
+        report_started = time.perf_counter()
         save_case_result(run_dir / "domain_result.json", result, overwrite=True)
         daily = []
         for offset in range(0, len(intervals), 144):
             rows = intervals[offset : offset + 144]
             day = rows[0].day
-            bills = [bill for slot, bill in ledger.bills.items() if slot.date() == day]
+            day_start = dt.datetime.combine(day, dt.time())
+            bills = [ledger.bills[day_start + k * STEP] for k in range(len(rows))]
             record = {
                 "day": str(day),
                 "planned_kwh": sum(r.planned_purchase_kwh for r in rows),
@@ -464,9 +514,9 @@ def run_q4(context: CaseContext) -> CaseResult:
             )
             daily.append(record)
         with (run_dir / "daily_summary.csv").open("w", encoding="utf-8", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(daily[0]))
-            writer.writeheader()
-            writer.writerows(daily)
+            csv_writer = csv.DictWriter(stream, fieldnames=list(daily[0]))
+            csv_writer.writeheader()
+            csv_writer.writerows(daily)
         summary = {
             "schema_version": 1,
             "case_id": context.case_id,
@@ -494,6 +544,7 @@ def run_q4(context: CaseContext) -> CaseResult:
             "solve_count": solve_count,
             "reused_tail_count": reused_count,
             "elapsed_seconds": time.perf_counter() - started,
+            "elapsed_seconds_scope": "legacy: before prediction metrics and controller audit; use performance_summary.json for full run timing",
             "prediction_metrics": _metrics(run_dir, inputs, end),
             "prediction_sampling": "one error per issue/target; 24h windows overlap, clipped to realized diagnostic/annual end",
             "source_hashes": inputs.source_hashes,
@@ -511,10 +562,13 @@ def run_q4(context: CaseContext) -> CaseResult:
             }
         )
         write_manifest(run_dir, manifest, overwrite=True)
+        performance.record("metrics_and_report", time.perf_counter() - report_started)
+        performance.switch_phase("validation")
         stage = "controller_evidence_validation"
-        controller_audit = audit_controller_chain(
-            run_dir, inputs, plans_path=run_dir / "dispatch_plans.jsonl"
-        )
+        with performance.measure("controller_chain_audit"):
+            controller_audit = audit_controller_chain(
+                run_dir, inputs, plans_path=run_dir / "dispatch_plans.jsonl"
+            )
         if source_tree_hash(context.repo_root) != code_hash:
             raise Q4Error("source_changed", "Q4 source/config changed during replay or validation")
         inventory = write_inventory(
@@ -526,10 +580,34 @@ def run_q4(context: CaseContext) -> CaseResult:
         manifest["model_version"] = MODEL_VERSION
         manifest["evidence_manifest_sha256"] = sha256_file(inventory)
         write_manifest(run_dir, manifest, overwrite=True)
+        timing = performance.summary()
+        timing.update(
+            {
+                "case_id": context.case_id,
+                "run_id": run_id,
+                "status": status,
+                "resumed_attempt": initial_resume,
+                "completed_steps": step_count,
+                "initial_completed_steps": prior_step_count,
+                "source_hash": code_hash,
+            }
+        )
+        timing["log_sizes_bytes"] = {
+            name: (run_dir / f"{name}.jsonl").stat().st_size for name in LOG_NAMES
+        }
+        timing["checkpoint_size_bytes"] = (run_dir / "checkpoint.json").stat().st_size
+        timing["export_included"] = False
+        atomic_json(run_dir / "performance_summary.json", timing)
         return result
     except Exception as exc:
         if getattr(exc, "solver_record", None):
-            append_json(run_dir / "solver_records.jsonl", exc.solver_record)
+            write_log(run_dir / "solver_records.jsonl", exc.solver_record)
+        if writer is not None:
+            try:
+                writer.close()
+            except OSError as persistence_error:
+                exc = persistence_error
+                stage = "log_persistence"
         status = exc.status if isinstance(exc, Q4Error) else "failed"
         atomic_json(
             run_dir / "failure.json",
@@ -539,6 +617,7 @@ def run_q4(context: CaseContext) -> CaseResult:
                 "stage": stage,
                 "time": time_at,
                 "completed_steps": step_count,
+                "initial_completed_steps": prior_step_count,
                 "energy_kwh": state.energy_kwh,
                 "exception_type": type(exc).__name__,
                 "message": str(exc),
@@ -546,4 +625,21 @@ def run_q4(context: CaseContext) -> CaseResult:
         )
         manifest.update({"status": status, "validation_ok": False, "completed_steps": step_count})
         write_manifest(run_dir, manifest, overwrite=True)
+        timing = performance.summary()
+        timing.update(
+            {
+                "case_id": context.case_id,
+                "run_id": run_id,
+                "status": status,
+                "resumed_attempt": initial_resume,
+                "completed_steps": step_count,
+                "initial_completed_steps": prior_step_count,
+                "source_hash": code_hash,
+                "export_included": False,
+            }
+        )
+        atomic_json(run_dir / "performance_summary.json", timing)
         raise
+    finally:
+        if writer is not None:
+            writer.close()

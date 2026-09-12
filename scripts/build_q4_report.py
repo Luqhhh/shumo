@@ -8,6 +8,8 @@ import datetime as dt
 import json
 import math
 import re
+import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import matplotlib
@@ -29,6 +31,7 @@ from microgrid.problem.q4_common import (
 )
 from microgrid.problem.q4_export import load_replay_evidence
 from microgrid.problem.q4_inputs import load_q4_inputs
+from microgrid.problem.q4_performance import Performance
 from microgrid.problem.q4_validation import validate_q4_run
 from microgrid.problem.result_io import interval_from_dict, load_case_result
 from microgrid.problem.rolling_engine import _metrics
@@ -46,11 +49,11 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def checked_run(repo, case, method, run_id):
+def checked_run(repo, case, method, run_id, performance=None):
     directory = repo / "outputs" / "runs" / case / run_id
     manifest = read_json(directory / "manifest.json")
     if manifest["status"] not in ("success", "diagnostic_success"):
-        return checked_failure(repo, case, method, run_id)
+        return checked_failure(repo, case, method, run_id, performance)
     summary = read_json(directory / "summary.json")
     config = read_json(directory / "effective_config.json")
     result = load_case_result(directory / "domain_result.json")
@@ -70,15 +73,17 @@ def checked_run(repo, case, method, run_id):
     if source_tree_hash(directory / "source_snapshot") != manifest["source_hash"]:
         raise ValueError(f"source snapshot mismatch: {run_id}")
     ledger, executions = load_replay_evidence(directory, case)
-    inputs = load_q4_inputs(repo, case)
-    validation = validate_q4_run(
-        result.intervals,
-        executions,
-        ledger,
-        end_time=YEAR_END,
-        actual_inputs=inputs,
-        reserve_start=reserve_start_from_config(config),
-    )
+    with performance.measure("input_preflight") if performance else nullcontext():
+        inputs = load_q4_inputs(repo, case)
+    with performance.measure("physical_validation") if performance else nullcontext():
+        validation = validate_q4_run(
+            result.intervals,
+            executions,
+            ledger,
+            end_time=YEAR_END,
+            actual_inputs=inputs,
+            reserve_start=reserve_start_from_config(config),
+        )
     if not validation["ok"] or not validation["full_annual"]:
         raise ValueError(f"independent replay validation failed: {run_id}")
     if summary["source_hashes"] != inputs.source_hashes:
@@ -117,7 +122,7 @@ def checked_run(repo, case, method, run_id):
     )
 
 
-def checked_failure(repo, case, method, run_id):
+def checked_failure(repo, case, method, run_id, performance=None):
     directory = repo / "outputs" / "runs" / case / run_id
     manifest = read_json(directory / "manifest.json")
     failure = read_json(directory / "failure.json")
@@ -136,15 +141,17 @@ def checked_failure(repo, case, method, run_id):
     end = ACTION_START + len(intervals) * STEP
     if str(end) != failure["time"]:
         raise ValueError(f"failed run chronology mismatch: {run_id}")
-    inputs = load_q4_inputs(repo, case)
-    validation = validate_q4_run(
-        intervals,
-        executions,
-        ledger,
-        end_time=YEAR_END,
-        actual_inputs=inputs,
-        reserve_start=reserve_start_from_config(config),
-    )
+    with performance.measure("input_preflight") if performance else nullcontext():
+        inputs = load_q4_inputs(repo, case)
+    with performance.measure("physical_validation") if performance else nullcontext():
+        validation = validate_q4_run(
+            intervals,
+            executions,
+            ledger,
+            end_time=YEAR_END,
+            actual_inputs=inputs,
+            reserve_start=reserve_start_from_config(config),
+        )
     allowed = {
         "interval/execution coverage mismatch",
         "billing coverage mismatch",
@@ -308,16 +315,23 @@ def plot_day(repo, output, case, run_id, day, result, executions, ledger):
     }
 
 
-def build_report(args):
+def build_report(args, performance=None):
+    performance = performance or Performance()
+    performance.switch_phase("report")
     repo = args.repo.resolve()
     require_approved_decisions(repo, ("D_EVAL_Q4",))
     output = repo / "outputs" / "evidence" / "q4_annual"
     output.mkdir(parents=True, exist_ok=True)
     records, replay = {}, {}
     for case, method, field in RUN_SPECS:
-        entry, result, executions, ledger = checked_run(repo, case, method, getattr(args, field))
+        performance.switch_phase("validation")
+        entry, result, executions, ledger = checked_run(
+            repo, case, method, getattr(args, field), performance
+        )
         records[(case, method)] = entry
         replay[(case, method)] = (result, executions, ledger)
+    performance.switch_phase("report")
+    report_started = time.perf_counter()
     has_failed = any(not record["summary"]["full_annual"] for record in records.values())
     comparisons = []
     monthly = []
@@ -648,6 +662,7 @@ def build_report(args):
     table_path = repo / "paper" / "tables" / "q4_results.tex"
     table_path.parent.mkdir(parents=True, exist_ok=True)
     table_path.write_text("\n".join(table) + "\n", encoding="utf-8")
+    performance.record("metrics_and_report", time.perf_counter() - report_started)
     print(output / "comparison.md")
 
 
@@ -656,7 +671,13 @@ def main():
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     for _, _, field in RUN_SPECS:
         parser.add_argument("--" + field, required=True)
-    build_report(parser.parse_args())
+    args = parser.parse_args()
+    performance = Performance()
+    performance.switch_phase("report")
+    build_report(args, performance)
+    atomic_json(
+        args.repo / "outputs/evidence/q4_annual/performance_summary.json", performance.summary()
+    )
 
 
 if __name__ == "__main__":

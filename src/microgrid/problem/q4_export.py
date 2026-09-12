@@ -27,6 +27,7 @@ from .q4_evidence import (
     supplementary_dir,
 )
 from .q4_inputs import load_q4_inputs
+from .q4_performance import Performance
 from .q4_validation import validate_q4_run
 from .result_io import case_result_to_dict
 
@@ -199,7 +200,7 @@ def fill_workbook(wb, result: CaseResult, ledger: PurchaseLedger):
     return mappings, expected
 
 
-def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
+def _export_q4(repo: Path, result: CaseResult, output: Path, performance: Performance) -> Path:
     if result.status != "success" or result.is_synthetic:
         raise InputError("Q4 formal export requires successful nonsynthetic annual main result")
     run_dir = repo / "outputs" / "runs" / result.case_id / result.run_id
@@ -218,7 +219,8 @@ def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
     if evidence_issues:
         raise InputError("Q4 export evidence failed: " + ";".join(evidence_issues[:8]))
     ledger, executions = load_replay_evidence(run_dir, result.case_id)
-    inputs = load_q4_inputs(repo, result.case_id)
+    with performance.measure("input_preflight"):
+        inputs = load_q4_inputs(repo, result.case_id)
     snapshot = json.loads((run_dir / "input_snapshot.json").read_text())
     if inputs.source_hashes != snapshot["source_hashes"]:
         raise InputError("Q4 source hashes differ from run inputs")
@@ -226,64 +228,68 @@ def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
     plans_path = run_dir / "dispatch_plans.jsonl"
     if not plans_path.is_file():
         plans_path = supplementary_dir(repo, result.case_id, result.run_id) / "dispatch_plans.jsonl"
-    audit_controller_chain(run_dir, inputs, plans_path=plans_path)
+    with performance.measure("controller_chain_audit"):
+        audit_controller_chain(run_dir, inputs, plans_path=plans_path)
     reserve_start = reserve_start_from_config(config)
-    validation = validate_q4_run(
-        result.intervals,
-        executions,
-        ledger,
-        end_time=YEAR_END,
-        actual_inputs=inputs,
-        reserve_start=reserve_start,
-    )
+    with performance.measure("physical_validation"):
+        validation = validate_q4_run(
+            result.intervals,
+            executions,
+            ledger,
+            end_time=YEAR_END,
+            actual_inputs=inputs,
+            reserve_start=reserve_start,
+        )
     if not validation["ok"]:
         raise InputError(
             "Q4 export independent validation failed: " + ";".join(validation["violations"][:8])
         )
-    template = (
-        repo
-        / "data"
-        / "templates"
-        / ("result4-2.xlsx" if result.case_id == "q4_2" else "result4-3.xlsx")
-    )
-    try:
-        output.relative_to(run_dir)
-    except ValueError:
-        raise InputError("Q4 formal exported result must belong to its run directory") from None
-    output.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(template, output)
-    wb = load_workbook(output)
-    labels = [
-        (sheet, wb[sheet]["B1"].value, wb[sheet]["EO1"].value)
-        for sheet in ("计划购电量", "调整购电量")
-        if sheet in wb.sheetnames
-    ]
-    try:
-        mappings, expected = fill_workbook(wb, result, ledger)
-        wb.save(output)
-    finally:
-        wb.close()
-    readback = load_workbook(output, data_only=True)
-    try:
-        for sheet, row, col, value, tolerance in expected:
-            actual = readback[sheet].cell(row, col).value
-            mismatch = (
-                actual != value
-                if tolerance is None
-                else actual is None or abs(float(actual) - value) > tolerance
-            )
-            if mismatch:
-                raise InputError(f"Q4 readback mismatch: {sheet}!{get_column_letter(col)}{row}")
-        for sheet, first, last in labels:
-            if readback[sheet]["B1"].value != first or readback[sheet]["EO1"].value != last:
-                raise InputError("Q4 output modified template interval labels")
-        if readback["充放电量"].max_row != 2005:
-            raise InputError("Q4 charge sheet must have 334 six-row blocks")
-        for sheet in ("充放电量", "紧急购电量"):
-            if any("⁝" in str(cell.value) for row in readback[sheet] for cell in row):
-                raise InputError("Q4 output still has ellipsis rows")
-    finally:
-        readback.close()
+    performance.switch_phase("export")
+    with performance.measure("excel_export_and_readback"):
+        template = (
+            repo
+            / "data"
+            / "templates"
+            / ("result4-2.xlsx" if result.case_id == "q4_2" else "result4-3.xlsx")
+        )
+        try:
+            output.relative_to(run_dir)
+        except ValueError:
+            raise InputError("Q4 formal exported result must belong to its run directory") from None
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(template, output)
+        wb = load_workbook(output)
+        labels = [
+            (sheet, wb[sheet]["B1"].value, wb[sheet]["EO1"].value)
+            for sheet in ("计划购电量", "调整购电量")
+            if sheet in wb.sheetnames
+        ]
+        try:
+            mappings, expected = fill_workbook(wb, result, ledger)
+            wb.save(output)
+        finally:
+            wb.close()
+        readback = load_workbook(output, data_only=True)
+        try:
+            for sheet, row, col, value, tolerance in expected:
+                actual = readback[sheet].cell(row, col).value
+                mismatch = (
+                    actual != value
+                    if tolerance is None
+                    else actual is None or abs(float(actual) - value) > tolerance
+                )
+                if mismatch:
+                    raise InputError(f"Q4 readback mismatch: {sheet}!{get_column_letter(col)}{row}")
+            for sheet, first, last in labels:
+                if readback[sheet]["B1"].value != first or readback[sheet]["EO1"].value != last:
+                    raise InputError("Q4 output modified template interval labels")
+            if readback["充放电量"].max_row != 2005:
+                raise InputError("Q4 charge sheet must have 334 six-row blocks")
+            for sheet in ("充放电量", "紧急购电量"):
+                if any("⁝" in str(cell.value) for row in readback[sheet] for cell in row):
+                    raise InputError("Q4 output still has ellipsis rows")
+        finally:
+            readback.close()
     decisions = load_decisions(repo)
     decision = decisions["D-TIME-TEMPLATE-EXPORT-Q4"]
     decision_snapshot = {"D_TIME_TEMPLATE_EXPORT_Q4": decision}
@@ -333,3 +339,33 @@ def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
     manifest["result_sha256"] = {output.name: sha256_file(output)}
     atomic_json(manifest_path, manifest)
     return output
+
+
+def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
+    performance = Performance()
+    performance.switch_phase("validation")
+    exported = _export_q4(repo, result, output, performance)
+    timing = performance.summary()
+    run = repo / "outputs" / "runs" / result.case_id / result.run_id
+    run_timing = run / "performance_summary.json"
+    timing.update(
+        {
+            "case_id": result.case_id,
+            "run_id": result.run_id,
+            "measurement_scope": "export_process_attempt",
+            "export_included": True,
+        }
+    )
+    if run_timing.is_file():
+        previous = json.loads(run_timing.read_text())
+        timing["run_measurement_sha256"] = sha256_file(run_timing)
+        timing["run_measurement"] = previous
+        timing["export_process_seconds"] = timing["end_to_end_seconds"]
+        for name in ("simulation_seconds", "validation_seconds", "report_seconds"):
+            timing[name] += previous[name]
+        timing["end_to_end_seconds"] += previous["end_to_end_seconds"]
+        timing["measurement_scope"] = (
+            "sum_of_active_run_and_export_attempts_excluding_interprocess_wait"
+        )
+    atomic_json(output.with_suffix(".performance_summary.json"), timing)
+    return exported

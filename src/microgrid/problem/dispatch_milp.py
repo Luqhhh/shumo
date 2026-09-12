@@ -203,7 +203,9 @@ def solve_dispatch(
     ledger: PurchaseLedger,
     *,
     reserve_start=RESERVE_START,
+    performance=None,
 ) -> DispatchPlan:
+    matrix_started = time.perf_counter() if performance is not None else None
     n = len(forecast.slots)
     if reserve_start != forecast_reserve_start(forecast):
         raise Q4Error("config_mismatch", "dispatch reserve does not match forecast model version")
@@ -295,6 +297,8 @@ def solve_dispatch(
         lower[-1] = upper[-1] = 6000
     matrix = coo_matrix((coefficients, (row_index, col_index)), shape=(len(rlo), size)).tocsc()
     constraints = LinearConstraint(matrix, np.array(rlo), np.array(rhi))
+    if performance is not None:
+        performance.record("matrix_build", time.perf_counter() - matrix_started)
     attempts = []
     result = None
     for limit in (10.0, 60.0):
@@ -326,6 +330,8 @@ def solve_dispatch(
                 "message": str(result.message),
             }
         )
+        if performance is not None:
+            performance.record("solver", attempts[-1]["elapsed_seconds"])
         if result.status != 1:
             break
     record = {
@@ -368,6 +374,7 @@ def solve_dispatch(
         exc = Q4Error("solver_validation_failed", "successful solve lacks finite objective/bound")
         exc.solver_record = record
         raise exc
+    validation_started = time.perf_counter() if performance is not None else None
     x = np.asarray(result.x)
     residual = max(
         float(np.max(np.maximum(np.array(rlo) - matrix @ x, 0))),
@@ -428,6 +435,8 @@ def solve_dispatch(
         exc = Q4Error("solver_validation_failed", "; ".join(issues[:8]))
         exc.solver_record = record
         raise exc
+    if performance is not None:
+        performance.record("dispatch_validation", time.perf_counter() - validation_started)
     return plan
 
 
@@ -438,20 +447,27 @@ def reuse_tail(
     ledger: PurchaseLedger,
     *,
     reserve_start=RESERVE_START,
+    diagnostics=None,
 ) -> DispatchPlan | None:
     """Only reuse feasible tails with a recomputed absolute-bound certificate."""
-    if reserve_start != forecast_reserve_start(forecast):
+
+    def reject(reason):
+        if diagnostics is not None:
+            diagnostics["tail_reuse_rejected:" + reason] += 1
         return None
+
+    if reserve_start != forecast_reserve_start(forecast):
+        return reject("reserve_version")
     if (
         previous.forecast_id != forecast.snapshot_id
         or len(previous.flows) != len(forecast.slots) + 1
     ):
-        return None
+        return reject("forecast_or_window")
     if previous.energy[1] != state.energy_kwh:
-        return None
+        return reject("actual_soc")
     permissions = ledger.permissions(forecast.slots[0], forecast.slots)
     if any(permission in ("new_day", "adjustable") for permission in permissions):
-        return None
+        return reject("contract_permissions")
     flows = tuple(
         tuple(0.0 if i in (A, B, W) else value for i, value in enumerate(flow))
         for flow in previous.flows[1:]
@@ -462,7 +478,7 @@ def reuse_tail(
     # fixed prefix. Paid contracts and elapsed trade/emergency terms are removed
     # by recomputing this tail objective. Never transplant its relative gap.
     if previous.absolute_gap > 1e-4 * max(abs(value), 1e-10):
-        return None
+        return reject("absolute_gap")
     shift = previous.shift_count + 1
     record = {
         **previous.solver_record,
@@ -486,5 +502,5 @@ def reuse_tail(
         shift_count=shift,
     )
     if validate_dispatch(plan, state, forecast, ledger, reserve_start=reserve_start):
-        return None
+        return reject("constraint_validation")
     return plan

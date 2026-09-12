@@ -31,6 +31,30 @@ def test_checkpoint_resume_is_equivalent_and_rejects_source_change(tmp_path, mon
     continuous = run_q4(context)
     assert continuous.status == "diagnostic_success" and continuous.is_synthetic
     assert (tmp_path / "continuous" / "validation.json").is_file()
+    timing = json.loads((tmp_path / "continuous" / "performance_summary.json").read_text())
+    solver_records = [
+        json.loads(row)
+        for row in (tmp_path / "continuous" / "solver_records.jsonl").read_text().splitlines()
+    ]
+    native_calls = sum(len(row["attempts"]) for row in solver_records if not row["reused_tail"])
+    assert timing["stages"]["solver"]["count"] == native_calls < 144
+    assert timing["stages"]["forecast_evidence_hash"]["count"] == 4
+    assert timing["stages"]["controller_chain_audit"]["count"] == 1
+    assert (
+        abs(
+            sum(
+                timing[name]
+                for name in (
+                    "simulation_seconds",
+                    "validation_seconds",
+                    "report_seconds",
+                    "export_seconds",
+                )
+            )
+            - timing["end_to_end_seconds"]
+        )
+        < 1e-6
+    )
     interrupted = replace(context, output_dir=tmp_path / "interrupted")
     original = module.atomic_json
 
@@ -58,6 +82,10 @@ def test_checkpoint_resume_is_equivalent_and_rejects_source_change(tmp_path, mon
     with pytest.raises(InputError, match="committed log prefix hash mismatch"):
         run_q4(resumed)
     log_path.write_bytes(original_bytes)
+    # These uncommitted tails must be discarded after the committed prefixes validate.
+    for name in module.LOG_NAMES:
+        with (tmp_path / "interrupted" / f"{name}.jsonl").open("ab") as stream:
+            stream.write(b'{"uncommitted": true}\n')
     recovered = run_q4(resumed)
     assert case_result_to_dict(recovered) == case_result_to_dict(continuous)
     validation = json.loads((tmp_path / "interrupted" / "validation.json").read_text())
@@ -70,6 +98,32 @@ def test_checkpoint_resume_is_equivalent_and_rejects_source_change(tmp_path, mon
         ("forecasts", lambda r: r["prices"].__setitem__(0, 99), "causal history replay"),
         ("solver_records", lambda r: r.__setitem__("forecast_id", "wrong"), "identity or status"),
         ("solver_records", lambda r: r["intent"].__setitem__("charge_kwh", 99), "intent binding"),
+        (
+            "forecasts",
+            lambda r: r["traces"].__setitem__("load_unit", "wrong"),
+            "causal history replay",
+        ),
+        (
+            "solver_records",
+            lambda r: r["forecast_view"].__setitem__("slice_start", 1),
+            "slice reference mismatch",
+        ),
+        (
+            "solver_records",
+            lambda r: r["forecast_view"].__setitem__("slice_start", False),
+            "slice reference mismatch",
+        ),
+        (
+            "solver_records",
+            lambda r: r["forecast_view"].__setitem__("full_snapshot_sha256", "wrong"),
+            "slice reference mismatch",
+        ),
+        ("solver_records", lambda r: r.pop("forecast_view"), "slice reference mismatch"),
+        (
+            "dispatch_plans",
+            lambda r: r["solver_record"]["forecast_view"].__setitem__("slice_length", 1),
+            "native plan forecast view mismatch",
+        ),
         (
             "dispatch_plans",
             lambda r: r.__setitem__("absolute_gap", float("nan")),

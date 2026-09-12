@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import os
+from contextlib import ExitStack, nullcontext
 from dataclasses import fields, is_dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -71,6 +73,52 @@ def jsonable(value):
 def append_json(path: Path, value) -> None:
     with path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(jsonable(value), ensure_ascii=False, allow_nan=False) + "\n")
+
+
+class JsonlWriter:
+    """Own log handles; commit their durable prefixes before checkpoint writes."""
+
+    def __init__(self, run_dir: Path, names, *, performance=None):
+        self.performance = performance
+        self.closed = False
+        self.stack = ExitStack()
+        try:
+            self.streams = {
+                name: self.stack.enter_context(
+                    (run_dir / f"{name}.jsonl").open("a", encoding="utf-8")
+                )
+                for name in names
+            }
+        except BaseException:
+            self.stack.close()
+            raise
+
+    def _measure(self):
+        return (
+            self.performance.measure("log_serialization_and_write")
+            if self.performance
+            else nullcontext()
+        )
+
+    def write(self, name, value):
+        with self._measure():
+            self.streams[name].write(
+                json.dumps(jsonable(value), ensure_ascii=False, allow_nan=False) + "\n"
+            )
+
+    def flush(self):
+        with self._measure():
+            for stream in self.streams.values():
+                stream.flush()
+                os.fsync(stream.fileno())
+
+    def close(self):
+        if not self.closed:
+            try:
+                self.flush()
+            finally:
+                self.stack.close()
+                self.closed = True
 
 
 def atomic_json(path: Path, value, *, indent=2) -> None:
