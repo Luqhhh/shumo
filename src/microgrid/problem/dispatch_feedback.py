@@ -50,11 +50,61 @@ class ExecutionRecord:
 
 
 def validate_execution(record: ExecutionRecord) -> tuple[str, ...]:
-    """Independent full flow and SOC checks, including complementarity."""
+    """Independently recompute the approved feedback and all actual flows."""
     r = record
     c, d, u = r.action.charge_kwh, r.action.discharge_kwh, r.emergency_kwh
     issues = []
-    flows = (c, d, u, r.pv_used_kwh, r.grid_used_kwh, r.unused_grid_kwh, r.curtailed_pv_kwh)
+    if r.status != "success":
+        issues.append("execution_status")
+    if not isinstance(r.timely_control, bool):
+        issues.append("invalid_timely_control")
+    if max(r.intent.charge_kwh, r.intent.discharge_kwh) > MAX_BUS_ENERGY_KWH + TOL:
+        issues.append("intention_power_bound")
+    for state in (r.state_start, r.state_end):
+        if not 1200 - TOL <= state.energy_kwh <= 10800 + TOL or (
+            state.capacity_kwh,
+            state.min_energy_kwh,
+            state.max_energy_kwh,
+        ) != (12000.0, 1200.0, 10800.0):
+            issues.append("state_bounds_or_parameters")
+    expected_c, expected_d = r.intent.charge_kwh, r.intent.discharge_kwh
+    if r.timely_control:
+        expected_c = min(expected_c, max(r.grid_kwh + r.pv_kwh - r.load_kwh, 0.0))
+        expected_d = min(expected_d, r.load_kwh)
+    expected_u = max(r.load_kwh + expected_c - r.grid_kwh - r.pv_kwh - expected_d, 0.0)
+    expected_pv = min(r.pv_kwh, r.load_kwh + expected_c - expected_d)
+    expected_grid = r.load_kwh + expected_c - expected_d - expected_u - expected_pv
+    for name, actual, expected_value in (
+        ("feedback_charge", c, expected_c),
+        ("feedback_discharge", d, expected_d),
+        ("charge_reduction", r.charge_reduction_kwh, r.intent.charge_kwh - expected_c),
+        ("discharge_reduction", r.discharge_reduction_kwh, r.intent.discharge_kwh - expected_d),
+        ("feedback_emergency", u, expected_u),
+        ("feedback_pv_used", r.pv_used_kwh, expected_pv),
+        ("feedback_grid_used", r.grid_used_kwh, expected_grid),
+        ("feedback_unused_grid", r.unused_grid_kwh, r.grid_kwh - expected_grid),
+        ("feedback_curtailed_pv", r.curtailed_pv_kwh, r.pv_kwh - expected_pv),
+    ):
+        if not math.isfinite(actual) or abs(actual - expected_value) > TOL:
+            issues.append(name)
+    try:
+        apply_battery_action(r.state_start, r.intent)
+    except ValueError:
+        issues.append("illegal_intention")
+    flows = (
+        c,
+        d,
+        u,
+        r.pv_used_kwh,
+        r.grid_used_kwh,
+        r.unused_grid_kwh,
+        r.curtailed_pv_kwh,
+        r.grid_kwh,
+        r.load_kwh,
+        r.pv_kwh,
+        r.charge_reduction_kwh,
+        r.discharge_reduction_kwh,
+    )
     if not all(math.isfinite(value) for value in flows):
         issues.append("nonfinite_flow")
     if any(value < -TOL for value in flows):
@@ -80,6 +130,16 @@ def validate_execution(record: ExecutionRecord) -> tuple[str, ...]:
         issues.append("soc_bound")
     if c > r.intent.charge_kwh + TOL or d > r.intent.discharge_kwh + TOL:
         issues.append("protection_increased_action")
+    expected_reasons = tuple(
+        reason
+        for amount, reason in (
+            (r.intent.charge_kwh - expected_c, "insufficient_surplus"),
+            (r.intent.discharge_kwh - expected_d, "load_limit"),
+        )
+        if amount > TOL
+    )
+    if r.status == "success" and r.reasons != expected_reasons:
+        issues.append("feedback_reasons")
     return tuple(issues)
 
 

@@ -17,7 +17,14 @@ from .contracts import ENERGY_ABS_TOL_KWH as TOL
 from .contracts import MAX_BUS_ENERGY_KWH as M
 from .contracts import BatteryAction, BatteryState
 from .purchase_ledger import PurchaseLedger
-from .q4_common import STEP, YEAR_END, Q4Error, energy_lower_bound
+from .q4_common import (
+    RESERVE_START,
+    STEP,
+    YEAR_END,
+    Q4Error,
+    energy_lower_bound,
+    reserve_start_from_config,
+)
 from .q4_forecasts import ForecastSnapshot
 
 FIELDS = (
@@ -36,6 +43,20 @@ FIELDS = (
 )
 G, C, D, U, P, S, V, Z, Y, A, B, W = range(len(FIELDS))
 WIDTH = len(FIELDS)
+
+
+def forecast_reserve_start(forecast: ForecastSnapshot):
+    return reserve_start_from_config(
+        {
+            "model_version": forecast.model_version,
+            "terminal_reserve": None
+            if forecast.model_version == "q4-v2"
+            else {
+                "start": str(RESERVE_START),
+                "minimum_energy_kwh": 6000.0,
+            },
+        }
+    )
 
 
 @lru_cache(maxsize=144)
@@ -84,10 +105,20 @@ def objective_value(flows, energy, forecast, permissions):
 
 
 def validate_dispatch(
-    plan: DispatchPlan, state: BatteryState, forecast: ForecastSnapshot, ledger: PurchaseLedger
+    plan: DispatchPlan,
+    state: BatteryState,
+    forecast: ForecastSnapshot,
+    ledger: PurchaseLedger,
+    *,
+    reserve_start=RESERVE_START,
 ) -> tuple[str, ...]:
     """Recompute full equations/bounds without using the solver matrix."""
     issues = []
+    try:
+        if reserve_start != forecast_reserve_start(forecast):
+            issues.append("model_reserve_binding")
+    except Q4Error:
+        issues.append("model_reserve_binding")
     n = len(forecast.slots)
     if (
         len(plan.flows) != n
@@ -97,7 +128,7 @@ def validate_dispatch(
         return ("plan_shape_or_forecast",)
     if abs(plan.energy[0] - state.energy_kwh) > TOL:
         issues.append("initial_state")
-    if plan.energy[0] < energy_lower_bound(forecast.slots[0]) - TOL:
+    if plan.energy[0] < energy_lower_bound(forecast.slots[0], reserve_start) - TOL:
         issues.append("initial_energy_lower_bound")
     permissions = ledger.permissions(forecast.slots[0], forecast.slots)
     for k, (flow, load, pv, permission, slot) in enumerate(
@@ -125,7 +156,7 @@ def validate_dispatch(
             c - M * (1 - y),
             sg - bound * (1 - y),
             sp - pv * (1 - y),
-            energy_lower_bound(slot + STEP) - plan.energy[k + 1],
+            energy_lower_bound(slot + STEP, reserve_start) - plan.energy[k + 1],
             plan.energy[k + 1] - 10800,
         )
         if max(residuals) > TOL:
@@ -167,10 +198,16 @@ def validate_dispatch(
 
 
 def solve_dispatch(
-    state: BatteryState, forecast: ForecastSnapshot, ledger: PurchaseLedger
+    state: BatteryState,
+    forecast: ForecastSnapshot,
+    ledger: PurchaseLedger,
+    *,
+    reserve_start=RESERVE_START,
 ) -> DispatchPlan:
     n = len(forecast.slots)
-    if state.energy_kwh < energy_lower_bound(forecast.slots[0]) - TOL:
+    if reserve_start != forecast_reserve_start(forecast):
+        raise Q4Error("config_mismatch", "dispatch reserve does not match forecast model version")
+    if state.energy_kwh < energy_lower_bound(forecast.slots[0], reserve_start) - TOL:
         raise Q4Error(
             "terminal_reserve_infeasible", "current actual SOC below approved lower bound"
         )
@@ -250,7 +287,9 @@ def solve_dispatch(
         row(((idx(V), 1), (idx(Y), gmax)), hi=gmax)
         row(((idx(S), 1), (idx(Y), pv)), hi=pv)
         remaining = int((YEAR_END - (slot + STEP)) / STEP)
-        lower[ebase + k + 1] = max(energy_lower_bound(slot + STEP), 6000 - remaining * 0.9 * M)
+        lower[ebase + k + 1] = max(
+            energy_lower_bound(slot + STEP, reserve_start), 6000 - remaining * 0.9 * M
+        )
         upper[ebase + k + 1] = min(10800, 6000 + remaining * M / 0.9)
     if forecast.slots[-1] + STEP == YEAR_END:
         lower[-1] = upper[-1] = 6000
@@ -381,7 +420,7 @@ def solve_dispatch(
     ).hexdigest()
     record["solve_id"] = solve_id
     plan = DispatchPlan(solve_id, forecast.snapshot_id, flows, energy, value, gap, record)
-    issues = validate_dispatch(plan, state, forecast, ledger)
+    issues = validate_dispatch(plan, state, forecast, ledger, reserve_start=reserve_start)
     if issues:
         record["validation_issues"] = issues
         record["candidate_flows"] = flows
@@ -393,9 +432,16 @@ def solve_dispatch(
 
 
 def reuse_tail(
-    previous: DispatchPlan, state: BatteryState, forecast: ForecastSnapshot, ledger: PurchaseLedger
+    previous: DispatchPlan,
+    state: BatteryState,
+    forecast: ForecastSnapshot,
+    ledger: PurchaseLedger,
+    *,
+    reserve_start=RESERVE_START,
 ) -> DispatchPlan | None:
     """Only reuse feasible tails with a recomputed absolute-bound certificate."""
+    if reserve_start != forecast_reserve_start(forecast):
+        return None
     if (
         previous.forecast_id != forecast.snapshot_id
         or len(previous.flows) != len(forecast.slots) + 1
@@ -439,6 +485,6 @@ def reuse_tail(
         solver_record=record,
         shift_count=shift,
     )
-    if validate_dispatch(plan, state, forecast, ledger):
+    if validate_dispatch(plan, state, forecast, ledger, reserve_start=reserve_start):
         return None
     return plan

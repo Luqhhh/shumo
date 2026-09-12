@@ -134,6 +134,73 @@ def _make_run(
         "result_files": {filename: f"results/{filename}"},
         "result_sha256": {filename: _sha256_bytes(result_path)} if create_result else {},
     }
+    if case_id in ("q4_2", "q4_3"):
+        from microgrid.approvals import load_decisions, normalize_decision_id
+        from microgrid.cases import required_decisions
+        from microgrid.problem.q4_evidence import ARTIFACT_NAMES, write_inventory
+
+        decisions = load_decisions(repo)
+        runtime = {
+            decision_id: decisions[normalize_decision_id(decision_id)]
+            for decision_id in required_decisions(case_id)
+        }
+        manifest["config_snapshot"] = {"decisions.toml": {"decisions": runtime}}
+        config = {
+            "model_version": "q4-v3-reserve",
+            "terminal_reserve": {"start": "2025-12-31 00:00:00", "minimum_energy_kwh": 6000.0},
+            "case_id": case_id,
+            "is_synthetic": is_synthetic,
+            "timely_control": True,
+            "price_method": "main",
+            "end_time": "2026-01-01 00:00:00",
+            "solver": {
+                "presolve": True,
+                "mip_rel_gap": 1e-4,
+                "time_limits_seconds": [10, 60],
+                "mip_feasibility_tolerance": 1e-9,
+                "primal_feasibility_tolerance": 1e-8,
+            },
+        }
+        (run_dir / "effective_config.json").write_text(json.dumps(config), encoding="utf-8")
+        for name in ARTIFACT_NAMES:
+            if not (run_dir / name).exists():
+                (run_dir / name).write_text(
+                    '{"status":0}\n' if name.endswith(".jsonl") else "", encoding="utf-8"
+                )
+        (run_dir / "validation.json").write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "violations": [],
+                    "checked_intervals": 48096,
+                    "feedback_rule_verified": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        plans_path = run_dir / "dispatch_plans.jsonl"
+        plans_path.write_text("", encoding="utf-8")
+        export_manifest["model_version"] = config["model_version"]
+        export_manifest["decision_snapshot"]["D_TERMINAL_RESERVE_Q4"] = runtime[
+            "D_TERMINAL_RESERVE_Q4"
+        ]
+        (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        inventory_path = run_dir / "evidence_manifest.json"
+        inventory_path.unlink(missing_ok=True)
+        write_inventory(
+            run_dir,
+            inventory_path,
+            {
+                "ok": True,
+                "checked_intervals": 48096,
+                "causal_forecasts_ok": True,
+                "intent_plan_binding_ok": True,
+            },
+            plans_path=plans_path,
+        )
+        manifest["evidence_manifest_sha256"] = _sha256_bytes(inventory_path)
+        export_manifest["evidence_manifest_sha256"] = _sha256_bytes(inventory_path)
+        (run_dir / "export_manifest.json").write_text(json.dumps(export_manifest), encoding="utf-8")
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

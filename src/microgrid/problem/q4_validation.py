@@ -20,6 +20,7 @@ def validate_q4_run(
     end_time: dt.datetime,
     actual_inputs=None,
     reserve_start: dt.datetime | None = None,
+    timely_control: bool = True,
 ):
     issues = []
     days = tuple(
@@ -46,6 +47,8 @@ def validate_q4_run(
                 if boundary >= reserve_start and state.energy_kwh < 6000 - TOL:
                     issues.append(f"{boundary}:terminal_reserve_infeasible")
         issues.extend(f"{slot}:{issue}" for issue in validate_execution(execution))
+        if execution.timely_control is not timely_control:
+            issues.append(f"{slot}:timely_control differs from approved configuration")
         if interval.interval_key != (slot.date(), (slot.hour * 60 + slot.minute) // 10):
             issues.append(f"{slot}:interval key mismatch")
         if abs(interval.planned_purchase_kwh - ledger.committed(slot, initial=True)) > TOL:
@@ -152,8 +155,10 @@ def validate_q4_run(
     if ledger.case_id == "q4_2" and recomputed["adjustment_cost_cny"] != 0:
         issues.append("Q4-2 adjustment cost must be zero")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "ok": not issues,
+        "feedback_rule_verified": True,
+        "timely_control": timely_control,
         "violations": issues,
         "checked_intervals": len(intervals),
         "full_annual": end_time == YEAR_END,

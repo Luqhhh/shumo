@@ -19,8 +19,10 @@ RESERVE_START = YEAR_END - dt.timedelta(days=1)
 MODEL_VERSION = "q4-v3-reserve"
 
 
-def energy_lower_bound(time_at: dt.datetime) -> float:
-    return 6000.0 if time_at >= RESERVE_START else 1200.0
+def energy_lower_bound(
+    time_at: dt.datetime, reserve_start: dt.datetime | None = RESERVE_START
+) -> float:
+    return 6000.0 if reserve_start is not None and time_at >= reserve_start else 1200.0
 
 
 def reserve_start_from_config(config: dict) -> dt.datetime | None:

@@ -182,3 +182,21 @@ def test_reserve_checks_path_even_when_energy_recovers_and_rejects_cached_tail()
     )
     with pytest.raises(Q4Error, match="terminal_reserve_infeasible"):
         solve_dispatch(BatteryState(5999), snapshot, ledger)
+
+
+def test_historical_v2_plan_is_checked_with_its_original_lower_bound():
+    snapshot = replace(forecast(RESERVE_START, count=1, load=0), model_version="q4-v2")
+    state, ledger = BatteryState(2000), PurchaseLedger("q4_2")
+    plan = solve_dispatch(state, snapshot, ledger, reserve_start=None)
+    assert validate_dispatch(plan, state, snapshot, ledger, reserve_start=None) == ()
+    assert "initial_energy_lower_bound" in validate_dispatch(plan, state, snapshot, ledger)
+
+
+def test_v3_dispatch_cannot_disable_its_reserve():
+    with pytest.raises(Q4Error, match="config_mismatch"):
+        solve_dispatch(
+            BatteryState(2000),
+            forecast(RESERVE_START, count=1),
+            PurchaseLedger("q4_2"),
+            reserve_start=None,
+        )

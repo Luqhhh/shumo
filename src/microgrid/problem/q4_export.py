@@ -20,12 +20,21 @@ from .contracts import BatteryAction, BatteryState, CaseResult
 from .dispatch_feedback import ExecutionRecord
 from .purchase_ledger import Bill, ContractVersion, PurchaseLedger
 from .q4_common import ACTION_START, STEP, YEAR_END, atomic_json, reserve_start_from_config
+from .q4_evidence import (
+    audit_controller_chain,
+    check_inventory,
+    check_model_binding,
+    supplementary_dir,
+)
 from .q4_inputs import load_q4_inputs
 from .q4_validation import validate_q4_run
 from .result_io import case_result_to_dict
 
 
 def load_replay_evidence(run_dir: Path, case_id: str):
+    for name in ("forecasts", "solver_records", "contracts", "cost_ledger", "execution_feedback"):
+        if not (run_dir / f"{name}.jsonl").is_file():
+            raise InputError(f"missing Q4 replay evidence: {name}.jsonl")
     ledger = PurchaseLedger(case_id)
     executions = []
     for name in ("contracts", "cost_ledger", "execution_feedback"):
@@ -194,17 +203,30 @@ def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
     if result.status != "success" or result.is_synthetic:
         raise InputError("Q4 formal export requires successful nonsynthetic annual main result")
     run_dir = repo / "outputs" / "runs" / result.case_id / result.run_id
+    if output.exists():
+        raise InputError("Q4 export output already exists")
+    if not (run_dir / "evidence_manifest.json").is_file():
+        raise InputError(
+            "Historical Q4 run: preserve its existing export and verify supplementary evidence; a new export requires runtime plan evidence"
+        )
     domain_path = run_dir / "domain_result.json"
     if not domain_path.is_file() or json.loads(domain_path.read_text()) != case_result_to_dict(
         result
     ):
         raise InputError("Q4 export result differs from saved source")
+    evidence_issues = check_model_binding(repo, run_dir) + check_inventory(repo, run_dir)
+    if evidence_issues:
+        raise InputError("Q4 export evidence failed: " + ";".join(evidence_issues[:8]))
     ledger, executions = load_replay_evidence(run_dir, result.case_id)
     inputs = load_q4_inputs(repo, result.case_id)
     snapshot = json.loads((run_dir / "input_snapshot.json").read_text())
     if inputs.source_hashes != snapshot["source_hashes"]:
         raise InputError("Q4 source hashes differ from run inputs")
     config = json.loads((run_dir / "effective_config.json").read_text())
+    plans_path = run_dir / "dispatch_plans.jsonl"
+    if not plans_path.is_file():
+        plans_path = supplementary_dir(repo, result.case_id, result.run_id) / "dispatch_plans.jsonl"
+    audit_controller_chain(run_dir, inputs, plans_path=plans_path)
     reserve_start = reserve_start_from_config(config)
     validation = validate_q4_run(
         result.intervals,
@@ -224,8 +246,6 @@ def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
         / "templates"
         / ("result4-2.xlsx" if result.case_id == "q4_2" else "result4-3.xlsx")
     )
-    if output.exists():
-        raise InputError("Q4 export output already exists")
     try:
         output.relative_to(run_dir)
     except ValueError:
@@ -281,6 +301,7 @@ def export_q4(repo: Path, result: CaseResult, output: Path) -> Path:
             "template_sha256": sha256_file(template),
             "decision_snapshot": decision_snapshot,
             "model_version": config["model_version"],
+            "evidence_manifest_sha256": sha256_file(run_dir / "evidence_manifest.json"),
             "independent_validation": validation,
             "source_hashes": inputs.source_hashes,
             "readback_ok": True,

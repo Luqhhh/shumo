@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import hashlib
 import json
 import time
 from collections import defaultdict
@@ -37,16 +38,28 @@ from .q4_common import (
     atomic_json,
     jsonable,
 )
+from .q4_evidence import (
+    LOG_NAMES,
+    audit_controller_chain,
+    checkpoint_log_hashes,
+    prefix_sha256,
+    write_inventory,
+)
 from .q4_forecasts import ForecastSnapshot, Q4Forecaster
 from .q4_inputs import Q4Inputs, load_q4_inputs
 from .q4_validation import validate_q4_run
 from .result_io import interval_from_dict, interval_to_dict, save_case_result
 
-LOG_NAMES = ("forecasts", "contracts", "execution_feedback", "cost_ledger", "solver_records")
 
-
-def _initialize_forecaster(inputs: Q4Inputs, case_id: str, price_method: str, time_at: dt.datetime):
-    service = Q4Forecaster(case_id, inputs.source_hashes, price_method)
+def _initialize_forecaster(
+    inputs: Q4Inputs,
+    case_id: str,
+    price_method: str,
+    time_at: dt.datetime,
+    *,
+    model_version: str = MODEL_VERSION,
+):
+    service = Q4Forecaster(case_id, inputs.source_hashes, price_method, model_version=model_version)
     records = (
         [item for index in range(inputs.index(time_at)) for item in inputs.actual_info(index)]
         if time_at < YEAR_END
@@ -185,6 +198,7 @@ def run_q4(context: CaseContext) -> CaseResult:
     forecast = previous_plan = None
     time_at = ACTION_START
     solve_count = reused_count = protection_count = 0
+    log_hash_cache = {}
     manifest = build_manifest(
         context.repo_root,
         run_id=run_id,
@@ -207,16 +221,23 @@ def run_q4(context: CaseContext) -> CaseResult:
         else:
             checkpoint = json.loads((run_dir / "checkpoint.json").read_text())
             if (
-                checkpoint.get("schema_version") != 1
+                checkpoint.get("schema_version") != 2
                 or checkpoint["source_hash"] != code_hash
                 or checkpoint["source_hashes"] != inputs.source_hashes
                 or checkpoint["config"] != config
             ):
                 raise InputError("checkpoint source/config/schema mismatch")
+            if set(checkpoint.get("log_sizes", {})) != set(LOG_NAMES) or set(
+                checkpoint.get("log_sha256", {})
+            ) != set(LOG_NAMES):
+                raise InputError("checkpoint log inventory incomplete")
             for name, size in checkpoint["log_sizes"].items():
                 path = run_dir / f"{name}.jsonl"
-                if path.stat().st_size < size:
-                    raise InputError("checkpoint log shorter than committed prefix")
+                if (
+                    not path.is_file()
+                    or prefix_sha256(path, size) != checkpoint["log_sha256"][name]
+                ):
+                    raise InputError(f"checkpoint committed log prefix hash mismatch: {name}")
             time_at = dt.datetime.fromisoformat(checkpoint["time"])
             service = _initialize_forecaster(inputs, context.case_id, method, time_at)
             if jsonable(service.training_state()) != checkpoint["training_state"]:
@@ -276,6 +297,16 @@ def run_q4(context: CaseContext) -> CaseResult:
                 solve_count += 1
             else:
                 reused_count += 1
+            plan.solver_record.update(
+                {
+                    "intent": jsonable(plan.intention()),
+                    "forecast_sha256": hashlib.sha256(
+                        json.dumps(jsonable(current), sort_keys=True).encode()
+                    ).hexdigest(),
+                }
+            )
+            if not plan.solver_record["reused_tail"]:
+                append_json(run_dir / "dispatch_plans.jsonl", plan)
             append_json(run_dir / "solver_records.jsonl", plan.solver_record)
             stage = "contract_event"
             version = ledger.submit(time_at, current.slots, tuple(flow[0] for flow in plan.flows))
@@ -349,10 +380,11 @@ def run_q4(context: CaseContext) -> CaseResult:
                     if time_at < YEAR_END
                     else InfoSet.from_raw(time_at, inputs.actual_info(52559))
                 )
+                log_sizes, log_sha256 = checkpoint_log_hashes(run_dir, log_hash_cache)
                 atomic_json(
                     run_dir / "checkpoint.json",
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "source_hash": code_hash,
                         "source_hashes": inputs.source_hashes,
                         "config": config,
@@ -367,9 +399,8 @@ def run_q4(context: CaseContext) -> CaseResult:
                         "forecast": forecast,
                         "previous_plan": previous_plan,
                         "counts": [solve_count, reused_count, protection_count],
-                        "log_sizes": {
-                            name: (run_dir / f"{name}.jsonl").stat().st_size for name in LOG_NAMES
-                        },
+                        "log_sizes": log_sizes,
+                        "log_sha256": log_sha256,
                     },
                     indent=None,
                 )
@@ -479,6 +510,21 @@ def run_q4(context: CaseContext) -> CaseResult:
                 "price_method": method,
             }
         )
+        write_manifest(run_dir, manifest, overwrite=True)
+        stage = "controller_evidence_validation"
+        controller_audit = audit_controller_chain(
+            run_dir, inputs, plans_path=run_dir / "dispatch_plans.jsonl"
+        )
+        if source_tree_hash(context.repo_root) != code_hash:
+            raise Q4Error("source_changed", "Q4 source/config changed during replay or validation")
+        inventory = write_inventory(
+            run_dir,
+            run_dir / "evidence_manifest.json",
+            controller_audit,
+            plans_path=run_dir / "dispatch_plans.jsonl",
+        )
+        manifest["model_version"] = MODEL_VERSION
+        manifest["evidence_manifest_sha256"] = sha256_file(inventory)
         write_manifest(run_dir, manifest, overwrite=True)
         return result
     except Exception as exc:

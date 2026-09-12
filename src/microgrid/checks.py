@@ -129,6 +129,10 @@ def _check_run_evidence(
     result_path: Path | None,
 ) -> list[str]:
     blockers: list[str] = []
+    if case_id in ("q4_2", "q4_3"):
+        from .problem.q4_evidence import check_inventory, check_model_binding
+
+        blockers.extend(f"case {case_id}: {issue}" for issue in check_model_binding(repo, run_dir))
 
     validation_path = run_dir / "validation.json"
     if not validation_path.is_file():
@@ -171,6 +175,12 @@ def _check_run_evidence(
         except json.JSONDecodeError as exc:
             blockers.append(f"case {case_id}: export_manifest.json is invalid: {exc}")
         else:
+            if case_id in ("q4_2", "q4_3"):
+                blockers.extend(
+                    f"case {case_id}: {issue}"
+                    for issue in check_model_binding(repo, run_dir, export_manifest)
+                    + check_inventory(repo, run_dir, export=export_manifest)
+                )
             if export_manifest.get("case_id") != case_id or export_manifest.get("run_id") != run_id:
                 blockers.append(f"case {case_id}: export_manifest identity mismatch")
             if domain_path.is_file() and export_manifest.get("source_result_sha256") != _sha256(

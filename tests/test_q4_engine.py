@@ -50,10 +50,51 @@ def test_checkpoint_resume_is_equivalent_and_rejects_source_change(tmp_path, mon
     with pytest.raises(InputError, match="mismatch"):
         run_q4(resumed)
     monkeypatch.setattr(module, "load_q4_inputs", lambda *args: inputs)
+    log_path = tmp_path / "interrupted" / "solver_records.jsonl"
+    original_bytes = log_path.read_bytes()
+    altered = original_bytes.replace(b'"status": 0', b'"status": 9', 1)
+    assert altered != original_bytes and len(altered) == len(original_bytes)
+    log_path.write_bytes(altered)
+    with pytest.raises(InputError, match="committed log prefix hash mismatch"):
+        run_q4(resumed)
+    log_path.write_bytes(original_bytes)
     recovered = run_q4(resumed)
     assert case_result_to_dict(recovered) == case_result_to_dict(continuous)
     validation = json.loads((tmp_path / "interrupted" / "validation.json").read_text())
     assert validation["ok"] and validation["checked_intervals"] == 144
+
+    from microgrid.problem.q4_evidence import audit_controller_chain
+
+    directory = tmp_path / "interrupted"
+    for name, change, expected in (
+        ("forecasts", lambda r: r["prices"].__setitem__(0, 99), "causal history replay"),
+        ("solver_records", lambda r: r.__setitem__("forecast_id", "wrong"), "identity or status"),
+        ("solver_records", lambda r: r["intent"].__setitem__("charge_kwh", 99), "intent binding"),
+        (
+            "dispatch_plans",
+            lambda r: r.__setitem__("absolute_gap", float("nan")),
+            "nonfinite/invalid",
+        ),
+        (
+            "execution_feedback",
+            lambda r: r["interval"].__setitem__("load_kw", 9999),
+            "execution interval differs from domain_result",
+        ),
+    ):
+        path = directory / f"{name}.jsonl"
+        before = path.read_bytes()
+        lines = before.decode().splitlines()
+        data = json.loads(lines[0])
+        change(data)
+        lines[0] = json.dumps(data)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        try:
+            with pytest.raises(InputError, match=expected):
+                audit_controller_chain(
+                    directory, inputs, plans_path=directory / "dispatch_plans.jsonl"
+                )
+        finally:
+            path.write_bytes(before)
 
 
 def test_actual_reserve_failure_retains_executed_interval_and_bill(tmp_path, monkeypatch):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..artifacts import verify_required_inputs
@@ -14,6 +14,10 @@ from .q3_inputs import load_q3_forecast_archive
 from .q4_common import STEP, YEAR_END, YEAR_START, nonnegative
 
 
+def annual_time_keys() -> tuple[dt.datetime, ...]:
+    return tuple(YEAR_START + (i + 1) * STEP for i in range(int((YEAR_END - YEAR_START) / STEP)))
+
+
 @dataclass(frozen=True)
 class Q4Inputs:
     load_kw: tuple[float, ...]
@@ -22,6 +26,13 @@ class Q4Inputs:
     official: tuple[InfoItem, ...]
     source_hashes: dict[str, str]
     snapshot: dict
+    time_keys: tuple[dt.datetime, ...] = field(default_factory=annual_time_keys)
+
+    def __post_init__(self):
+        if self.time_keys != annual_time_keys() or any(
+            len(values) != len(self.time_keys) for values in (self.load_kw, self.pv_kw, self.prices)
+        ):
+            raise InputError("Q4 actual series need a common complete 52560-slot annual grid")
 
     def index(self, time: dt.datetime) -> int:
         seconds = (time - YEAR_START).total_seconds()
@@ -51,7 +62,7 @@ def load_q4_inputs(repo: Path, case_id: str) -> Q4Inputs:
     issues = verify_required_inputs(repo, required)
     if issues:
         raise InputError("; ".join(issues))
-    expected_times = tuple(YEAR_START + (i + 1) * STEP for i in range(52560))
+    expected_times = annual_time_keys()
     specifications = (
         ("data/raw/附件2.xlsx", "小区负载", "load_actual_kw", "kW"),
         ("data/raw/附件2.xlsx", "光伏发电实际功率", "pv_actual_kw", "kW"),
@@ -61,14 +72,23 @@ def load_q4_inputs(repo: Path, case_id: str) -> Q4Inputs:
     tables = []
     for path, sheet, kind, unit in specifications:
         rows = read_wide_attachment(repo / path, sheet_name=sheet, kind=kind, unit=unit)
-        times = tuple(
-            dt.datetime.fromisoformat(row["parsed_timestamp"])
-            for row in rows
-            if row["parsed_timestamp"] is not None
-        )
+        pairs = []
+        for number, row in enumerate(rows, 1):
+            try:
+                timestamp = row.get("parsed_timestamp")
+                if not isinstance(timestamp, str) or not timestamp.strip():
+                    raise ValueError("missing timestamp")
+                pairs.append(
+                    (dt.datetime.fromisoformat(timestamp), nonnegative(kind, row["value"]))
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise InputError(
+                    f"{path}:{sheet}:record {number}:invalid timestamp/value: {exc}"
+                ) from exc
+        times = tuple(time for time, _ in pairs)
         if times != expected_times:
             raise InputError(f"{path}:{sheet} needs unique complete 52560-slot annual grid")
-        values = tuple(nonnegative(kind, row["value"]) for row in rows)
+        values = tuple(value for _, value in pairs)
         arrays.append(values)
         tables.append(
             {
@@ -104,4 +124,4 @@ def load_q4_inputs(repo: Path, case_id: str) -> Q4Inputs:
         "source_hashes": hashes,
         "tables": tables,
     }
-    return Q4Inputs(*arrays, official, hashes, snapshot)
+    return Q4Inputs(*arrays, official, hashes, snapshot, expected_times)

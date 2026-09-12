@@ -103,10 +103,20 @@ class ForecastSnapshot:
 
 
 class Q4Forecaster:
-    def __init__(self, case_id: str, source_hashes: dict[str, str], price_method: str = "main"):
+    def __init__(
+        self,
+        case_id: str,
+        source_hashes: dict[str, str],
+        price_method: str = "main",
+        *,
+        model_version: str = MODEL_VERSION,
+    ):
         if case_id not in ("q4_2", "q4_3") or price_method not in ("main", "lag1"):
             raise ValueError("invalid forecast case or price method")
         self.case_id, self.source_hashes, self.price_method = case_id, source_hashes, price_method
+        if model_version not in ("q4-v2", MODEL_VERSION):
+            raise ValueError("unknown Q4 forecast model version")
+        self.model_version = model_version
         self.load = LagAR((1008, 2016, 3024, 4032), (8 / 15, 4 / 15, 2 / 15, 1 / 15))
         self.price = LagAR((144, 1008, 2016), (0.5, 0.3, 0.2))
         self.pv = LagAR(tuple(144 * i for i in range(1, 8)), (1 / 7,) * 7)
@@ -264,7 +274,7 @@ class Q4Forecaster:
             "pv": pv,
             "price": price,
             "sources": self.source_hashes,
-            "model": MODEL_VERSION,
+            "model": self.model_version,
         }
         snapshot_id = hashlib.sha256(
             json.dumps(jsonable(payload), sort_keys=True).encode()
@@ -284,4 +294,5 @@ class Q4Forecaster:
             self.price_method,
             self.source_hashes,
             traces,
+            model_version=self.model_version,
         )
