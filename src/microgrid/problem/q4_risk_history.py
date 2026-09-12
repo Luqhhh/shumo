@@ -9,18 +9,34 @@ from collections import defaultdict, deque
 
 import numpy as np
 
-from .q4_common import ACTION_START, STEP, Q4Error, nonnegative, safety_procurement_parameters
+from .q4_common import (
+    ACTION_START,
+    STEP,
+    Q4Error,
+    nonnegative,
+    safety_procurement_parameters,
+    scenario_procurement_parameters,
+)
 
 
 class JointRiskHistory:
-    def __init__(self):
+    def __init__(self, method="safety"):
+        if method not in ("safety", "scenario"):
+            raise ValueError("unknown joint-risk mechanism")
+        self.method = method
         self.pending = defaultdict(list)
         self.realized = deque()
         self.pending_count = 0
         self.last_issue = None
         self.last_input = self.last_result = None
         self.issue_count = 0
-        self.chain = hashlib.sha256(b"SAFETY-PROCUREMENT empty at 2025-02-01").digest()
+        self.chain = hashlib.sha256(
+            (
+                "SCENARIO-PROCUREMENT empty at 2025-02-01"
+                if method == "scenario"
+                else "SAFETY-PROCUREMENT empty at 2025-02-01"
+            ).encode()
+        ).digest()
 
     def _bind(self, event):
         self.chain = hashlib.sha256(
@@ -90,6 +106,27 @@ class JointRiskHistory:
             for bucket, values in samples.items()
         }
         cold = issue < ACTION_START + dt.timedelta(days=7)
+        representatives = {}
+        if self.method == "scenario" and not cold:
+            for bucket, values in samples.items():
+                representatives[bucket] = []
+                net_errors = [(x[2] - x[3]) / 6 for x in values]
+                for quantile in (0.2, 0.8):
+                    threshold = float(np.quantile(net_errors, quantile, method="linear"))
+                    row = min(
+                        values, key=lambda x: (abs((x[2] - x[3]) / 6 - threshold), x[0], x[1])
+                    )
+                    representatives[bucket].append(
+                        {
+                            "load_error_kw": row[2],
+                            "pv_error_kw": row[3],
+                            "price_error": row[4],
+                            "source_target": str(row[0]),
+                            "source_issue": str(row[1]),
+                            "net_error_quantile_kwh": threshold,
+                            "quantile": quantile,
+                        }
+                    )
         before = self.witness()
         points = []
         pairs = []
@@ -112,6 +149,25 @@ class JointRiskHistory:
                     "margin_kwh": margin,
                 }
             )
+            if self.method == "scenario":
+                point = points[-1]
+                point.pop("margin_kwh")
+                point.pop("q80_net_error_kwh")
+                zero = {
+                    "load_error_kw": 0.0,
+                    "pv_error_kw": 0.0,
+                    "price_error": 0.0,
+                    "source_target": None,
+                    "source_issue": None,
+                    "net_error_quantile_kwh": None,
+                    "quantile": None,
+                }
+                rows = representatives.get(bucket)
+                point["joint_error_scenarios"] = [
+                    rows[0] if rows else dict(zero),
+                    dict(zero),
+                    rows[1] if rows else dict(zero),
+                ]
             self.pending[target].append((issue, bucket, load, pv, p))
             self.pending_count += 1
             pairs.append([str(target), bucket, load, pv, p])
@@ -121,7 +177,9 @@ class JointRiskHistory:
         self.last_input = inputs
         self.last_result = {
             "schema_version": 1,
-            "parameters": safety_procurement_parameters(),
+            "parameters": scenario_procurement_parameters()
+            if self.method == "scenario"
+            else safety_procurement_parameters(),
             "original_issue_time": str(issue),
             "training_cutoff": str(issue),
             "target_lower_exclusive": str(lower),
@@ -129,6 +187,8 @@ class JointRiskHistory:
             "history_before_issue": before,
             "points": points,
         }
+        if self.method == "scenario":
+            self.last_result["active"] = bool(representatives)
         return self.last_result
 
 

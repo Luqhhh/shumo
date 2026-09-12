@@ -56,7 +56,10 @@ def forecast_reserve_start(forecast: ForecastSnapshot):
             "optimization": forecast.traces.get(
                 "pv_bias",
                 forecast.traces.get(
-                    "terminal_value_rule", forecast.traces.get("safety_procurement", {})
+                    "terminal_value_rule",
+                    forecast.traces.get(
+                        "safety_procurement", forecast.traces.get("scenario_procurement", {})
+                    ),
                 ),
             ).get("parameters"),
             "terminal_reserve": None
@@ -123,6 +126,10 @@ def validate_dispatch(
     reserve_start=RESERVE_START,
 ) -> tuple[str, ...]:
     """Recompute full equations/bounds without using the solver matrix."""
+    from .q4_scenarios import is_active, validate_scenarios
+
+    if is_active(forecast):
+        return validate_scenarios(plan, state, forecast, ledger, reserve_start=reserve_start)
     issues = []
     try:
         if reserve_start != forecast_reserve_start(forecast):
@@ -309,6 +316,10 @@ def build_dispatch_problem(
     *,
     reserve_start=RESERVE_START,
 ) -> DispatchProblem:
+    from .q4_scenarios import build_scenario_problem, is_active
+
+    if is_active(forecast):
+        return build_scenario_problem(state, forecast, ledger, reserve_start=reserve_start)
     n = len(forecast.slots)
     if reserve_start != forecast_reserve_start(forecast):
         raise Q4Error("config_mismatch", "dispatch reserve does not match forecast model version")
@@ -535,6 +546,13 @@ def solve_dispatch(
         exc = Q4Error("solver_validation_failed", f"matrix residual {residual}")
         exc.solver_record = record
         raise exc
+    from .q4_scenarios import is_active, scenario_value, solution_certificate
+
+    scenario_certificate = None
+    if is_active(forecast):
+        scenario_certificate = solution_certificate(x, state, forecast, ledger)
+        size = WIDTH * n + n + 1
+        x = x[size : 2 * size]
     flows = tuple(tuple(float(v) for v in x[k * WIDTH : (k + 1) * WIDTH]) for k in range(n))
     corrections = []
     clean_flows = []
@@ -556,12 +574,16 @@ def solve_dispatch(
         energy_values.append(energy_values[-1] + 0.9 * flow[C] - flow[D] / 0.9)
     energy = tuple(energy_values)
     value = objective_value(flows, energy, forecast, permissions)
+    if scenario_certificate is not None:
+        value = scenario_value(scenario_certificate, forecast, ledger)
     numeric_cost_error = abs(value - float(result.fun))
     if numeric_cost_error > 0.00001:
         raise Q4Error(
             "solver_validation_failed", "roundoff objective change exceeds numerical tolerance"
         )
     gap = max(0.0, float(result.fun) - float(result.mip_dual_bound)) + numeric_cost_error
+    if scenario_certificate is not None:
+        record["scenario_certificate"] = scenario_certificate
     if "safety_procurement" in forecast.traces:
         record["procurement_floor_active"] = list(
             procurement_floor_activation(forecast, permissions)
@@ -602,6 +624,13 @@ def reuse_tail(
     diagnostics=None,
 ) -> DispatchPlan | None:
     """Only reuse feasible tails with a recomputed absolute-bound certificate."""
+
+    from .q4_scenarios import is_active, reuse_scenario_tail
+
+    if is_active(forecast):
+        return reuse_scenario_tail(
+            previous, state, forecast, ledger, reserve_start=reserve_start, diagnostics=diagnostics
+        )
 
     def reject(reason):
         if diagnostics is not None:

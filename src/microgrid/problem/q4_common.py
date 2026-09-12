@@ -23,6 +23,7 @@ BLEND_MODEL_VERSION = "q4-v4-pv-blend-long"
 BIAS_MODEL_VERSION = "q4-v4-pv-bias-long"
 TERMINAL_MODEL_VERSION = "q4-v4-terminal-upper-quartile"
 SAFETY_MODEL_VERSION = "q4-v4-safety-procurement"
+SCENARIO_MODEL_VERSION = "q4-v4-scenario-procurement"
 BLEND_DECISIONS = ("D_PV_BLEND_LONG_Q4", "D_EVAL_PV_BLEND_LONG_Q4")
 
 
@@ -88,6 +89,29 @@ def safety_procurement_parameters() -> dict:
     }
 
 
+def scenario_procurement_parameters() -> dict:
+    return {
+        "schema_version": 1,
+        "mechanism": "SCENARIO-PROCUREMENT",
+        "error_window_days": 28,
+        "cold_start_days": 7,
+        "start": str(ACTION_START),
+        "activation": str(ACTION_START + dt.timedelta(days=7)),
+        "lead_buckets_hours": [[0, 6], [6, 12], [12, 18], [18, 24]],
+        "quantiles": [0.2, 0.8],
+        "quantile_method": "linear",
+        "sample_weighting": "equal_original_issue_target_pairs",
+        "sample_selection": "nearest original net-error quantile; tie by target then issue",
+        "probabilities": [0.25, 0.5, 0.25],
+        "nominal_index": 1,
+        "shared_decisions": "all grid, battery charge/discharge and contract adjustment actions across all scenarios",
+        "recourse": "scenario bus PV use/spill, grid spill and emergency only",
+        "objective": "expected original Q4 planning costs minus unchanged nominal terminal value",
+        "point_forecasts": "unchanged; scenario load/PV/price clipped at zero",
+        "annual_reserve": "unchanged in every scenario",
+    }
+
+
 def energy_lower_bound(
     time_at: dt.datetime, reserve_start: dt.datetime | None = RESERVE_START
 ) -> float:
@@ -107,6 +131,7 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
             BIAS_MODEL_VERSION,
             TERMINAL_MODEL_VERSION,
             SAFETY_MODEL_VERSION,
+            SCENARIO_MODEL_VERSION,
         )
         or config.get("terminal_reserve") != expected
     ):
@@ -124,11 +149,14 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
         BIAS_MODEL_VERSION,
         TERMINAL_MODEL_VERSION,
         SAFETY_MODEL_VERSION,
+        SCENARIO_MODEL_VERSION,
     ):
         if (
             config.get("case_id")
             not in (
-                ("q4_2", "q4_3") if config["model_version"] == SAFETY_MODEL_VERSION else ("q4_3",)
+                ("q4_2", "q4_3")
+                if config["model_version"] in (SAFETY_MODEL_VERSION, SCENARIO_MODEL_VERSION)
+                else ("q4_3",)
             )
             or config.get("price_method") != "main"
             or config.get("pv_blend") is not None
@@ -138,6 +166,8 @@ def reserve_start_from_config(config: dict) -> dt.datetime | None:
                 if config["model_version"] == BIAS_MODEL_VERSION
                 else safety_procurement_parameters()
                 if config["model_version"] == SAFETY_MODEL_VERSION
+                else scenario_procurement_parameters()
+                if config["model_version"] == SCENARIO_MODEL_VERSION
                 else terminal_quartile_parameters(),
                 sort_keys=True,
             )

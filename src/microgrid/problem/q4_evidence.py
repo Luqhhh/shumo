@@ -28,6 +28,7 @@ from .q4_common import (
     BLEND_DECISIONS,
     BLEND_MODEL_VERSION,
     SAFETY_MODEL_VERSION,
+    SCENARIO_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -185,7 +186,12 @@ def check_model_binding(repo: Path, run_dir: Path, export: dict | None = None) -
             issues.append("solver experiment is not unmixed v3/main")
         if (
             config["model_version"]
-            in (BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION, SAFETY_MODEL_VERSION)
+            in (
+                BIAS_MODEL_VERSION,
+                TERMINAL_MODEL_VERSION,
+                SAFETY_MODEL_VERSION,
+                SCENARIO_MODEL_VERSION,
+            )
             or method != "scipy"
         ):
             ids.append("D_OPTIMIZATION_Q4")
@@ -552,6 +558,15 @@ def audit_controller_chain(
             or abs(solver.get("objective", float("inf")) - plan.objective) > 1e-5
         ):
             raise InputError(f"{slot}: dispatch plan/solver mismatch: {problems}")
+        from .q4_scenarios import certificate_digest, is_active
+
+        if is_active(window):
+            if solver.get("scenario_certificate_sha256") != certificate_digest(
+                plan.solver_record.get("scenario_certificate")
+            ):
+                raise InputError(f"{slot}: scenario certificate/log binding mismatch")
+        elif "scenario_certificate_sha256" in solver:
+            raise InputError(f"{slot}: unexpected scenario certificate")
         if solver.get("solver_method", "scipy") != config.get("solver_method", "scipy"):
             raise InputError(f"{slot}: solver method identity mismatch")
         intent = BatteryAction(**execution["execution"]["intent"])

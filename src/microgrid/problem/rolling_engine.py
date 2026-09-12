@@ -37,6 +37,7 @@ from .q4_common import (
     MODEL_VERSION,
     RESERVE_START,
     SAFETY_MODEL_VERSION,
+    SCENARIO_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -48,6 +49,7 @@ from .q4_common import (
     pv_bias_parameters,
     pv_blend_parameters,
     safety_procurement_parameters,
+    scenario_procurement_parameters,
     terminal_quartile_parameters,
 )
 from .q4_evidence import (
@@ -247,12 +249,21 @@ def run_q4(context: CaseContext) -> CaseResult:
         require_approved_decisions(context.repo_root, ("D_OPTIMIZATION_Q4",))
         model_version = BIAS_MODEL_VERSION
     planning_method = context.metadata.get("planning_method", "v3")
-    if planning_method not in ("v3", "terminal-quartile", "safety-procurement"):
+    if planning_method not in (
+        "v3",
+        "terminal-quartile",
+        "safety-procurement",
+        "scenario-procurement",
+    ):
         raise InputError("unknown Q4 planning experiment")
     if planning_method != "v3":
         if (
             context.case_id
-            not in (("q4_2", "q4_3") if planning_method == "safety-procurement" else ("q4_3",))
+            not in (
+                ("q4_2", "q4_3")
+                if planning_method in ("safety-procurement", "scenario-procurement")
+                else ("q4_3",)
+            )
             or method != "main"
             or pv_method != "v3"
             or context.metadata.get("solver_method", "scipy") != "scipy"
@@ -262,6 +273,8 @@ def run_q4(context: CaseContext) -> CaseResult:
         model_version = (
             SAFETY_MODEL_VERSION
             if planning_method == "safety-procurement"
+            else SCENARIO_MODEL_VERSION
+            if planning_method == "scenario-procurement"
             else TERMINAL_MODEL_VERSION
         )
     from .q4_solver_methods import solver_method_parameters
@@ -314,6 +327,8 @@ def run_q4(context: CaseContext) -> CaseResult:
         config["optimization"] = terminal_quartile_parameters()
     if model_version == SAFETY_MODEL_VERSION:
         config["optimization"] = safety_procurement_parameters()
+    if model_version == SCENARIO_MODEL_VERSION:
+        config["optimization"] = scenario_procurement_parameters()
     if solver_method != "scipy":
         config["solver_method"] = solver_method
         config["solver_method_parameters"] = solver_parameters
@@ -350,6 +365,7 @@ def run_q4(context: CaseContext) -> CaseResult:
                     BIAS_MODEL_VERSION,
                     TERMINAL_MODEL_VERSION,
                     SAFETY_MODEL_VERSION,
+                    SCENARIO_MODEL_VERSION,
                 )
                 or solver_method != "scipy"
             ):
@@ -399,6 +415,7 @@ def run_q4(context: CaseContext) -> CaseResult:
                         BIAS_MODEL_VERSION,
                         TERMINAL_MODEL_VERSION,
                         SAFETY_MODEL_VERSION,
+                        SCENARIO_MODEL_VERSION,
                     )
                     else _initialize_forecaster(inputs, context.case_id, method, time_at)
                 )
@@ -496,7 +513,9 @@ def run_q4(context: CaseContext) -> CaseResult:
             )
             if not plan.solver_record["reused_tail"]:
                 write_log(run_dir / "dispatch_plans.jsonl", plan)
-            write_log(run_dir / "solver_records.jsonl", plan.solver_record)
+            from .q4_scenarios import compact_solver_record
+
+            write_log(run_dir / "solver_records.jsonl", compact_solver_record(plan.solver_record))
             stage = "contract_event"
             with performance.measure("feedback_and_settlement"):
                 version = ledger.submit(

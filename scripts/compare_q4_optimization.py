@@ -15,6 +15,7 @@ from microgrid.dataio import sha256_file
 from microgrid.problem.q4_common import (
     ACTION_START,
     SAFETY_MODEL_VERSION,
+    SCENARIO_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -32,10 +33,20 @@ def main():
     parser.add_argument("--end-time", default=str(YEAR_END))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--case", choices=("q4_2", "q4_3"), default="q4_3")
-    parser.add_argument("--mechanism", choices=("terminal", "safety"), default="terminal")
+    parser.add_argument(
+        "--mechanism", choices=("terminal", "safety", "scenario"), default="terminal"
+    )
     args = parser.parse_args()
-    version = SAFETY_MODEL_VERSION if args.mechanism == "safety" else TERMINAL_MODEL_VERSION
-    trace_key = "safety_procurement" if args.mechanism == "safety" else "terminal_value_rule"
+    version = {
+        "safety": SAFETY_MODEL_VERSION,
+        "scenario": SCENARIO_MODEL_VERSION,
+        "terminal": TERMINAL_MODEL_VERSION,
+    }[args.mechanism]
+    trace_key = {
+        "safety": "safety_procurement",
+        "scenario": "scenario_procurement",
+        "terminal": "terminal_value_rule",
+    }[args.mechanism]
     end = dt.datetime.fromisoformat(args.end_time)
     if args.output.exists() or not ACTION_START < end <= YEAR_END or end.time() != dt.time():
         raise InputError("preserve prior evidence; end requires exclusive midnight")
@@ -73,10 +84,14 @@ def main():
                 raise InputError("planning comparison changed a raw forecast")
         if a["traces"] != {k: v for k, v in b["traces"].items() if k != trace_key}:
             raise InputError("planning comparison changed another provenance")
-        if args.mechanism == "safety":
+        if args.mechanism in ("safety", "scenario"):
             if a["terminal_value"] != b["terminal_value"]:
                 raise InputError("safety procurement changed ordinary terminal value")
-            changed += any(point["margin_kwh"] > 0 for point in b["traces"][trace_key]["points"])
+            changed += (
+                b["traces"][trace_key]["active"]
+                if args.mechanism == "scenario"
+                else any(point["margin_kwh"] > 0 for point in b["traces"][trace_key]["points"])
+            )
             forecasts += 1
             continue
         expected = (
@@ -99,9 +114,11 @@ def main():
         args.output,
         {
             "ok": True,
-            "mechanism": "SAFETY-PROCUREMENT"
-            if args.mechanism == "safety"
-            else "TERMINAL-UPPER-QUARTILE",
+            "mechanism": {
+                "safety": "SAFETY-PROCUREMENT",
+                "scenario": "SCENARIO-PROCUREMENT",
+                "terminal": "TERMINAL-UPPER-QUARTILE",
+            }[args.mechanism],
             "case_id": args.case,
             "full_annual": end == YEAR_END,
             "end_time": str(end),

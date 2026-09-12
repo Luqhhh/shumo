@@ -16,6 +16,7 @@ from .q4_common import (
     BLEND_MODEL_VERSION,
     MODEL_VERSION,
     SAFETY_MODEL_VERSION,
+    SCENARIO_MODEL_VERSION,
     STEP,
     TERMINAL_MODEL_VERSION,
     YEAR_END,
@@ -136,6 +137,7 @@ class Q4Forecaster:
             BIAS_MODEL_VERSION,
             TERMINAL_MODEL_VERSION,
             SAFETY_MODEL_VERSION,
+            SCENARIO_MODEL_VERSION,
         ):
             raise ValueError("unknown Q4 forecast model version")
         if model_version in (BLEND_MODEL_VERSION, BIAS_MODEL_VERSION, TERMINAL_MODEL_VERSION) and (
@@ -151,9 +153,23 @@ class Q4Forecaster:
             else None
         )
         self.correction_key = "pv_bias" if model_version == BIAS_MODEL_VERSION else "pv_blend"
-        if model_version == SAFETY_MODEL_VERSION and price_method != "main":
+        if (
+            model_version in (SAFETY_MODEL_VERSION, SCENARIO_MODEL_VERSION)
+            and price_method != "main"
+        ):
             raise ValueError("safety procurement trial is scoped to main")
-        self.risk = JointRiskHistory() if model_version == SAFETY_MODEL_VERSION else None
+        self.risk_key = (
+            "scenario_procurement"
+            if model_version == SCENARIO_MODEL_VERSION
+            else "safety_procurement"
+        )
+        self.risk = (
+            JointRiskHistory("scenario")
+            if model_version == SCENARIO_MODEL_VERSION
+            else JointRiskHistory()
+            if model_version == SAFETY_MODEL_VERSION
+            else None
+        )
         self.load = LagAR((1008, 2016, 3024, 4032), (8 / 15, 4 / 15, 2 / 15, 1 / 15))
         self.price = LagAR((144, 1008, 2016), (0.5, 0.3, 0.2))
         self.pv = LagAR(tuple(144 * i for i in range(1, 8)), (1 / 7,) * 7)
@@ -225,7 +241,7 @@ class Q4Forecaster:
             "lead_errors": dict(self.errors),
         }
         if self.risk is not None:
-            state["safety_procurement"] = self.risk.witness()
+            state[self.risk_key] = self.risk.witness()
         if self.blend is not None:
             state[self.correction_key] = self.blend.witness()
         return state
@@ -330,7 +346,7 @@ class Q4Forecaster:
             historical, _ = self.pv.predict(count, correction=False)
             pv, traces[self.correction_key] = self.blend.apply(time, pv, historical)
         if self.risk is not None:
-            traces["safety_procurement"] = self.risk.apply(time, load, pv, price)
+            traces[self.risk_key] = self.risk.apply(time, load, pv, price)
         payload = {
             "case": self.case_id,
             "issue": str(time),

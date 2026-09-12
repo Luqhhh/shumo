@@ -183,7 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument(
         "--planning-method",
-        choices=("v3", "terminal-quartile", "safety-procurement"),
+        choices=("v3", "terminal-quartile", "safety-procurement", "scenario-procurement"),
         default="v3",
         help="authorized single-factor Q4 planning experiment",
     )
