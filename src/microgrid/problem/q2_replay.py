@@ -24,6 +24,15 @@ class Q2ReplayError(InputError):
     """A committed Q2 action cannot be replayed consistently."""
 
 
+# Frozen attribution rule for the PV audit quantities. Grid purchase and battery
+# discharge are booked to the load first, so `pv_used_kwh` is whatever residual
+# demand is left for PV to cover and `pv_curtail_kwh` is its complement. Both are
+# attribution-rule artifacts, NOT an unconditional "actual PV utilization" or a
+# true curtailment measurement; they must not be used to argue PV performance
+# until the dispatch semantics themselves are revisited.
+PV_ACCOUNTING_POLICY = "grid_and_discharge_first_residual_pv"
+
+
 @dataclass(frozen=True)
 class Q2ReplayRow:
     actual: ActualInterval
@@ -34,6 +43,8 @@ class Q2ReplayRow:
     pv_used_kwh: float
     grid_spill_kwh: float
     pv_curtail_kwh: float
+    pv_partition_residual_kwh: float
+    ledger_residual_kwh: float
     costs: CostBreakdown
 
 
@@ -85,30 +96,42 @@ def replay_q2_actions(
         charge_kwh = _quantity("charge_kwh", raw_plan[1], key=key)
         discharge_kwh = _quantity("discharge_kwh", raw_plan[2], key=key)
         price = _price(prices[key], key=key)
+        load_kwh = actual.load_kwh
+        available_pv_kwh = actual.pv_kwh
+        available_supply_kwh = purchase_kwh + available_pv_kwh + discharge_kwh
+        # D_SETTLE: a committed charge is executed in full. The battery action is
+        # a commitment, not a request, so a supply shortfall must not silently
+        # cancel it -- it becomes emergency purchase below. Curtailing instead
+        # would let the plan the MILP proved feasible diverge from the action
+        # actually settled, and the annual terminal SOC hard constraint (which
+        # the MILP enforces on the *plan*) could then never be met.
         try:
             action = BatteryAction(charge_kwh=charge_kwh, discharge_kwh=discharge_kwh)
             state_end = apply_battery_action(state, action)
         except (ValueError, TypeError) as exc:
             raise Q2ReplayError(f"slot={actual.slot} invalid battery action: {exc}") from exc
 
-        load_kwh = actual.load_kwh
-        available_pv_kwh = actual.pv_kwh
+        # e_realized is the emergency purchase the replay actually had to make
+        # against realised load/PV. It is the only emergency quantity that gets
+        # billed (once, at 5x the interval price) and the only one carried into
+        # IntervalResult.emergency_purchase_kwh. The MILP's planning-side
+        # counterpart is Q2Plan.e_plan_kwh and never reaches settlement.
+        e_realized_kwh = max(load_kwh + charge_kwh - available_supply_kwh, 0.0)
         pv_used_kwh = min(
             available_pv_kwh,
             max(load_kwh + charge_kwh - purchase_kwh - discharge_kwh, 0.0),
         )
-        emergency_kwh = max(
-            load_kwh + charge_kwh - purchase_kwh - pv_used_kwh - discharge_kwh,
-            0.0,
-        )
         grid_spill_kwh = max(
-            purchase_kwh + emergency_kwh + pv_used_kwh + discharge_kwh - load_kwh - charge_kwh,
+            purchase_kwh + e_realized_kwh + pv_used_kwh + discharge_kwh - load_kwh - charge_kwh,
             0.0,
         )
         pv_curtail_kwh = available_pv_kwh - pv_used_kwh
+        # Bus ledger. PV enters through pv_used_kwh only; curtailed PV is not
+        # supply and must never appear on the right-hand side, or PV would be
+        # double-counted and the identity would only hold when nothing is curtailed.
         ledger_residual = (
             purchase_kwh
-            + emergency_kwh
+            + e_realized_kwh
             + pv_used_kwh
             + discharge_kwh
             - load_kwh
@@ -117,6 +140,15 @@ def replay_q2_actions(
         )
         if abs(ledger_residual) > ENERGY_ABS_TOL_KWH:
             raise Q2ReplayError(f"slot={actual.slot} energy ledger residual={ledger_residual}")
+        # Independent PV partition check: available PV splits into used plus
+        # curtailed. Under PV_ACCOUNTING_POLICY the split is definitional, so
+        # this holds by construction; it is a guard that fires if either side is
+        # ever recomputed separately from the other.
+        pv_partition_residual_kwh = available_pv_kwh - pv_used_kwh - pv_curtail_kwh
+        if abs(pv_partition_residual_kwh) > ENERGY_ABS_TOL_KWH:
+            raise Q2ReplayError(
+                f"slot={actual.slot} PV partition residual={pv_partition_residual_kwh}"
+            )
 
         rows.append(
             Q2ReplayRow(
@@ -124,7 +156,7 @@ def replay_q2_actions(
                 purchase_plan=PurchasePlan(
                     planned_kwh=purchase_kwh,
                     adjusted_kwh=purchase_kwh,
-                    emergency_kwh=emergency_kwh,
+                    emergency_kwh=e_realized_kwh,
                 ),
                 action=action,
                 state_start=state,
@@ -132,10 +164,12 @@ def replay_q2_actions(
                 pv_used_kwh=pv_used_kwh,
                 grid_spill_kwh=grid_spill_kwh,
                 pv_curtail_kwh=pv_curtail_kwh,
+                pv_partition_residual_kwh=pv_partition_residual_kwh,
+                ledger_residual_kwh=ledger_residual,
                 costs=CostBreakdown(
                     planned_cost_cny=purchase_kwh * price,
                     adjustment_cost_cny=0.0,
-                    emergency_cost_cny=emergency_kwh * 5.0 * price,
+                    emergency_cost_cny=e_realized_kwh * 5.0 * price,
                 ),
             )
         )
@@ -144,7 +178,13 @@ def replay_q2_actions(
 
 
 def rows_to_interval_results(rows: tuple[Q2ReplayRow, ...]) -> tuple[IntervalResult, ...]:
-    """Map replay rows to the shared interval result contract."""
+    """Map replay rows to the shared interval result contract.
+
+    `emergency_purchase_kwh` on the shared contract carries the REALIZED
+    emergency purchase (``e_realized``), i.e. the replay's committed first
+    action settled against actuals. The MILP's planning-side ``e_plan`` is not
+    a settlement quantity and is deliberately never mapped here.
+    """
 
     return tuple(
         IntervalResult(

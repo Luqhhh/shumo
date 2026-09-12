@@ -8,8 +8,13 @@ note = "正式论文资产必须通过显式 run_id 选择；禁止默认使用 
 # case_id/run_id 匹配、result_files 存在且（若声明）SHA-256 匹配。
 [runs]
 q1 = "q1-a-formal-003"
+# Q2: 严格因果24h滚动MILP，2025-02-01..2025-12-31，48096区间。
+# 配置见 configs/q2_run.toml（新预测 + purchase_margin=0.05），
+# 实际生效值记录在该 run 的 effective_config.json。
+# 结果：计划1350.0万 / 紧急168.6万 / 总计1518.6万，
+# 未同时满足 总计<=1500万 且 紧急<=100万 的目标。
+q2 = "q2-2025-approved-20260913-r11"
 # 其他 case 仍待完成
-# q2 = ""
 # q3 = ""
 # q4_2 = ""
 # q4_3 = ""

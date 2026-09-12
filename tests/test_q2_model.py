@@ -157,6 +157,7 @@ def test_annual_hard_constraint_disables_terminal_salvage_value() -> None:
     )
 
     assert plan.objective_cny == pytest.approx(planned_cost)
+    assert validate_q2_plan(window, plan).ok
 
 
 def test_annual_terminal_step_must_be_inside_window() -> None:
@@ -227,6 +228,49 @@ def _successful_result_with_first_charge(charge_kwh: float, *, initial_soc_kwh: 
         x = values
 
     return SuccessfulResult()
+
+
+def test_solver_output_normalizes_tiny_soc_equality_residual(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    result = _successful_result_with_first_charge(1.0)
+    result.x[0] = 1.0
+    result.x[10] += 1.1e-6
+    monkeypatch.setattr(q2_model, "milp", lambda *args, **kwargs: result)
+    window = _window(load=(0.0, 0.0), pv=(0.0, 0.0), prices=(1.0, 1.0))
+    plan = solve_q2_window(window, _config(2))
+    assert validate_q2_plan(window, plan).ok
+
+
+def test_fixed_contract_shortfall_uses_penalized_emergency_purchase() -> None:
+    window = replace(
+        _window(
+            load=(1000.0, 1000.0),
+            pv=(0.0, 0.0),
+            prices=(1.0, 1.0),
+            initial_soc=1200.0,
+        ),
+        fixed_purchase_kwh=(0.0, 0.0),
+    )
+    plan = solve_q2_window(window, _config(2))
+    assert plan.e_plan_kwh == pytest.approx((1000.0, 1000.0))
+    assert plan.objective_cny == pytest.approx(10_000.0)
+    assert validate_q2_plan(window, plan).ok
+
+
+def test_solver_output_normalizes_tiny_opposing_battery_action(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    result = _successful_result_with_first_charge(1.0)
+    result.x[0] = 1.0
+    result.x[4] = 1.7e-5
+    result.x[9] = 6000.0 + 0.9 - 1.7e-5 / 0.9
+    result.x[10] = result.x[9]
+    monkeypatch.setattr(q2_model, "milp", lambda *args, **kwargs: result)
+    window = _window(load=(0.0, 0.0), pv=(0.0, 0.0), prices=(1.0, 1.0))
+    plan = solve_q2_window(window, _config(2))
+    assert plan.discharge_kwh[0] == 0.0
+    assert validate_q2_plan(window, plan).ok
 
 
 def _successful_result_with_first_purchase(purchase_kwh: float):

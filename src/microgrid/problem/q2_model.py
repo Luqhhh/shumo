@@ -21,6 +21,13 @@ from .contracts import (
 )
 
 COST_ABS_TOL_CNY = 1e-6
+# HiGHS can return a tiny binary-feasibility tail on the charge/discharge
+# exclusivity rows, whose M coefficient is MAX_BUS_ENERGY_KWH. A relative
+# tail of 1e-6 on those rows is worth up to ~8e-4 kWh, so the post-solve
+# normalization threshold is set an order of magnitude above that while
+# staying far below any physically meaningful simultaneous action.
+SOLVER_NUMERIC_TOL_KWH = 1e-2
+SOLVER_ACTION_NORMALIZATION_TOL_KWH = SOLVER_NUMERIC_TOL_KWH
 
 
 def _finite_nonnegative(name: str, values: tuple[float, ...]) -> None:
@@ -40,6 +47,7 @@ class Q2WindowInput:
     initial_soc_kwh: float
     terminal_value_cny_per_kwh: float
     annual_terminal_soc_kwh: float | None = None
+    fixed_purchase_kwh: tuple[float | None, ...] = ()
     annual_terminal_step: int | None = None
     is_annual_endpoint: bool = False
 
@@ -60,6 +68,19 @@ class Q2WindowInput:
             if len(values) != size:
                 raise ValueError(f"{name} length must equal valid_times")
             _finite_nonnegative(name, values)
+        if not self.fixed_purchase_kwh:
+            object.__setattr__(self, "fixed_purchase_kwh", (None,) * size)
+        elif len(self.fixed_purchase_kwh) != size:
+            raise ValueError("fixed_purchase_kwh length must equal valid_times")
+        for value in self.fixed_purchase_kwh:
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError("fixed_purchase_kwh must contain numbers or None")
+            if not math.isfinite(float(value)) or float(value) < 0:
+                raise ValueError(
+                    "fixed_purchase_kwh must contain finite non-negative values or None"
+                )
         for name, value in (
             ("initial_soc_kwh", self.initial_soc_kwh),
             ("terminal_value_cny_per_kwh", self.terminal_value_cny_per_kwh),
@@ -112,6 +133,7 @@ class Q2Plan:
     solver_status: int
     solver_message: str
     solver_metadata: dict[str, Any]
+    e_plan_kwh: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -136,6 +158,7 @@ def _index(horizon_steps: int) -> dict[str, slice]:
         "pv": slice(3 * horizon_steps, 4 * horizon_steps),
         "soc": slice(4 * horizon_steps, 5 * horizon_steps + 1),
         "z": slice(5 * horizon_steps + 1, 6 * horizon_steps + 1),
+        "e_plan": slice(6 * horizon_steps + 1, 7 * horizon_steps + 1),
     }
 
 
@@ -202,6 +225,40 @@ def _normalize_first_action_soc(
     return tuple(charge), tuple(discharge), tuple(adjustments)
 
 
+def _normalize_simultaneous_actions(
+    charge_kwh: tuple[float, ...],
+    discharge_kwh: tuple[float, ...],
+) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
+    charge = list(charge_kwh)
+    discharge = list(discharge_kwh)
+    adjustments: list[float] = []
+    for slot, (charge_value, discharge_value) in enumerate(
+        zip(charge, discharge, strict=True)
+    ):
+        if charge_value <= 0.0 or discharge_value <= 0.0:
+            continue
+        if min(charge_value, discharge_value) > SOLVER_ACTION_NORMALIZATION_TOL_KWH:
+            raise Q2SolveError(
+                f"slot={slot} solver returned simultaneous charge/discharge: "
+                f"charge={charge_value}, discharge={discharge_value}"
+            )
+        internal_delta = (
+            CHARGE_EFFICIENCY * charge_value
+            - discharge_value / DISCHARGE_EFFICIENCY
+        )
+        if internal_delta >= 0.0:
+            corrected_charge = internal_delta / CHARGE_EFFICIENCY
+            adjustments.extend((abs(charge_value - corrected_charge), discharge_value))
+            charge[slot] = corrected_charge
+            discharge[slot] = 0.0
+        else:
+            corrected_discharge = -internal_delta * DISCHARGE_EFFICIENCY
+            adjustments.extend((charge_value, abs(discharge_value - corrected_discharge)))
+            charge[slot] = 0.0
+            discharge[slot] = corrected_discharge
+    return tuple(charge), tuple(discharge), tuple(adjustments)
+
+
 def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
     """Solve one typed Q2 rolling window with SciPy/HiGHS."""
 
@@ -209,7 +266,7 @@ def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
     if config.horizon_steps != horizon:
         raise ValueError("config.horizon_steps must equal the window length")
     index = _index(horizon)
-    variable_count = 6 * horizon + 1
+    variable_count = 7 * horizon + 1
     objective = np.zeros(variable_count, dtype=float)
     lower = np.zeros(variable_count, dtype=float)
     upper = np.full(variable_count, np.inf, dtype=float)
@@ -217,7 +274,12 @@ def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
 
     for step in range(horizon):
         objective[index["q"].start + step] = window.price_cny_per_kwh[step]
+        objective[index["e_plan"].start + step] = 5.0 * window.price_cny_per_kwh[step]
         upper[index["q"].start + step] = window.load_forecast_kwh[step] + MAX_BUS_ENERGY_KWH
+        fixed_purchase = window.fixed_purchase_kwh[step]
+        if fixed_purchase is not None:
+            lower[index["q"].start + step] = float(fixed_purchase)
+            upper[index["q"].start + step] = float(fixed_purchase)
         upper[index["c"].start + step] = MAX_BUS_ENERGY_KWH
         upper[index["d"].start + step] = MAX_BUS_ENERGY_KWH
         upper[index["pv"].start + step] = window.pv_forecast_kwh[step]
@@ -242,6 +304,7 @@ def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
     for step in range(horizon):
         row = step
         matrix[row, index["q"].start + step] = 1.0
+        matrix[row, index["e_plan"].start + step] = 1.0
         matrix[row, index["d"].start + step] = 1.0
         matrix[row, index["pv"].start + step] = 1.0
         matrix[row, index["c"].start + step] = -1.0
@@ -296,22 +359,34 @@ def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
     discharge, discharge_adjustments = _normalize_solver_bounds(
         "discharge_kwh", series("d", horizon), upper_bound=MAX_BUS_ENERGY_KWH
     )
+    charge, discharge, exclusivity_adjustments = _normalize_simultaneous_actions(
+        charge, discharge
+    )
     charge, discharge, soc_action_adjustments = _normalize_first_action_soc(
         window.initial_soc_kwh,
         charge,
         discharge,
     )
     pv_used = series("pv", horizon)
+    e_plan = series("e_plan", horizon) if len(values) >= index["e_plan"].stop else (0.0,) * horizon
     soc = series("soc", horizon + 1)
     objective_cny = sum(
         price * quantity for price, quantity in zip(window.price_cny_per_kwh, planned, strict=True)
+    )
+    objective_cny += sum(
+        5.0 * price * quantity
+        for price, quantity in zip(window.price_cny_per_kwh, e_plan, strict=True)
     )
     if annual_terminal_step is None:
         objective_cny -= (
             window.terminal_value_cny_per_kwh * config.terminal_value_multiplier * soc[-1]
         )
     bound_adjustments = (
-        planned_adjustments + charge_adjustments + discharge_adjustments + soc_action_adjustments
+        planned_adjustments
+        + charge_adjustments
+        + discharge_adjustments
+        + exclusivity_adjustments
+        + soc_action_adjustments
     )
     metadata: dict[str, Any] = {
         "status": int(result.status),
@@ -335,6 +410,7 @@ def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
         solver_status=int(result.status),
         solver_message=str(result.message),
         solver_metadata=metadata,
+        e_plan_kwh=e_plan,
     )
 
 
@@ -344,6 +420,10 @@ def validate_q2_plan(window: Q2WindowInput, plan: Q2Plan) -> Q2ValidationReport:
     issues: list[str] = []
     violations: list[str] = []
     horizon = len(window.valid_times)
+    e_plan = plan.e_plan_kwh or (0.0,) * horizon
+    if len(e_plan) != horizon:
+        issues.append(f"e_plan_kwh length={len(e_plan)} expected={horizon}")
+        violations.append(issues[-1])
     series_fields = (
         ("planned_purchase_kwh", plan.planned_purchase_kwh, horizon),
         ("charge_kwh", plan.charge_kwh, horizon),
@@ -412,9 +492,23 @@ def validate_q2_plan(window: Q2WindowInput, plan: Q2Plan) -> Q2ValidationReport:
         ):
             if all(
                 math.isfinite(float(value))
-                for value in (quantity, charge, discharge, pv_used, load, pv_forecast)
+                for value in (
+                    quantity,
+                    charge,
+                    discharge,
+                    pv_used,
+                    load,
+                    pv_forecast,
+                    e_plan[index],
+                )
             ):
-                balance_deficit = load + charge - quantity - discharge - pv_used
+                fixed_purchase = window.fixed_purchase_kwh[index]
+                if fixed_purchase is not None and abs(quantity - fixed_purchase) > ENERGY_ABS_TOL_KWH:
+                    message = f"slot={index} fixed purchase mismatch"
+                    issues.append(message)
+                    violations.append(message)
+
+                balance_deficit = load + charge - quantity - e_plan[index] - discharge - pv_used
                 max_balance = max(max_balance, max(0.0, balance_deficit))
                 if balance_deficit > ENERGY_ABS_TOL_KWH:
                     message = f"slot={index} supply inequality"
@@ -450,7 +544,10 @@ def validate_q2_plan(window: Q2WindowInput, plan: Q2Plan) -> Q2ValidationReport:
                     previous + CHARGE_EFFICIENCY * charge - discharge / DISCHARGE_EFFICIENCY
                 )
                 max_dynamics = max(max_dynamics, abs(residual))
-                if abs(residual) > ENERGY_ABS_TOL_KWH:
+                # The solver SOC series is compared against the normalized
+                # actions, so the residual is bounded by the same tail used
+                # to normalize those actions.
+                if abs(residual) > SOLVER_NUMERIC_TOL_KWH:
                     message = f"slot={index} SOC dynamics"
                     issues.append(message)
                     violations.append(message)
@@ -463,11 +560,15 @@ def validate_q2_plan(window: Q2WindowInput, plan: Q2Plan) -> Q2ValidationReport:
                 window.price_cny_per_kwh, plan.planned_purchase_kwh, strict=True
             )
         )
-        if window.is_annual_endpoint and window.annual_terminal_soc_kwh is not None:
-            terminal_soc = plan.soc_kwh[-1]
-        else:
-            terminal_soc = plan.soc_kwh[-1]
-        recomputed -= window.terminal_value_cny_per_kwh * terminal_soc
+        recomputed += sum(
+            5.0 * price * quantity
+            for price, quantity in zip(window.price_cny_per_kwh, e_plan, strict=True)
+        )
+        annual_terminal_step = window.annual_terminal_step
+        if annual_terminal_step is None and window.is_annual_endpoint:
+            annual_terminal_step = horizon
+        if annual_terminal_step is None:
+            recomputed -= window.terminal_value_cny_per_kwh * plan.soc_kwh[-1]
         cost_gap = abs(float(plan.objective_cny) - recomputed)
         if cost_gap > COST_ABS_TOL_CNY:
             message = f"objective cost mismatch gap={cost_gap}"

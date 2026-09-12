@@ -78,6 +78,9 @@ variables for each horizon interval `j`:
 - `q_plan[j] >= 0`: normal planned grid purchase in kWh;
 - `c[j] >= 0`, `d[j] >= 0`: bus-side charge and discharge energy in kWh;
 - `pv_used[j] >= 0`: forecast PV consumed at the bus;
+- `e_plan[j] >= 0`: forecast-scenario emergency recourse, penalized at five
+  times the interval price. It is a planning-side feasibility slack against the
+  *forecast* load, not a settlement quantity — see "Emergency recourse" below;
 - `E[j]`: battery-internal SOC at each boundary, including `E[0]` and
   `E[H]`;
 - binary `z[j]`: charge/discharge mutual exclusion.
@@ -85,7 +88,7 @@ variables for each horizon interval `j`:
 For every interval, the optimization uses the inequality
 
 ```text
-q_plan[j] + d[j] + pv_used[j] >= load_forecast[j] + c[j]
+q_plan[j] + e_plan[j] + d[j] + pv_used[j] >= load_forecast[j] + c[j]
 ```
 
 with `0 <= pv_used[j] <= pv_forecast[j]`, `0 <= c[j], d[j] <= 5000/6`,
@@ -113,6 +116,38 @@ q_adjusted[t] = q_plan[t]
 delta_plus[t] = delta_minus[t] = 0
 ```
 
+### Emergency recourse
+
+Two different quantities have historically both been called `e`. They are
+separated throughout the model, the artifacts and the cost fields:
+
+- `e_plan[j]` — the MILP variable above. It is evaluated against the *forecast*
+  load and exists so the horizon stays feasible under forecast error. It is a
+  planning quantity: it is **never billed** and never reaches the shared
+  `IntervalResult` contract. The engine sums `e_plan[0]` over the committed
+  steps and reports it as `accounting.e_plan_kwh`.
+- `e_realized[t]` — computed during replay against *actual* load and PV:
+
+  ```text
+  e_realized[t] = max(
+      load_kwh[t] + charge_kwh[t]
+      - q_adjusted[t] - pv_available_kwh[t] - discharge_kwh[t],
+      0,
+  )
+  ```
+
+  A committed charge is executed in full: `e_realized` covers the load **and**
+  the charge, so a supply shortfall becomes emergency purchase rather than a
+  silent cancellation of the planned battery action. The MILP proves its plan
+  feasible against the *forecast*; if the realised interval comes in short, the
+  plan must still be what was settled, or the annual terminal SOC hard
+  constraint -- which the MILP enforces on the plan -- could never be met.
+
+  Settlement counts `e_realized` **exactly once**, at five times the interval
+  price. It is the only source of `emergency_cost_cny` and of
+  `IntervalResult.emergency_purchase_kwh`, and the engine reports its sum as
+  `accounting.e_realized_kwh`.
+
 ### Actual replay and cost accounting
 
 The replay uses the actual interval load and PV, the committed first action,
@@ -136,14 +171,49 @@ and emergency cost separately in the existing result contracts. The replay
 validator also reports the derived PV-curtailment and grid-spill audit values.
 Planned cost is always
 `sum(q_plan[t] * fixed_price[t])`; it is never recomputed from actual load or
-actual utilization. The physical replay ledger uses non-negative PV curtailment
-and grid spill without double-counting PV:
+actual utilization.
+
+The physical replay ledger is the bus balance. PV enters it through
+`pv_used_kwh` only — curtailed PV is not supply and must never appear on the
+right-hand side, or PV would be double-counted and the identity would hold only
+when nothing is curtailed:
 
 ```text
 q_adjusted[t] + q_emergency[t] + pv_used_kwh[t] + discharge_kwh[t]
-    = load_kwh[t] + charge_kwh[t]
-      + grid_spill_kwh[t] + pv_curtail_kwh[t]
+    = load_kwh[t] + charge_kwh[t] + grid_spill_kwh[t]
 ```
+
+Available PV is partitioned separately, by definition:
+
+```text
+pv_available_kwh[t] = pv_used_kwh[t] + pv_curtail_kwh[t]
+```
+
+Both identities are checked independently at replay time (`ledger_residual`
+and `pv_partition_residual`), and the maximum absolute value of each is
+reported in the run's accounting block. Note that `pv_curtail_kwh` is the
+*complement* of `pv_used_kwh` under the frozen attribution rule below, so the
+partition holds by construction; its check exists to catch a future change that
+starts computing either side separately.
+
+### PV attribution rule
+
+Grid purchase and battery discharge are booked to the load first, so
+`pv_used_kwh` is whatever residual demand is left for PV to cover:
+
+```text
+pv_used_kwh[t] = min(
+    pv_available_kwh[t],
+    max(load_kwh[t] + charge_kwh[t] - q_adjusted[t] - discharge_kwh[t], 0),
+)
+```
+
+This is recorded in the artifacts as
+`pv_accounting_policy = "grid_and_discharge_first_residual_pv"`. Under this
+rule `pv_used_kwh` and `pv_curtail_kwh` are **attribution-rule artifacts**, not
+an unconditional measure of actual PV utilization or of true curtailment, and
+must not be quoted as such until the PV dispatch semantics themselves are
+revisited.
 
 The reduced feasibility check remains `grid + discharge + PV >= load +
 charge`. Violations are errors; the implementation never clips SOC, invents

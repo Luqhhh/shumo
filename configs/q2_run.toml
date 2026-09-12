@@ -1,0 +1,25 @@
+# Q2 formal run settings.
+#
+# These override the calibrated in-code defaults in
+# `src/microgrid/problem/q2.py`; `context.metadata` would override both.  The
+# resolved values are written to `effective_config.json` in the run directory,
+# so a formal run can be reproduced exactly from its own artifact.
+#
+# `purchase_margin` is the uniform uplift applied to the forecast load before
+# the day-ahead contract is sized.  It trades a cheap 1x over-purchase against
+# a 5x emergency purchase: too low and the 5x term dominates, too high and the
+# non-refundable contract (D_SETTLE clause 1) dominates.
+[q2]
+purchase_margin = 0.05
+
+# Load: weekly lags over the same slot, plus a correction from the mean
+# residual of the most recent days.
+forecast_lags = [7, 14, 21, 28]
+forecast_weights = [0.25, 0.25, 0.25, 0.25]
+load_bias_window = 4
+load_bias_scale = 0.8
+
+# PV is weather driven, so short daily lags predict it far better than weekly
+# ones do.
+pv_lags = [1, 2, 3, 4, 5]
+pv_weights = [0.35, 0.25, 0.2, 0.12, 0.08]
