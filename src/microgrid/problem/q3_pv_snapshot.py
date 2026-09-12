@@ -2,8 +2,9 @@
 
 Only 00/06/12/18 publications may build a snapshot.  Intermediate ten-minute
 MPC decisions slice that snapshot and request exactly the uncovered suffix
-from a ``PVTailBaseline``.  No tail algorithm is implemented here while
-``D_PV_TAIL_BASELINE`` remains pending.
+from a ``PVTailBaseline``.  The approved implementation lives in
+``q3_pv_tail`` so this module remains responsible only for snapshot/window
+assembly.
 """
 
 from __future__ import annotations
@@ -184,7 +185,7 @@ class TailForecast:
 
 
 class PVTailBaseline(Protocol):
-    """Algorithm-neutral pending interface; no implementation is selected."""
+    """Algorithm-neutral interface implemented by the approved tail model."""
 
     def predict(
         self,

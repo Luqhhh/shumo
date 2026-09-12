@@ -1,7 +1,8 @@
 # C 线 PV tail baseline 候选证据
 
-状态：`candidate_evidence_only`。本文只为 `D_PV_TAIL_BASELINE` 提供人工表决材料，
-不批准算法，不进入正式 Q3 runner。
+状态：候选回测本身仍为 `candidate_evidence_only`；2026-09-13 队长在审阅后确认
+`TAIL-EXP2`，正式 machine decision 见 `configs/decisions.toml`，可追溯精简记录见
+`records/evidence/q3_pv_tail_baseline_summary.json`。本文中的回测脚本不会自行批准算法。
 
 ## 问题范围
 
@@ -76,15 +77,15 @@ bootstrap，差异95%区间为 `[-40.33, -30.62] kW`。相对更简单的
 12月31日的2,520个计划外目标超出附件2最后时点，脚本显式记为缺失。正式 Q3
 在年度终点进入窗口后本来就会截断窗口，因此这些点不应由 tail baseline 伪造。
 
-## 给团队的建议，不是批准
+## 团队选择及表述边界
 
-当前证据支持把 `TAIL-EXP2` 作为主候选，把无参数、较容易解释的
+队长于2026-09-13确认把 `TAIL-EXP2` 作为主方案，把无参数、较容易解释的
 `TAIL-MEAN7` 留作敏感性；`TAIL-NAIVE1` 作为最低基线。选择 `TAIL-EXP2` 的主要
 代价是“2天半衰期”属于经验参数，论文必须写成 `EMPIRICAL_CHOICE`，不能写成
 题目规定。当前比较使用同一年度数据，9–12月拆分只是稳定性诊断，并不是从未参与
 选择的严格独立测试集，因此不应宣称该参数具有普适最优性。
 
-若团队选择 `TAIL-EXP2`，建议正式 contract 同时冻结：
+正式 contract 同时冻结：
 
 - `training_cutoff = decision_time`；
 - 每个点保留7条实际PV `source_refs`；

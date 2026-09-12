@@ -1,9 +1,9 @@
 # Q3 已冻结接口澄清文本
 
 2026-09-12，队长提出以下接口建议，C 成员明确回复“认可”，队长随后确认四项
-可冻结。本文件记录该人工结论；受 `AGENTS.md` 约束，Agent 不修改既有 approved
-decision，也不代填 `confirmed_by/confirmed_at`。尚未选择的 tail 算法仍由
-`D_PV_TAIL_BASELINE=pending` 阻断。
+可冻结。本文件记录该人工结论。后续 C-6 已于2026-09-13由队长单独确认：
+`D_PV_TAIL_BASELINE` 采用 `TAIL-EXP2`，精确算法和证据以 machine decision 与
+`records/evidence/q3_pv_tail_baseline_summary.json` 为准。
 
 ## 1. 固定 24 h 窗口：HORIZON-B
 
@@ -18,7 +18,7 @@ baseline 补齐最新附件3 snapshot 无法覆盖的窗口尾部：
   `fallback_reason="attachment3_horizon_exhausted"`；
 - 不得把补尾值伪装成附件3发布值；缺少获批 baseline 时显式阻断；
 - baseline 的具体历史算法另立小型 forecast decision，在其 machine 状态批准前
-  不进入正式 Q3 runner。
+  未批准时不进入正式 Q3 runner；该算法现已由 C-6 单独批准。
 
 发布时刻先一次性保存144点不可变 `PVForecastSnapshot`；中间 MPC 只切片，不重新
 调用附件3 combiner/resampler。人工仍需明确 baseline 算法、冷启动、历史缺失和

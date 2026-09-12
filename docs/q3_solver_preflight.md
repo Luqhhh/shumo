@@ -30,7 +30,7 @@
 | Q3-M1 | PV 多版本怎样组合 | 已批准：`VERSION-B + WEIGHT-B + HISTORY-A` |
 | Q3-M2 | 平方倒数权重的 `epsilon_kw` | 已批准：`1 kW`；其他正值只作敏感性 |
 | Q3-M3 | 负载预测与日内更新 | 已批准：`LOAD-A + LF-A` |
-| Q3-M4 | 每十分钟重算时，24 h PV 曲线尾部怎样处理 | 已冻结 `HORIZON-B` 接口；具体 tail baseline 算法仍 pending |
+| Q3-M4 | 每十分钟重算时，24 h PV 曲线尾部怎样处理 | C-6 已批准 `TAIL-EXP2`，`TAIL-MEAN7` 保留敏感性 |
 | Q3-M4b | 每十分钟重算时，24 h 负载曲线尾部怎样处理 | **需澄清**：发布时生成30 h，或每10分钟重新预测24 h |
 | Q3-M5 | 00/06/12/18 能修改哪些未来交付时隙 | 已批准：仅调整当日尚未开始的时隙；跨日只 look-ahead、不提交 |
 | Q3-M6 | 调整费的逐笔账单 | 已批准：`SETTLE-A-v2`，计划费、逐版调整费、紧急费相加 |
@@ -108,8 +108,8 @@ PV 组合还应保存候选 `issue_time`、`lead_hours`、历史 MAE、归一化
 
 例如 11:50 使用06:00 snapshot 时，12:00至次日06:00来自附件3，次日06:10至
 11:50来自 tail baseline。不得在06:10伪造07:10等小时节点，不得重新调用附件3
-combiner/resampler，也不得让 tail 覆盖附件3已有时隙。具体 tail 算法由 pending
-的 `D_PV_TAIL_BASELINE` 单独控制。
+combiner/resampler，也不得让 tail 覆盖附件3已有时隙。具体 tail 算法由已批准
+的 `D_PV_TAIL_BASELINE=TAIL-EXP2` 单独控制。
 
 负载预测存在同样的覆盖长度问题：当前 LOAD-A 在发布时间只生成24小时，到下一
 发布时间前不足以供固定24小时 MPC 切片。因为负载预测没有附件3的官方24小时

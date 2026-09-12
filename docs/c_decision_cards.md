@@ -5,8 +5,8 @@
 Q3 接口断点、模型预审和求解器开工条件已经汇总到
 [`docs/q3_solver_preflight.md`](q3_solver_preflight.md) 与
 [`docs/q3_solver_readiness.md`](q3_solver_readiness.md)。HORIZON-B 接口已经冻结；
-Card C-6 的具体 PV 补尾算法和新发现的 Card C-7 负载覆盖长度需要团队回答，
-不能由实现者自行补齐。
+Card C-6 已于2026-09-13由队长确认并落为 `TAIL-EXP2`；Card C-7 仍按队长要求
+单独处理，不能与 C-6 批量修改。
 
 ## Card C-1：6:00 / 12:00 / 18:00 是否更新负载预测
 
@@ -47,11 +47,15 @@ Card C-6 的具体 PV 补尾算法和新发现的 Card C-7 负载覆盖长度需
 
 ## Card C-6：附件3快照覆盖不到的 PV 尾部怎样预测
 
+- **审批状态**：队长于2026-09-13确认 `TAIL-EXP2`，已更新
+  `D_PV_TAIL_BASELINE=approved`。该项是 `EMPIRICAL_CHOICE`，`TAIL-MEAN7`
+  保留为 sensitivity；精确权重、共同评价区间、mask、样本数和六候选
+  MAE/RMSE 固化在 `records/evidence/q3_pv_tail_baseline_summary.json`。
 - **接口事实**：团队已冻结 HORIZON-B。00/06/12/18 才生成并重采样附件3快照；中间每10分钟 MPC 只切片快照，最多需要补其末端之后5小时50分钟的尾部。补尾目标相对当前决策仍在未来18小时20分钟至24小时，不能用未来 actual 或下一版尚未发布的附件3预测。
 - **数据证据**：在附件2的52,560个连续PV实际点上，按839,160次真实补尾调用回测，`TAIL-EXP2`（前1至7天同一时刻、2天半衰期指数加权）的 MAE/RMSE 为150.02/300.87 kW；`TAIL-MEAN7` 为153.88/304.01 kW；昨日同刻为185.43/372.84 kW。实际PV大于0以及9–12月诊断中，`TAIL-EXP2` 仍保持最低误差。相对 `TAIL-MEAN7` 的配对日块 bootstrap MAE差异95%区间为[-6.25,-1.53] kW。完整口径见 [`docs/c_pv_tail_baseline_evidence.md`](c_pv_tail_baseline_evidence.md)。
-- **推荐候选**：`TAIL-EXP2`。对 `d=1,...,7` 使用 `raw_weight[d]=2^(-(d-1)/2)` 并归一化，预测为 `valid_time-d days` 的七个严格可见实际PV同slot加权和；不加 AR、不做快照端点平移。`TAIL-MEAN7` 作为无参数敏感性，`TAIL-NAIVE1` 作为最低基线。
+- **批准方案**：`TAIL-EXP2`。对 `d=1,...,7` 使用 `raw_weight[d]=2^(-(d-1)/2)` 并归一化，预测为 `valid_time-d days` 的七个严格可见实际PV同slot加权和；不加 AR、不做快照端点平移。`TAIL-MEAN7` 作为无参数敏感性，`TAIL-NAIVE1` 作为最低基线。
 - **需要团队明确接受的代价**：2天半衰期是 `EMPIRICAL_CHOICE`，不是题面事实，也不是独立测试集证明的普适最优参数。若采用，必须保留候选比较并避免“最佳算法”的过度表述。
-- **对代码的影响**：只有团队批准后才能实现 `PVTailBaseline`。正式实现需保存 `training_cutoff=decision_time`、7条实际PV来源、`model_version=TAIL-EXP2/v1` 和固定 fallback reason；缺任一滞后时显式失败，只返回快照未覆盖的目标，不静默改用其他算法。
+- **对代码的影响**：正式 `PVTailBaseline` 保存 `training_cutoff=decision_time`、7条实际PV来源、`model_version=TAIL-EXP2/v1` 和固定 fallback reason；缺任一滞后时显式失败，只返回快照未覆盖的目标，不静默改用其他算法。
 
 ## Card C-7：中间十分钟 MPC 的负载预测尾部怎样覆盖
 

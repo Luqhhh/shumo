@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 import math
 import sys
 from pathlib import Path
@@ -16,6 +17,9 @@ if _SPEC is None or _SPEC.loader is None:  # pragma: no cover - importlib platfo
 _AUDIT = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _AUDIT
 _SPEC.loader.exec_module(_AUDIT)
+_SUMMARY_PATH = (
+    Path(__file__).parents[1] / "records" / "evidence" / "q3_pv_tail_baseline_summary.json"
+)
 
 
 def _synthetic_actual(*, days: int = 45) -> dict[dt.datetime, float]:
@@ -47,6 +51,28 @@ def test_candidate_definitions_are_fixed_and_normalized() -> None:
     assert sum(candidates["exp_half_life_2d"].weights) == pytest.approx(1.0)
     assert candidates["weekly_7_14_21_28d"].weights == pytest.approx(
         (8 / 15, 4 / 15, 2 / 15, 1 / 15)
+    )
+
+
+def test_selected_evidence_artifact_fixes_formula_mask_and_all_six_metrics() -> None:
+    summary = json.loads(_SUMMARY_PATH.read_text(encoding="utf-8"))
+
+    assert summary["decision_id"] == "D_PV_TAIL_BASELINE"
+    assert summary["classification"] == "EMPIRICAL_CHOICE"
+    assert summary["selected_candidate"] == "TAIL-EXP2"
+    assert summary["sensitivity_candidate"] == "TAIL-MEAN7"
+    contract = summary["selected_contract"]
+    assert contract["lag_days"] == list(range(1, 8))
+    assert contract["half_life_days"] == 2.0
+    assert sum(contract["weights"]) == pytest.approx(1.0)
+    evaluation = summary["evaluation"]
+    assert evaluation["start"] == "2025-02-01"
+    assert evaluation["end_exclusive"] == "2026-01-01"
+    assert evaluation["common_sample_count_per_candidate"] == 839_160
+    assert evaluation["actual_positive_sample_count_per_candidate"] == 470_109
+    assert len(summary["common_mask_metrics"]) == 6
+    assert summary["common_mask_metrics"]["TAIL-EXP2"] == pytest.approx(
+        {"mae_kw": 150.01974769659614, "rmse_kw": 300.8666808485416}
     )
 
 

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "decision_id": "D_PV_TAIL_BASELINE",
+  "classification": "EMPIRICAL_CHOICE",
+  "selected_candidate": "TAIL-EXP2",
+  "sensitivity_candidate": "TAIL-MEAN7",
+  "selection_confirmation": {
+    "confirmed_by": "A（队长，经C成员本会话转述）",
+    "confirmed_at": "2026-09-13"
+  },
+  "selected_contract": {
+    "lag_days": [1, 2, 3, 4, 5, 6, 7],
+    "half_life_days": 2.0,
+    "raw_weight_formula": "2^(-(d-1)/2)",
+    "normalization": "weight[d] = raw_weight[d] / sum(raw_weight)",
+    "weights": [
+      0.32129165753627303,
+      0.22718750978256458,
+      0.16064582876813652,
+      0.11359375489128229,
+      0.08032291438406826,
+      0.056796877445641145,
+      0.04016145719203413
+    ],
+    "model_version": "TAIL-EXP2/v1",
+    "fallback_reason": "attachment3_horizon_exhausted"
+  },
+  "source": {
+    "file_name": "附件2.xlsx",
+    "sheet_name": "光伏发电实际功率",
+    "sha256": "2e95fd446bfafa0d8c59577b5c2e2ea8b3f1def20dde54a3062556f4da9b4c72",
+    "record_count": 52560,
+    "unit": "kW"
+  },
+  "reproduction": {
+    "script": "scripts/audit_q3_pv_tail_candidates.py",
+    "script_sha256": "54f45f9986668c2a8f0ae3115297da1a6a6fa41b38959621ac0218dbb0cf5edc",
+    "local_evidence_sha256": "8d6e47a2d5dc7852090b88b7a906b63df0a7045cad1eed358e8ca854c0b89bb2",
+    "deterministic_repeat_sha256": "8d6e47a2d5dc7852090b88b7a906b63df0a7045cad1eed358e8ca854c0b89bb2"
+  },
+  "evaluation": {
+    "start": "2025-02-01",
+    "end_exclusive": "2026-01-01",
+    "grain": "(snapshot_issue_time, decision_time, target_time)",
+    "snapshot_issue_hours": [0, 6, 12, 18],
+    "evaluation_mask": "all six candidates have all required causal lagged actuals and target actual is present",
+    "common_sample_count_per_candidate": 839160,
+    "actual_positive_mask": "evaluation_mask and target_actual_kw > 0",
+    "actual_positive_sample_count_per_candidate": 470109,
+    "scheduled_sample_count": 841680,
+    "missing_beyond_year_end_count": 2520,
+    "unique_snapshot_target_count_per_candidate": 46620,
+    "target_horizon_from_decision": "18h20m through 24h",
+    "maximum_tail_length_minutes": 350
+  },
+  "common_mask_metrics": {
+    "TAIL-EXP2": {"mae_kw": 150.01974769659614, "rmse_kw": 300.8666808485416},
+    "TAIL-MEAN7": {"mae_kw": 153.88003267682646, "rmse_kw": 304.00836145570014},
+    "TAIL-MEAN3": {"mae_kw": 154.9850663667636, "rmse_kw": 312.323619742166},
+    "TAIL-MEDIAN7": {"mae_kw": 158.4555711849945, "rmse_kw": 312.116058602198},
+    "TAIL-NAIVE1": {"mae_kw": 185.43410954561702, "rmse_kw": 372.8392519267298},
+    "TAIL-WEEKLY4": {"mae_kw": 218.7249241632029, "rmse_kw": 405.27343809308053}
+  },
+  "actual_positive_metrics": {
+    "TAIL-EXP2": {"mae_kw": 267.7475208497886, "rmse_kw": 401.9725418084573},
+    "TAIL-MEAN7": {"mae_kw": 274.59848023965867, "rmse_kw": 406.1683672062563},
+    "TAIL-MEAN3": {"mae_kw": 276.635480772757, "rmse_kw": 417.2801271640609},
+    "TAIL-MEDIAN7": {"mae_kw": 282.7831469697453, "rmse_kw": 417.0010210856718},
+    "TAIL-NAIVE1": {"mae_kw": 331.0024827648481, "rmse_kw": 498.13231654717265},
+    "TAIL-WEEKLY4": {"mae_kw": 389.5694060644092, "rmse_kw": 541.3918945026664}
+  }
+}

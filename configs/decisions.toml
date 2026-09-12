@@ -107,12 +107,20 @@ confirmed_at = "2026-09-12"
 source = "2026-09-12本会话用户明确确认；docs/c_load_forecast_evidence.md；C-1/C-5；审阅提交7b90599"
 
 [decisions.D_PV_TAIL_BASELINE]
-status = "pending"
-choice = ""
-rationale = ""
-confirmed_by = ""
-confirmed_at = ""
-source = "HORIZON-B 已由队长与C成员确认；具体严格因果 PV tail baseline 算法待团队确认"
+status = "approved"
+choice = """
+采用TAIL-EXP2作为Q3 HORIZON-B的严格因果PV尾部基线：对每个附件3快照覆盖末端之后、
+且位于decision_time后24小时内的十分钟右端点，读取前1至7天相同slot的实际PV；
+raw_weight[d]=2^(-(d-1)/2)，d=1,...,7，再归一化后加权求和，半衰期固定为2天。
+training_cutoff=decision_time，任一所需滞后缺失时显式失败；不得读取未来actual，
+不得覆盖附件3仍覆盖的slot，不做AR修正或静默切换算法。每点保留7条source_refs、
+model_version=TAIL-EXP2/v1和fallback_reason=attachment3_horizon_exhausted。
+该算法和2天半衰期标记为EMPIRICAL_CHOICE；TAIL-MEAN7保留为sensitivity。
+"""
+rationale = "六个固定候选在2025-02-01至2026-01-01（不含）共同的839160个调用加权样本上比较；TAIL-EXP2的MAE/RMSE为150.0197/300.8667 kW，优于TAIL-MEAN7的153.8800/304.0084 kW；实际PV>0的470109个样本和9–12月诊断中排名一致，但不宣称具有普适最优性。"
+confirmed_by = "A（队长，经C成员本会话转述）"
+confirmed_at = "2026-09-13"
+source = "2026-09-13队长确认（经C成员本会话转述）；docs/c_pv_tail_baseline_evidence.md；records/evidence/q3_pv_tail_baseline_summary.json"
 
 [decisions.D_MODEL_Q1]
 status = "approved"
