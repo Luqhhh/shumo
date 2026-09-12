@@ -46,7 +46,7 @@ source = "团队 pre-division 语义记录；题面 Q1-Q3 信息发布描述；Q
 
 # ===== B 侧滚动优化与价格预测草案：仅供团队讨论 =====
 [decisions.D_MPC]
-status = "proposed"
+status = "approved"
 choice = """
 Q2/Q3/Q4采用连续SOC的24小时滚动模型预测控制，优化每10分钟更新，
 但只执行当前第一个十分钟电池动作。电池内部动作更新频率与Q3合同购电
@@ -55,12 +55,12 @@ Q2/Q3/Q4采用连续SOC的24小时滚动模型预测控制，优化每10分钟�
 静默改写；只有规则允许的未冻结时隙可以重算。48小时窗口仅作敏感性实验。
 """
 rationale = "将储能物理控制频率与市场合同调整时刻分离，避免滚动优化误改已提交承诺。"
-confirmed_by = ""
-confirmed_at = ""
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
 source = "团队讨论；C题合同调整时刻；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_TERMINAL]
-status = "proposed"
+status = "approved"
 choice = """
 除年度最终阶段外，24小时滚动窗口采用线性储能经济价值终端项：
 -v_t * E_(t+H)，不采用每日末SOC回到6000 kWh的二次惩罚。
@@ -74,12 +74,12 @@ Q2/Q3使用已知固定电价计算；Q4使用严格因果的未来波动电价�
 改用年度最终SOC硬约束；不得同时使用年度末硬约束和年度末残值。
 """
 rationale = "缓解有限滚动窗口的短视放电，同时避免与年度末SOC硬约束重复计价。"
-confirmed_by = ""
-confirmed_at = ""
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
 source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_YEAR_BOUNDARY]
-status = "proposed"
+status = "approved"
 choice = """
 本项补充既有 D_STATE：Q2/Q3/Q4 在正式运行期内SOC连续传递，
 不按日重置；年度最终时点施加 E_2025_end = 6000 kWh 硬约束，
@@ -90,8 +90,8 @@ Q1继续单独采用 E_24 = E_0。年度终点尚未进入当前MPC窗口时，
 外购电规则为依据另行明确。
 """
 rationale = "保证跨日储能物理连续性，并使不同模型的年度比较具备相同终端状态。"
-confirmed_by = ""
-confirmed_at = ""
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
 source = "团队讨论；D_STATE 已批准口径；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_PRICE_FORECAST]
@@ -139,7 +139,7 @@ confirmed_at = "2026-09-11T19:27:00+08:00"
 source = "C-4 decision card；提交 0b06e37；三位队员于 2026-09-11 19:27（北京时间）确认"
 
 [decisions.D_SETTLE]
-status = "proposed"
+status = "approved"
 choice = """
 采用 SETTLE-A-v2 作为待队伍确认的逐版结算口径；本区块仍为 proposed，
 不表示题面已经明确给出以下全部公式。00:00 计划为版本 0；每个后续发布
@@ -200,8 +200,8 @@ grid_supplied_kwh + discharge_kwh + pv_kwh >= load_kwh + charge_kwh。
 回放负荷/PV；D_SETTLE 未人工批准前不得生成正式数值或正式提交文件。
 """
 rationale = "在 C-3 SETTLE-A 推荐的基础上锁定逐版 delta、冻结和账本字段；正常计划量全额计费、Q4 使用实际价格、未利用电退款和等式账本均是待队伍确认的 proposed 解释，不把题面未明示内容伪装成事实。"
-confirmed_by = ""
-confirmed_at = ""
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
 source = "C线 C-3 decision card；C题 PDF 第1-3页及附录1-5；configs/constants.toml；docs/shared_api.md；团队讨论"
 
 [decisions.D_MODEL_Q1]
@@ -213,7 +213,7 @@ confirmed_at = "2026-09-10"
 source = "docs/q1_model.md；用户批准消息；SciPy MILP 选择。"
 
 [decisions.D_MODEL_Q2]
-status = "proposed"
+status = "approved"
 choice = """
 Q2采用严格因果的24小时滚动MILP。未来负荷/PV采用过去7、14、21、28天
 同slot值的非负加权周周期组合，并以最新可见残差的AR(1)项作短期修正；
@@ -224,8 +224,8 @@ Q2仅允许题面规定的计划购电与紧急购电机制；调整购电变量
 不得累计预测目标函数作为正式成本。
 """
 rationale = "建立Q2严格因果的滚动基线。"
-confirmed_by = ""
-confirmed_at = ""
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
 source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_MODEL_Q3]

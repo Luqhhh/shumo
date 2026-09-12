@@ -5,6 +5,13 @@ from dataclasses import replace
 
 import pytest
 
+from microgrid.problem.contracts import (
+    ENERGY_ABS_TOL_KWH,
+    MAX_BUS_ENERGY_KWH,
+    BatteryAction,
+    BatteryState,
+    apply_battery_action,
+)
 from microgrid.problem.q2_model import (
     Q2ModelConfig,
     Q2Plan,
@@ -115,6 +122,56 @@ def test_annual_terminal_state_is_enforced_only_at_enabled_endpoint() -> None:
     assert ordinary.soc_kwh[-1] != pytest.approx(7000.0)
 
 
+def test_annual_terminal_state_is_enforced_at_selected_window_step() -> None:
+    window = replace(
+        _window(
+            load=(0.0, 0.0),
+            pv=(0.0, 0.0),
+            prices=(1.0, 1.0),
+            annual_terminal_soc=6500.0,
+        ),
+        annual_terminal_step=1,
+    )
+
+    plan = solve_q2_window(window, _config(2))
+
+    assert plan.soc_kwh[1] == pytest.approx(6500.0)
+
+
+def test_annual_hard_constraint_disables_terminal_salvage_value() -> None:
+    window = replace(
+        _window(
+            load=(0.0, 0.0),
+            pv=(0.0, 0.0),
+            prices=(1.0, 1.0),
+            terminal_value=10.0,
+            annual_terminal_soc=6000.0,
+        ),
+        annual_terminal_step=1,
+    )
+
+    plan = solve_q2_window(window, _config(2))
+    planned_cost = sum(
+        price * quantity
+        for price, quantity in zip(window.price_cny_per_kwh, plan.planned_purchase_kwh, strict=True)
+    )
+
+    assert plan.objective_cny == pytest.approx(planned_cost)
+
+
+def test_annual_terminal_step_must_be_inside_window() -> None:
+    with pytest.raises(ValueError, match="annual_terminal_step"):
+        replace(
+            _window(
+                load=(0.0, 0.0),
+                pv=(0.0, 0.0),
+                prices=(1.0, 1.0),
+                annual_terminal_soc=6000.0,
+            ),
+            annual_terminal_step=0,
+        )
+
+
 def test_non_successful_solver_result_raises_q2_solve_error(monkeypatch) -> None:
     import microgrid.problem.q2_model as q2_model
 
@@ -128,6 +185,273 @@ def test_non_successful_solver_result_raises_q2_solve_error(monkeypatch) -> None
     with pytest.raises(Q2SolveError, match="synthetic failure"):
         solve_q2_window(
             _window(load=(1.0, 1.0), pv=(0.0, 0.0), prices=(1.0, 2.0)),
+            _config(2),
+        )
+
+
+def _successful_result_with_first_discharge(
+    discharge_kwh: float, *, initial_soc_kwh: float = 6000.0
+):
+    values = [0.0] * 13
+    values[4] = discharge_kwh
+    values[8] = initial_soc_kwh
+    values[9] = initial_soc_kwh - discharge_kwh / 0.9
+    values[10] = values[9]
+
+    class SuccessfulResult:
+        status = 0
+        success = True
+        message = "synthetic success"
+        mip_gap = 0.0
+        mip_node_count = 0
+        mip_dual_bound = 0.0
+        x = values
+
+    return SuccessfulResult()
+
+
+def _successful_result_with_first_charge(charge_kwh: float, *, initial_soc_kwh: float = 6000.0):
+    values = [0.0] * 13
+    values[2] = charge_kwh
+    values[8] = initial_soc_kwh
+    values[9] = initial_soc_kwh + 0.9 * charge_kwh
+    values[10] = values[9]
+
+    class SuccessfulResult:
+        status = 0
+        success = True
+        message = "synthetic success"
+        mip_gap = 0.0
+        mip_node_count = 0
+        mip_dual_bound = 0.0
+        x = values
+
+    return SuccessfulResult()
+
+
+def _successful_result_with_first_purchase(purchase_kwh: float):
+    values = [0.0] * 13
+    values[0] = purchase_kwh
+    values[8] = 6000.0
+    values[9] = 6000.0
+    values[10] = 6000.0
+
+    class SuccessfulResult:
+        status = 0
+        success = True
+        message = "synthetic success"
+        mip_gap = 0.0
+        mip_node_count = 0
+        mip_dual_bound = 0.0
+        x = values
+
+    return SuccessfulResult()
+
+
+def test_solver_normalizes_within_tolerance_upper_bound_excess(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    excess = 1e-12
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_discharge(
+            MAX_BUS_ENERGY_KWH + excess
+        ),
+    )
+
+    plan = solve_q2_window(
+        _window(load=(0.0, 0.0), pv=(0.0, 0.0), prices=(1.0, 2.0)),
+        _config(2),
+    )
+
+    assert plan.discharge_kwh[0] == MAX_BUS_ENERGY_KWH
+    assert plan.solver_metadata["bound_normalization_count"] == 1
+    assert plan.solver_metadata["max_bound_normalization_kwh"] == pytest.approx(
+        1.0231815394945443e-12
+    )
+
+
+def test_solver_rejects_upper_bound_excess_beyond_tolerance(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_discharge(
+            MAX_BUS_ENERGY_KWH + 2.0 * ENERGY_ABS_TOL_KWH
+        ),
+    )
+
+    with pytest.raises(Q2SolveError, match="discharge_kwh.*upper bound"):
+        solve_q2_window(
+            _window(load=(0.0, 0.0), pv=(0.0, 0.0), prices=(1.0, 2.0)),
+            _config(2),
+        )
+
+
+def test_solver_normalizes_first_action_to_strict_soc_lower_bound(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    initial_soc_kwh = 1457.0527638888889
+    raw_discharge_kwh = 231.34748750000017
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_discharge(
+            raw_discharge_kwh, initial_soc_kwh=initial_soc_kwh
+        ),
+    )
+
+    plan = solve_q2_window(
+        _window(
+            load=(0.0, 0.0),
+            pv=(0.0, 0.0),
+            prices=(1.0, 2.0),
+            initial_soc=initial_soc_kwh,
+        ),
+        _config(2),
+    )
+    next_state = apply_battery_action(
+        BatteryState(initial_soc_kwh),
+        BatteryAction(
+            charge_kwh=plan.charge_kwh[0],
+            discharge_kwh=plan.discharge_kwh[0],
+        ),
+    )
+
+    assert plan.discharge_kwh[0] == 231.3474875
+    assert next_state.energy_kwh == 1200.0
+    assert plan.solver_metadata["bound_normalization_count"] == 1
+    assert plan.solver_metadata["max_bound_normalization_kwh"] == pytest.approx(
+        1.7053025658242404e-13
+    )
+
+
+def test_solver_rejects_first_action_soc_violation_beyond_tolerance(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    initial_soc_kwh = 1457.0527638888889
+    discharge_kwh = (initial_soc_kwh - (1200.0 - 2.0 * ENERGY_ABS_TOL_KWH)) * 0.9
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_discharge(
+            discharge_kwh, initial_soc_kwh=initial_soc_kwh
+        ),
+    )
+
+    with pytest.raises(Q2SolveError, match="first action.*SOC lower bound"):
+        solve_q2_window(
+            _window(
+                load=(0.0, 0.0),
+                pv=(0.0, 0.0),
+                prices=(1.0, 2.0),
+                initial_soc=initial_soc_kwh,
+            ),
+            _config(2),
+        )
+
+
+def test_solver_normalizes_first_action_to_strict_soc_upper_bound(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    initial_soc_kwh = 10500.0
+    raw_charge_kwh = 333.3333333333353
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_charge(
+            raw_charge_kwh, initial_soc_kwh=initial_soc_kwh
+        ),
+    )
+
+    plan = solve_q2_window(
+        _window(
+            load=(0.0, 0.0),
+            pv=(0.0, 0.0),
+            prices=(1.0, 2.0),
+            initial_soc=initial_soc_kwh,
+        ),
+        _config(2),
+    )
+    next_state = apply_battery_action(
+        BatteryState(initial_soc_kwh),
+        BatteryAction(
+            charge_kwh=plan.charge_kwh[0],
+            discharge_kwh=plan.discharge_kwh[0],
+        ),
+    )
+
+    assert plan.charge_kwh[0] == 333.3333333333333
+    assert next_state.energy_kwh == 10800.0
+    assert plan.solver_metadata["bound_normalization_count"] == 1
+    assert plan.solver_metadata["max_bound_normalization_kwh"] == pytest.approx(
+        1.9895196601282805e-12
+    )
+
+
+def test_solver_rejects_first_action_soc_upper_violation_beyond_tolerance(
+    monkeypatch,
+) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    initial_soc_kwh = 10500.0
+    charge_kwh = (10800.0 + 2.0 * ENERGY_ABS_TOL_KWH - initial_soc_kwh) / 0.9
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_charge(
+            charge_kwh, initial_soc_kwh=initial_soc_kwh
+        ),
+    )
+
+    with pytest.raises(Q2SolveError, match="first action.*SOC upper bound"):
+        solve_q2_window(
+            _window(
+                load=(0.0, 0.0),
+                pv=(0.0, 0.0),
+                prices=(1.0, 2.0),
+                initial_soc=initial_soc_kwh,
+            ),
+            _config(2),
+        )
+
+
+def test_solver_normalizes_within_tolerance_negative_purchase(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    negative = -1.1368683772161603e-13
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_purchase(negative),
+    )
+
+    plan = solve_q2_window(
+        _window(load=(0.0, 0.0), pv=(0.0, 0.0), prices=(1.0, 2.0)),
+        _config(2),
+    )
+
+    assert plan.planned_purchase_kwh[0] == 0.0
+    assert plan.solver_metadata["bound_normalization_count"] == 1
+    assert plan.solver_metadata["max_bound_normalization_kwh"] == pytest.approx(
+        1.1368683772161603e-13
+    )
+
+
+def test_solver_rejects_negative_purchase_beyond_tolerance(monkeypatch) -> None:
+    import microgrid.problem.q2_model as q2_model
+
+    monkeypatch.setattr(
+        q2_model,
+        "milp",
+        lambda *args, **kwargs: _successful_result_with_first_purchase(-2.0 * ENERGY_ABS_TOL_KWH),
+    )
+
+    with pytest.raises(Q2SolveError, match="planned_purchase_kwh.*lower bound"):
+        solve_q2_window(
+            _window(load=(0.0, 0.0), pv=(0.0, 0.0), prices=(1.0, 2.0)),
             _config(2),
         )
 
@@ -172,6 +496,12 @@ def test_validate_q2_plan_accepts_a_valid_plan() -> None:
         (
             "simultaneous",
             lambda plan: replace(plan, charge_kwh=(1.0, 0.0), discharge_kwh=(1.0, 0.0)),
+        ),
+        (
+            "power_upper_bound",
+            lambda plan: replace(
+                plan, discharge_kwh=(MAX_BUS_ENERGY_KWH + 2.0 * ENERGY_ABS_TOL_KWH, 0.0)
+            ),
         ),
         ("objective", lambda plan: replace(plan, objective_cny=999.0)),
         ("nonfinite", lambda plan: replace(plan, planned_purchase_kwh=(float("nan"), 10.0))),

@@ -1,31 +1,21 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-10T12:19:52+00:00",
+  "generated_at": "2026-09-11T16:16:56+00:00",
   "source": {
     "kind": "directory",
-    "label": "CUMCM2026Problems",
-    "file_count_considered": 14
+    "label": "q2-c-inputs-20260912",
+    "file_count_considered": 6
   },
   "items": [
-    {
-      "kind": "rules",
-      "source_name": "20260826全国数模赛      咨询问题解答.pdf",
-      "repository_path": "resources/20260826全国数模赛      咨询问题解答.pdf",
-      "size": 245932,
-      "sha256": "53c69c0d8fa15a36bf283f971b8c50fb545749c45fea15c3f0ea4712e5cad800",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
     {
       "kind": "problem",
       "source_name": "C题/C题.pdf",
       "repository_path": "resources/C题.pdf",
       "size": 354389,
       "sha256": "2c098f6ae9dd47ae965aebdec3b9facf3de6c173f999783c1012c08fc5fb9d2d",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
+      "existing_sha256": "2c098f6ae9dd47ae965aebdec3b9facf3de6c173f999783c1012c08fc5fb9d2d",
+      "imported_at": "2026-09-11T16:16:56+00:00",
+      "status": "unchanged"
     },
     {
       "kind": "raw",
@@ -33,9 +23,9 @@
       "repository_path": "data/raw/附件1.xlsx",
       "size": 16003,
       "sha256": "66b87134f5ecccd68184d3539bb1293ef039f9e0fdd955a589b9bfa7f227c377",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
+      "existing_sha256": "66b87134f5ecccd68184d3539bb1293ef039f9e0fdd955a589b9bfa7f227c377",
+      "imported_at": "2026-09-11T16:16:56+00:00",
+      "status": "unchanged"
     },
     {
       "kind": "raw",
@@ -43,9 +33,9 @@
       "repository_path": "data/raw/附件2.xlsx",
       "size": 907128,
       "sha256": "2e95fd446bfafa0d8c59577b5c2e2ea8b3f1def20dde54a3062556f4da9b4c72",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
+      "existing_sha256": "2e95fd446bfafa0d8c59577b5c2e2ea8b3f1def20dde54a3062556f4da9b4c72",
+      "imported_at": "2026-09-11T16:16:56+00:00",
+      "status": "unchanged"
     },
     {
       "kind": "raw",
@@ -53,9 +43,9 @@
       "repository_path": "data/raw/附件3.xlsx",
       "size": 293526,
       "sha256": "8a61b06c52bd0d639a1cc37c61a7d9f5b75edcbca718f64c1bd3498ec9f9d843",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
+      "existing_sha256": "8a61b06c52bd0d639a1cc37c61a7d9f5b75edcbca718f64c1bd3498ec9f9d843",
+      "imported_at": "2026-09-11T16:16:56+00:00",
+      "status": "unchanged"
     },
     {
       "kind": "raw",
@@ -63,59 +53,9 @@
       "repository_path": "data/raw/附件4.xlsx",
       "size": 409790,
       "sha256": "20e9c93aeab5e8e21ae4dd15587f9e190f7408692504c1319598461cd654fe71",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
-    {
-      "kind": "template",
-      "source_name": "C题/附件/附件5/result1.xlsx",
-      "repository_path": "data/templates/result1.xlsx",
-      "size": 13323,
-      "sha256": "28360e0974e7d6065394a8aba4e14a86773ae0036cc7d3ea1b211b515b03d688",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
-    {
-      "kind": "template",
-      "source_name": "C题/附件/附件5/result2.xlsx",
-      "repository_path": "data/templates/result2.xlsx",
-      "size": 18397,
-      "sha256": "1c26494cfc6d754e0bd9bff7e13e1126a73d2d2da6c5336eb251d89b9a1a1a47",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
-    {
-      "kind": "template",
-      "source_name": "C题/附件/附件5/result3.xlsx",
-      "repository_path": "data/templates/result3.xlsx",
-      "size": 265429,
-      "sha256": "c59da470cabd0be23f602c95c8aa9d11ec224a0cdac216b3e1f218e65d006bdc",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
-    {
-      "kind": "template",
-      "source_name": "C题/附件/附件5/result4-2.xlsx",
-      "repository_path": "data/templates/result4-2.xlsx",
-      "size": 18397,
-      "sha256": "1c26494cfc6d754e0bd9bff7e13e1126a73d2d2da6c5336eb251d89b9a1a1a47",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
-    {
-      "kind": "template",
-      "source_name": "C题/附件/附件5/result4-3.xlsx",
-      "repository_path": "data/templates/result4-3.xlsx",
-      "size": 265429,
-      "sha256": "c59da470cabd0be23f602c95c8aa9d11ec224a0cdac216b3e1f218e65d006bdc",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
+      "existing_sha256": "20e9c93aeab5e8e21ae4dd15587f9e190f7408692504c1319598461cd654fe71",
+      "imported_at": "2026-09-11T16:16:56+00:00",
+      "status": "unchanged"
     },
     {
       "kind": "rules",
@@ -123,29 +63,9 @@
       "repository_path": "resources/format2026.doc",
       "size": 71168,
       "sha256": "d77de49534649b46ca195d32bd9c56a1fbe06dc96fdcf3e1199e6dd7d9831f4a",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
-    {
-      "kind": "rules",
-      "source_name": "全国大学生数学建模竞赛人工智能工具使用规定 （2026年试行）(1).pdf",
-      "repository_path": "resources/全国大学生数学建模竞赛人工智能工具使用规定 （2026年试行）(1).pdf",
-      "size": 97121,
-      "sha256": "4cf6f30cdd37d6ef2cdb3439c5dba4d9f207c12d6aafe24419e81f3c69acf59a",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
-    },
-    {
-      "kind": "rules",
-      "source_name": "数模竞赛注意事项.pptx",
-      "repository_path": "resources/数模竞赛注意事项.pptx",
-      "size": 722554,
-      "sha256": "2ea36ad04698b37b644e332a9cc77c345055a048661fb9f82108082fc30cee91",
-      "existing_sha256": null,
-      "imported_at": "2026-09-10T12:19:52+00:00",
-      "status": "imported"
+      "existing_sha256": "d77de49534649b46ca195d32bd9c56a1fbe06dc96fdcf3e1199e6dd7d9831f4a",
+      "imported_at": "2026-09-11T16:16:56+00:00",
+      "status": "unchanged"
     }
   ],
   "conflicts": [],

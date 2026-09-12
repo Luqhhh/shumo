@@ -6,7 +6,7 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Any
 
-from .contracts import BatteryState, CostBreakdown, IntervalResult
+from .contracts import ENERGY_ABS_TOL_KWH, BatteryState, CostBreakdown, IntervalResult
 from .q2_forecast import ForecastConfig, ForecastPoint, build_q2_forecast
 from .q2_inputs import Q2InputBundle
 from .q2_model import Q2ModelConfig, Q2WindowInput, solve_q2_window
@@ -105,7 +105,14 @@ def run_q2_engineering(
             initial_soc_kwh=state.energy_kwh,
             terminal_value_cny_per_kwh=config.terminal_value_cny_per_kwh,
             annual_terminal_soc_kwh=config.annual_terminal_soc_kwh,
-            is_annual_endpoint=(actual.day == config.action_end_day and actual.slot == 143),
+            annual_terminal_step=(
+                144 - actual.slot
+                if (
+                    config.annual_terminal_soc_kwh is not None
+                    and actual.day == config.action_end_day
+                )
+                else None
+            ),
         )
         plan = solve_q2_window(window, config.model_config)
         solver_records.append(
@@ -132,6 +139,14 @@ def run_q2_engineering(
         )[0]
         replay_rows.append(row)
         state = row.state_end
+
+    if (
+        config.annual_terminal_soc_kwh is not None
+        and abs(state.energy_kwh - config.annual_terminal_soc_kwh) > ENERGY_ABS_TOL_KWH
+    ):
+        raise Q2EngineError(
+            f"final SOC mismatch: {state.energy_kwh} != {config.annual_terminal_soc_kwh} kWh"
+        )
 
     intervals = rows_to_interval_results(tuple(replay_rows))
     expected_days = tuple(
