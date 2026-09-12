@@ -22,6 +22,7 @@
 | E4固定变量消元 | 已完成，不默认采用 | 410窗口/两case两周/原证书通过，约1.7%共机小收益，见[记录](q4_fixed_variable_validation.md) |
 | E4 LP有证书快路径 | 已完成，不默认采用 | 410窗口约2.18倍；全年+42,413.98元，原证据/Excel通过，见[记录](q4_lp_certificate_validation.md) |
 | E4原生HiGHS后端 | 已完成，不默认采用 | 410窗口/两case两周匹配，但约慢25%，见[记录](q4_native_highs_validation.md) |
+| E4已蕴含模式预固定（补充探索） | 已完成，不采用 | 12窗口原约束/证书通过，约慢6%，见[负结果](q4_implied_mode_presolve_validation.md) |
 | M2显式安全采购余量 | 待测试 | 原始预测/规划余量分开，因果学习、总费对照 |
 | M2情景采购 | 待测试 | 联合可见历史误差、共享合同/首动作、场景证据 |
 | M3普通窗口终端价值 | 已完成，保留候选 | 全年−2,716.14元（约−0.017%），证据/Excel通过，见[记录](q4_terminal_quartile_validation.md) |
