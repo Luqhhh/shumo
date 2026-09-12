@@ -24,6 +24,7 @@ STAGES = (
     "feedback_and_settlement",
     "log_serialization_and_write",
     "checkpoint",
+    "checkpoint_restore",
     "physical_validation",
     "controller_chain_audit",
     "metrics_and_report",

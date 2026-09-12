@@ -25,7 +25,8 @@ from ..schemas import InputError
 from .contracts import BatteryAction, BatteryState, CaseContext, CaseResult, InfoSet, IntervalResult
 from .dispatch_feedback import ExecutionRecord, Measurement, apply_feedback
 from .dispatch_milp import DispatchPlan, reuse_tail, solve_dispatch
-from .purchase_ledger import Bill, ContractVersion, PurchaseLedger
+from .purchase_ledger import PurchaseLedger
+from .q4_checkpoint import CHECKPOINT_SCHEMA, ledger_witness, restore_ledger
 from .q4_common import (
     ACTION_START,
     MODEL_VERSION,
@@ -90,25 +91,6 @@ def _execution_from_dict(data):
         data[key] = BatteryState(**data[key])
     data["reasons"] = tuple(data["reasons"])
     return ExecutionRecord(**data)
-
-
-def _ledger_from_dict(data):
-    ledger = PurchaseLedger(data["case_id"])
-    for day, versions in data["versions"].items():
-        restored = []
-        for item in versions:
-            item = dict(item)
-            item["day"] = dt.date.fromisoformat(item["day"])
-            item["event_time"] = dt.datetime.fromisoformat(item["event_time"])
-            for key in ("quantities", "plus", "minus"):
-                item[key] = tuple(item[key])
-            restored.append(ContractVersion(**item))
-        ledger.versions[dt.date.fromisoformat(day)] = restored
-    for slot, bill in data["bills"].items():
-        bill = dict(bill)
-        bill["slot_start"] = dt.datetime.fromisoformat(bill["slot_start"])
-        ledger.bills[dt.datetime.fromisoformat(slot)] = Bill(**bill)
-    return ledger
 
 
 def _metrics(run_dir: Path, inputs: Q4Inputs, end: dt.datetime):
@@ -239,7 +221,7 @@ def run_q4(context: CaseContext) -> CaseResult:
         else:
             checkpoint = json.loads((run_dir / "checkpoint.json").read_text())
             if (
-                checkpoint.get("schema_version") != 2
+                checkpoint.get("schema_version") != CHECKPOINT_SCHEMA
                 or checkpoint["source_hash"] != code_hash
                 or checkpoint["source_hashes"] != inputs.source_hashes
                 or checkpoint["config"] != config
@@ -264,7 +246,10 @@ def run_q4(context: CaseContext) -> CaseResult:
             for name, size in checkpoint["log_sizes"].items():
                 with (run_dir / f"{name}.jsonl").open("r+b") as stream:
                     stream.truncate(size)
-            ledger = _ledger_from_dict(checkpoint["ledger"])
+            with performance.measure("checkpoint_restore"):
+                ledger = restore_ledger(
+                    run_dir, context.case_id, time_at, checkpoint["ledger_state"]
+                )
             state = BatteryState(checkpoint["energy_kwh"])
             forecast = _snapshot_from_dict(checkpoint["forecast"])
             with performance.measure("forecast_evidence_hash"):
@@ -283,8 +268,14 @@ def run_q4(context: CaseContext) -> CaseResult:
                     intervals.append(interval_from_dict(row["interval"]))
                     executions.append(_execution_from_dict(row["execution"]))
             step_count = len(intervals)
+            if time_at != ACTION_START + step_count * STEP or len(ledger.bills) != step_count:
+                raise InputError("checkpoint execution coverage mismatch")
             prior_step_count = step_count
             solve_count, reused_count, protection_count = checkpoint["counts"]
+            if solve_count + reused_count != step_count or protection_count != sum(
+                bool(record.reasons) for record in executions
+            ):
+                raise InputError("checkpoint controller counts mismatch")
             write_manifest(run_dir, manifest, overwrite=True)
         writer = JsonlWriter(run_dir, LOG_NAMES, performance=performance)
         official_by_issue = defaultdict(list)
@@ -423,17 +414,13 @@ def run_q4(context: CaseContext) -> CaseResult:
                     atomic_json(
                         run_dir / "checkpoint.json",
                         {
-                            "schema_version": 2,
+                            "schema_version": CHECKPOINT_SCHEMA,
                             "source_hash": code_hash,
                             "source_hashes": inputs.source_hashes,
                             "config": config,
                             "time": time_at,
                             "energy_kwh": state.energy_kwh,
-                            "ledger": {
-                                "case_id": ledger.case_id,
-                                "versions": ledger.versions,
-                                "bills": ledger.bills,
-                            },
+                            "ledger_state": ledger_witness(ledger),
                             "training_state": service.training_state(),
                             "forecast": forecast,
                             "previous_plan": previous_plan,

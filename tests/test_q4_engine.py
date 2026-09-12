@@ -68,6 +68,20 @@ def test_checkpoint_resume_is_equivalent_and_rejects_source_change(tmp_path, mon
         run_q4(interrupted)
     monkeypatch.setattr(module, "atomic_json", original)
     resumed = replace(interrupted, metadata={**metadata, "resume": True})
+    checkpoint_path = tmp_path / "interrupted" / "checkpoint.json"
+    checkpoint_bytes = checkpoint_path.read_bytes()
+    checkpoint = json.loads(checkpoint_bytes)
+    assert checkpoint["schema_version"] == 3 and "ledger" not in checkpoint
+    checkpoint["schema_version"] = 2
+    checkpoint_path.write_text(json.dumps(checkpoint))
+    with pytest.raises(InputError, match="source/config/schema mismatch"):
+        run_q4(resumed)
+    checkpoint["schema_version"] = 3
+    checkpoint["ledger_state"]["bill_count"] += 1
+    checkpoint_path.write_text(json.dumps(checkpoint))
+    with pytest.raises(InputError, match="ledger witness mismatch"):
+        run_q4(resumed)
+    checkpoint_path.write_bytes(checkpoint_bytes)
     monkeypatch.setattr(
         module, "load_q4_inputs", lambda *args: replace(inputs, source_hashes={"actual": "changed"})
     )
@@ -196,3 +210,68 @@ def test_actual_reserve_failure_retains_executed_interval_and_bill(tmp_path, mon
         reserve_start=ACTION_START,
     )
     assert "2025-02-01 00:10:00:terminal_reserve_infeasible" in validation["violations"]
+
+
+@pytest.mark.parametrize("boundary", [6, 12, 18, 24])
+def test_compact_checkpoint_restores_q4_3_event_boundaries(tmp_path, monkeypatch, boundary):
+    import datetime as dt
+
+    import microgrid.problem.rolling_engine as module
+    from microgrid.problem.contracts import InfoItem
+    from microgrid.problem.q4_common import ACTION_START, YEAR_START
+    from microgrid.problem.q4_evidence import json_rows
+
+    official = []
+    issue = YEAR_START
+    while issue <= ACTION_START + dt.timedelta(days=2):
+        for lead in range(1, 25):
+            official.append(
+                InfoItem("pv_forecast_kw", issue, issue + dt.timedelta(hours=lead), 60 + lead)
+            )
+        issue += dt.timedelta(hours=6)
+    inputs = Q4Inputs(
+        tuple(600.0 + i % 17 for i in range(52560)),
+        (50.0,) * 52560,
+        tuple(0.5 + i % 13 / 100 for i in range(52560)),
+        tuple(official),
+        {"actual": "hash"},
+        {},
+    )
+    monkeypatch.setattr(module, "load_q4_inputs", lambda *args: inputs)
+    monkeypatch.setattr(module, "require_approved_decisions", lambda *args: None)
+    metadata = {"end_time": "2025-02-03"}
+    context = CaseContext(tmp_path, "q4_3", "test", tmp_path / "continuous", metadata, True)
+    continuous = run_q4(context)
+    interrupted = replace(context, output_dir=tmp_path / "interrupted")
+    original = module.atomic_json
+
+    def stop(path, data, **kwargs):
+        original(path, data, **kwargs)
+        if path.name == "checkpoint.json" and data["time"] == ACTION_START + dt.timedelta(
+            hours=boundary
+        ):
+            raise Q4Error("test_interruption", "event boundary committed")
+
+    monkeypatch.setattr(module, "atomic_json", stop)
+    with pytest.raises(Q4Error, match="test_interruption"):
+        run_q4(interrupted)
+    monkeypatch.setattr(module, "atomic_json", original)
+    checkpoint = json.loads((interrupted.output_dir / "checkpoint.json").read_text())
+    assert checkpoint["ledger_state"]["bill_count"] == boundary * 6
+    assert checkpoint["ledger_state"]["latest_contract"]["version"] == boundary // 6 - 1
+    if boundary > 6:
+        assert checkpoint["ledger_state"]["latest_contract"]["trade_price"] is not None
+    recovered = run_q4(replace(interrupted, metadata={**metadata, "resume": True}))
+    assert case_result_to_dict(recovered) == case_result_to_dict(continuous)
+
+    def without_timing(value):
+        if isinstance(value, dict):
+            return {k: without_timing(v) for k, v in value.items() if k != "elapsed_seconds"}
+        if isinstance(value, list):
+            return [without_timing(v) for v in value]
+        return value
+
+    for name in module.LOG_NAMES:
+        assert [without_timing(r) for r in json_rows(context.output_dir / f"{name}.jsonl")] == [
+            without_timing(r) for r in json_rows(interrupted.output_dir / f"{name}.jsonl")
+        ]
