@@ -28,7 +28,7 @@
 3. Q3 case gate 必须覆盖实际使用的全部 decision，并新增“proposed 仍阻断”的
    临时配置测试。
 4. 必须回答“每十分钟 MPC 与每六小时 24 h forecast 的尾部怎样衔接”；三种
-   方案见 [`docs/q3_model.md`](q3_model.md) 第 4 节。
+   方案见 [`docs/q3_solver_preflight.md`](q3_solver_preflight.md) 第 4 节。
 5. B 的 `d1df0b0` 不能原样合并：冻结规则会禁止 Q3 日内调整，PV 账本重复计算
    弃光，Q2 总量/增量混淆，整日缺失检查和交易价格索引仍未解决。
 6. A 必须确认计划版本与预测 provenance 的正式承载方式。不能把逐版主数据

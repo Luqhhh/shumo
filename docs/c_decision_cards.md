@@ -2,8 +2,8 @@
 
 用途：参赛队对 C 线尚未完全锁定的口径逐项表决。本文档只整理题面证据和推荐方案，不表示已批准，不代填 `confirmed_by` / `confirmed_at`。
 
-Q3 完整模型、接口断点和求解器开工条件已经汇总到
-[`docs/q3_model.md`](q3_model.md) 与
+Q3 接口断点、模型预审和求解器开工条件已经汇总到
+[`docs/q3_solver_preflight.md`](q3_solver_preflight.md) 与
 [`docs/q3_solver_readiness.md`](q3_solver_readiness.md)。其中新增的 horizon/tail
 冲突必须由团队回答，不能由实现者自行补齐。
 
