@@ -68,6 +68,52 @@ def test_linear_resampling_crosses_midnight_by_real_valid_time():
     assert result[-1].slot_end == dt.datetime(2025, 2, 2, 18, 0)
 
 
+def test_linear_resampling_hits_all_hourly_knots() -> None:
+    decision_time = dt.datetime(2025, 2, 1, 0, 0)
+    values = tuple(float(lead * lead) for lead in range(1, 25))
+    hourly = _hourly_points(decision_time, values)
+
+    result = resample_combined_hourly_pv(
+        decision_time=decision_time,
+        boundary_proxy=_boundary_proxy(decision_time, 0.0),
+        hourly_points=hourly,
+        method="linear",
+    )
+
+    for lead, expected_kw in enumerate(values, start=1):
+        point = result[lead * 6 - 1]
+        assert point.slot_end == decision_time + dt.timedelta(hours=lead)
+        assert point.power_kw == pytest.approx(expected_kw)
+        assert point.energy_kwh == pytest.approx(expected_kw / 6.0)
+
+
+@pytest.mark.parametrize("method", ["linear", "pchip"])
+def test_resampling_is_deterministic_and_does_not_mutate_inputs(method: str) -> None:
+    decision_time = dt.datetime(2025, 2, 1, 18, 0)
+    hourly = _hourly_points(
+        decision_time,
+        tuple(float((lead % 7) * 25) for lead in range(1, 25)),
+    )
+    proxy = _boundary_proxy(decision_time, 12.5)
+    original_hourly = tuple(hourly)
+
+    first = resample_combined_hourly_pv(
+        decision_time=decision_time,
+        boundary_proxy=proxy,
+        hourly_points=hourly,
+        method=method,  # type: ignore[arg-type]
+    )
+    second = resample_combined_hourly_pv(
+        decision_time=decision_time,
+        boundary_proxy=proxy,
+        hourly_points=hourly,
+        method=method,  # type: ignore[arg-type]
+    )
+
+    assert first == second
+    assert hourly == original_hourly
+
+
 def test_pchip_sensitivity_uses_the_same_knots_and_hits_every_hour():
     decision_time = dt.datetime(2025, 2, 1, 12, 0)
     values = tuple(float((lead % 5) * 100) for lead in range(1, 25))

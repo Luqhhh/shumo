@@ -10,7 +10,12 @@ from microgrid.problem.q3_inputs import EXPECTED_FORECAST_LEADS, load_q3_forecas
 from microgrid.schemas import InputError
 
 
-def _write_forecast_workbook(path, *, missing: tuple[int, int] | None = None):
+def _write_forecast_workbook(
+    path,
+    *,
+    missing: tuple[int, int] | None = None,
+    duplicate_issue_hour: int | None = None,
+):
     wb = Workbook()
     ws = wb.active
     ws.title = "Sheet1"
@@ -23,6 +28,8 @@ def _write_forecast_workbook(path, *, missing: tuple[int, int] | None = None):
                 value = None
             values.append(value)
         ws.append(["2025-02-01" if issue_hour == 0 else "", f"{issue_hour}:00", *values])
+        if duplicate_issue_hour == issue_hour:
+            ws.append(["", f"{issue_hour}:00", *values])
     wb.save(path)
 
 
@@ -46,6 +53,9 @@ def test_q3_forecast_archive_preserves_issue_and_valid_time_versions(tmp_path):
         for version in archive.versions
     )
     assert archive.versions[1].records[0].valid_time == dt.datetime(2025, 2, 1, 7, 0)
+    evening = archive.versions[-1]
+    assert evening.records[5].valid_time == dt.datetime(2025, 2, 2, 0, 0)
+    assert evening.records[-1].valid_time == dt.datetime(2025, 2, 2, 18, 0)
 
 
 def test_q3_forecast_archive_at_0600_keeps_all_visible_versions_without_selecting(tmp_path):
@@ -68,4 +78,12 @@ def test_q3_forecast_archive_rejects_an_incomplete_publication(tmp_path):
     _write_forecast_workbook(path, missing=(6, 24))
 
     with pytest.raises(InputError, match="ordered leads 1..24"):
+        load_q3_forecast_archive(path)
+
+
+def test_q3_forecast_archive_rejects_duplicate_issue_and_lead(tmp_path):
+    path = tmp_path / "附件3.xlsx"
+    _write_forecast_workbook(path, duplicate_issue_hour=6)
+
+    with pytest.raises(InputError, match="duplicate leads"):
         load_q3_forecast_archive(path)
