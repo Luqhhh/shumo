@@ -24,6 +24,7 @@ DECISION_IDS = (
     "D_INFO",
     "D_RESAMPLE",
     "D_LOAD_FORECAST",
+    "D_PV_TAIL_BASELINE",
     "D_SETTLE",
     "D_MODEL_Q1",
     "D_MODEL_Q2",
@@ -192,6 +193,7 @@ def test_case_dependency_graph_splits_model_gates_and_q4_2_has_no_resample():
     assert "D_MODEL_Q1" in CASE_DECISIONS["q1"]
     assert "D_MODEL_Q2" in CASE_DECISIONS["q2"]
     assert "D_MODEL_Q3" in CASE_DECISIONS["q3"]
+    assert "D_PV_TAIL_BASELINE" in CASE_DECISIONS["q3"]
     assert "D_MODEL_Q4_2" in CASE_DECISIONS["q4_2"]
     assert "D_MODEL_Q4_3" in CASE_DECISIONS["q4_3"]
     assert "D_MODEL" not in CASE_DECISIONS["q1"]

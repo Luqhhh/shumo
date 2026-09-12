@@ -1,7 +1,7 @@
 # C 线 Q3 求解器开工检查表
 
-审查起点：`feat/q3-forecast-control@7b90599`；当前已同步
-`origin/main@f8b4af0`。本文件只记录实现准备和接口矛盾，不改写人工批准口径。
+工作分支：`feat/q3-forecast-control`；共享基线为 `origin/main@f8b4af0`。
+本文件只记录实现准备和剩余门禁，不改写人工批准口径。
 
 ## 1. 当前状态
 
@@ -13,28 +13,24 @@
 | PV 版本组合 | 已批准并有生产实现 | `problem/q3_pv_forecast.py` | 接入统一 Q3 input bundle |
 | 负载预测 | 已批准并有生产实现 | `problem/q3_load_forecast.py` | 接入统一 Q3 input bundle |
 | 年度 actual adapter | 已选择性整合 | `problem/q2_inputs.py` | 复用，不另写全年读取器 |
-| 统一 Q3 input bundle | 缺失 | 预测层、actual adapter 均已就绪 | machine decision 补录后组装 |
+| PV snapshot/window | 接口与测试已实现 | `problem/q3_pv_snapshot.py` | tail 只留协议，不含算法 |
+| 统一 Q3 input bundle | 缺失 | 预测层、actual adapter、PV window 均已就绪 | tail 算法批准后组装 |
 | 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | 已接结构化 sidecar |
-| 结算账本 | 计划/调整部分已实现 | `problem/q3_plan_ledger.py` | 紧急费用等待实际回放规则澄清 |
-| 结构化 sidecar | 已实现接口与往返测试 | `problem/q3_sidecars.py` | runner 后续登记路径与哈希 |
-| Q3 gate | 已闭合 | 已检查 `D_LOAD_FORECAST/D_SETTLE/D_MODEL_Q3` | 保持阻断回归测试 |
-| 实际回放 | 缺失 | 批准模型卡已有物理式 | 先澄清预测充电遇实际短缺的动作规则 |
+| 结算账本 | 计划/调整部分已实现 | `problem/q3_plan_ledger.py` | 紧急费用等待实际回放实现 |
+| 结构化 sidecar | 已实现精确字段与引用检查 | `problem/q3_sidecars.py` | runner 后续登记路径与哈希 |
+| Q3 gate | 仅 tail 阻断 | 新增 `D_PV_TAIL_BASELINE` | 算法未批准时必须拦截 |
+| 实际回放 | 语义已冻结、实现缺失 | charge curtailment recourse | 不得扩展成任意 redispatch |
 | Q3 solver/runner | 未实现 | `problem/q3.py` 明确报错 | 预测与 ledger 输入准备后实现 |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
-## 2. 仅剩的 P0 接口阻断
+## 2. 仅剩的 P0 建模阻断
 
-人工 gate 已由队长闭合，不需要再次表决 `LOAD-A/LF-A`、`SETTLE-A-v2`、
-`VERSION-B/WEIGHT-B/HISTORY-A` 或 `epsilon=1`。队长提出的 HORIZON-B、charge
-curtailment recourse 和结构化 sidecar 已得到 C 成员明确认可，精确文本见
-[`q3_interface_decision_addendum.md`](q3_interface_decision_addendum.md)。现在只剩：
-
-1. **machine decision 待人工补录**：Agent 不得改写 approved decision。需由队长
-   将 HORIZON-B 和 charge curtailment recourse 亲自补入 Q3 的机器批准记录。
-2. **PV tail baseline 算法仍未选**：HORIZON-B 只确定“因果补尾”，没有批准
-   baseline 公式。需单独形成小 decision 并加入 Q3 gate 后才能实现。
-
-以上均不能由 Agent自行补进正式模型。
+队长已确认 HORIZON-B、charge curtailment recourse、结构化 sidecar 与 B adapter
+整合边界可以冻结。精确文本见
+[`q3_interface_decision_addendum.md`](q3_interface_decision_addendum.md)。当前唯一仍需
+人工选择的模型算法是 **PV tail baseline**：HORIZON-B 只确定“严格因果补尾”，
+没有批准 baseline 公式。仓库已新增 pending 的 `D_PV_TAIL_BASELINE` 并接入 Q3
+与 final gate；接口可以实现，具体预测器和正式 Q3 runner 不得绕过该门禁。
 
 ## 3. 已提前补强的绿色测试
 
@@ -53,23 +49,25 @@ curtailment recourse 和结构化 sidecar 已得到 C 成员明确认可，精�
   provenance、未来 actual 不可见和历史缺口显式失败。
 - P00/P06/P12/P18 不可变快照、逐版 delta、已执行时隙冻结和
   `100 -> 110 -> 90 -> 95` 的 SETTLE-A-v2 手算费用。
-- 三份 JSONL sidecar 的完整版本/来源保留、行数、SHA-256、相对路径和拒绝覆盖；
+- 发布时刻一次性生成不可变的144点 PV snapshot，中间 MPC 只切片并只向 tail
+  协议请求未覆盖后缀，不重新组合或重采样；
+- 三份 JSONL sidecar 的精确字段、完整版本链、预测ID引用、行数、SHA-256、
+  相对路径和拒绝覆盖；
 - B actual adapter 的每日144格、expected-day、负载/PV网格与右端点测试。
 
 以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
 
-- 预测 provenance 的正式 sidecar 序列化往返；
 - 紧急购电、合同电未利用与完整实际费用总计；
 - 求解器可行解、独立残差检查、两日 SOC 连续和年末条件。
 
 ## 4. 最短实施路径
 
 ```text
-1. 队长人工补录 HORIZON-B 与 charge curtailment recourse
-2. 团队批准 PV tail baseline 小 decision
+1. 团队比较并批准 PV tail baseline 小 decision
+2. 严格实现获批 baseline，并接入已完成的 snapshot/window contract
 3. 组装不含未来 actual 的 Q3WindowInput
 4. 实现单窗口 Q3 MILP + 独立 validator
-5. 接入十分钟回放、settlement 和 run artifacts
+5. 接入 charge curtailment 回放、settlement 和 run artifacts
 6. 按合成窗口、1日、7日、1月、全年逐级验证
 ```
 
@@ -83,12 +81,13 @@ curtailment recourse 和结构化 sidecar 已得到 C 成员明确认可，精�
 - [x] PV/负载候选有可复现的真实数据证据；
 - [x] PV/负载生产预测器及因果、缺失历史、provenance 测试通过；
 - [x] 计划版本、冻结和逐版调整费用的内存 contract 与手算测试通过；
-- [ ] HORIZON-B 已由队长人工补入 machine decision，tail baseline 已批准；
-- [ ] charge curtailment 已由队长人工补入 machine decision；
+- [x] HORIZON-B snapshot/window 接口已冻结并通过切片、补尾范围和禁止重采样测试；
+- [x] charge curtailment recourse 已由队长与 C 成员冻结；
+- [ ] `D_PV_TAIL_BASELINE` 算法已由团队批准并实现；
 - [x] shared ledger/provenance 采用结构化 sidecar；
 - [x] 修正版年度 actual adapter 已选择性整合；
-- [x] 三份 sidecar 的结构、往返、拒绝覆盖和哈希测试通过；
+- [x] 三份 sidecar 的精确结构、预测引用、往返、拒绝覆盖和哈希测试通过；
 - [ ] 不含未来 actual 的 `Q3WindowInput` 已通过 contract test；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-在最后五项完成前，可以实现独立的生产预测层，但不能让正式年度 runner返回成功。
+在 tail decision、窗口输入、求解器和回放均完成前，正式年度 runner不能返回成功。

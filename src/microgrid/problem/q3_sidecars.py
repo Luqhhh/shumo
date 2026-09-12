@@ -1,13 +1,15 @@
-"""Structured Q3 sidecars accepted by the team on 2026-09-12.
+"""Structured Q3 audit sidecars frozen by the team on 2026-09-12.
 
-The global ``CaseResult`` schema remains unchanged.  These writers only create
-the three one-to-many audit artifacts; a formal runner must later register the
-returned paths and hashes in its ordinary result/manifest structures.
+``CaseResult`` keeps its global schema. Q3's one-to-many forecast, plan-version
+and settlement history is written to three JSONL sidecars. This module only
+serializes existing domain records; it chooses no forecasting or replay method.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import math
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -16,14 +18,49 @@ from typing import Any
 
 from ..dataio import ensure_dir, sha256_file
 from ..schemas import InputError
+from .contracts import ENERGY_ABS_TOL_KWH, STEP_MINUTES, STEPS_PER_DAY, TimeGrid
 from .q3_load_forecast import LoadForecastPoint
 from .q3_plan_ledger import Q3PlanLedger
-from .q3_pv_forecast import CombinedPVForecast
+from .q3_pv_snapshot import PVForecastSnapshot, TailForecast
 
-Q3_SIDECAR_SCHEMA_VERSION = 1
+Q3_SIDECAR_SCHEMA_VERSION = 2
 FORECAST_PROVENANCE_FILENAME = "forecast_provenance.jsonl"
 PLAN_VERSIONS_FILENAME = "plan_versions.jsonl"
 SETTLEMENT_LEDGER_FILENAME = "settlement_ledger.jsonl"
+
+
+def _iso(value: dt.date | dt.datetime) -> str:
+    return value.isoformat()
+
+
+def load_forecast_id(point: LoadForecastPoint) -> str:
+    """Stable ID used by provenance rows and plan-version references."""
+
+    return f"load|decision={point.decision_time.isoformat()}|valid={point.valid_time.isoformat()}"
+
+
+def _version_id(ledger: Q3PlanLedger, version: int) -> str:
+    return f"{ledger.day.isoformat()}:v{version}"
+
+
+@dataclass(frozen=True)
+class PlanSlotForecastLink:
+    """Forecast IDs used by one slot of one immutable plan version."""
+
+    day: dt.date
+    version: int
+    target_slot: int
+    forecast_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.version < 0:
+            raise ValueError("plan forecast-link version must be non-negative")
+        if not 0 <= self.target_slot < STEPS_PER_DAY:
+            raise ValueError("plan forecast-link target_slot is outside the daily grid")
+        if not self.forecast_ids or any(not value for value in self.forecast_ids):
+            raise ValueError("plan forecast-link IDs must be non-empty")
+        if len(self.forecast_ids) != len(set(self.forecast_ids)):
+            raise ValueError("plan forecast-link IDs must be unique within a slot")
 
 
 @dataclass(frozen=True)
@@ -74,16 +111,71 @@ class Q3SidecarSet:
         }
 
 
-def _iso(value: Any) -> str:
-    return value.isoformat()
+def _snapshot_source_details(
+    snapshot: PVForecastSnapshot,
+    valid_time: dt.datetime,
+) -> tuple[tuple[str, ...], tuple[dict[str, Any], ...]]:
+    """Return auditable source knots for one resampled attachment-3 value."""
+
+    lead_hours = (valid_time - snapshot.issue_time).total_seconds() / 3600.0
+    if not 0 < lead_hours <= 24:
+        raise ValueError("snapshot provenance valid_time is outside its 24-hour horizon")
+
+    if snapshot.resampling_method == "linear":
+        knot_hours = tuple(sorted({math.floor(lead_hours), math.ceil(lead_hours)}))
+    else:
+        # PCHIP slopes use neighbouring knots. Retain every input knot rather
+        # than asserting a misleading pair of linear weights.
+        knot_hours = tuple(range(25))
+
+    source_refs: list[str] = []
+    components: list[dict[str, Any]] = []
+    for knot_hour in knot_hours:
+        if knot_hour == 0:
+            source_refs.append(snapshot.boundary_proxy.source_ref)
+            components.append(
+                {
+                    "component_kind": "actual_boundary_proxy",
+                    "valid_time": _iso(snapshot.boundary_proxy.interval_end),
+                    "value_kw": snapshot.boundary_proxy.mean_power_kw,
+                    "source_ref": snapshot.boundary_proxy.source_ref,
+                }
+            )
+            continue
+
+        knot_time = snapshot.issue_time + dt.timedelta(hours=knot_hour)
+        contributions = tuple(
+            item
+            for item in snapshot.combined_forecast.contributions
+            if item.valid_time == knot_time
+        )
+        if not contributions:
+            raise ValueError("snapshot hourly knot has no retained vintage contribution")
+        for item in contributions:
+            source_refs.append(item.source_ref)
+            components.append(
+                {
+                    "component_kind": "attachment3_vintage",
+                    "issue_time": _iso(item.issue_time),
+                    "valid_time": _iso(item.valid_time),
+                    "lead_hours": item.lead_hours,
+                    "forecast_value_kw": item.forecast_power_kw,
+                    "historical_mae": item.historical_mae_kw,
+                    "history_count": item.history_count,
+                    "normalized_weight": item.normalized_weight,
+                    "source_ref": item.source_ref,
+                }
+            )
+    return tuple(dict.fromkeys(source_refs)), tuple(components)
 
 
 def forecast_provenance_rows(
     *,
     load_versions: Iterable[tuple[LoadForecastPoint, ...]],
-    pv_versions: Iterable[CombinedPVForecast],
+    pv_snapshots: Iterable[PVForecastSnapshot],
+    tail_forecasts: Iterable[TailForecast] = (),
 ) -> tuple[dict[str, Any], ...]:
-    """Normalize load and PV forecast provenance without dropping vintages."""
+    """Return one row per ten-minute forecast value retained by Q3."""
 
     rows: list[dict[str, Any]] = []
     for version in load_versions:
@@ -91,129 +183,201 @@ def forecast_provenance_rows(
             rows.append(
                 {
                     "schema_version": Q3_SIDECAR_SCHEMA_VERSION,
-                    "record_type": "load_forecast",
+                    "record_type": "forecast_value",
+                    "forecast_id": load_forecast_id(point),
+                    "kind": "load",
                     "decision_time": _iso(point.decision_time),
                     "valid_time": _iso(point.valid_time),
-                    "available_at": _iso(point.available_at),
+                    "value_kw": point.power_kw,
+                    "model_version": point.model_version,
                     "training_cutoff": _iso(point.training_cutoff),
-                    "prediction_power_kw": point.power_kw,
-                    "prediction_energy_kwh": point.energy_kwh,
-                    "raw_power_kw": point.raw_power_kw,
+                    "source_refs": list(point.source_refs),
+                    "available_at": _iso(point.available_at),
+                    "value_kwh": point.energy_kwh,
+                    "data_version": point.data_version,
+                    "raw_value_kw": point.raw_power_kw,
                     "lag_values_kw": list(point.lag_values_kw),
                     "lag_weights": list(point.lag_weights),
                     "ar1_phi": point.ar1_phi,
                     "latest_visible_residual_kw": point.latest_visible_residual_kw,
                     "was_clipped": point.was_clipped,
-                    "model_version": point.model_version,
-                    "data_version": point.data_version,
-                    "source_refs": list(point.source_refs),
                 }
             )
-    for version in pv_versions:
-        for point in version.points:
-            contributions = tuple(
-                row for row in version.contributions if row.valid_time == point.valid_time
+
+    for snapshot in pv_snapshots:
+        for point in snapshot.points:
+            source_refs, components = _snapshot_source_details(snapshot, point.valid_time)
+            attachment_components = tuple(
+                item for item in components if item["component_kind"] == "attachment3_vintage"
             )
             rows.append(
                 {
                     "schema_version": Q3_SIDECAR_SCHEMA_VERSION,
-                    "record_type": "pv_combined_forecast",
-                    "decision_time": _iso(version.decision_time),
+                    "record_type": "forecast_value",
+                    "forecast_id": point.forecast_id,
+                    "kind": "pv_attachment3",
+                    "decision_time": _iso(snapshot.issue_time),
                     "valid_time": _iso(point.valid_time),
-                    "prediction_power_kw": point.power_kw,
-                    "epsilon_kw": version.epsilon_kw,
-                    "model_version": version.model_version,
-                    "source_ref": point.source_ref,
-                    "contributions": [
-                        {
-                            "issue_time": _iso(row.issue_time),
-                            "valid_time": _iso(row.valid_time),
-                            "lead_hours": row.lead_hours,
-                            "forecast_power_kw": row.forecast_power_kw,
-                            "historical_mae_kw": row.historical_mae_kw,
-                            "history_count": row.history_count,
-                            "raw_weight": row.raw_weight,
-                            "normalized_weight": row.normalized_weight,
-                            "source_ref": row.source_ref,
-                        }
-                        for row in contributions
+                    "value_kw": point.power_kw,
+                    "model_version": (
+                        f"{snapshot.combined_forecast.model_version}+"
+                        f"RESAMPLE-{snapshot.resampling_method.upper()}/v1"
+                    ),
+                    "training_cutoff": _iso(snapshot.issue_time),
+                    "source_refs": list(source_refs),
+                    "value_kwh": point.energy_kwh,
+                    "issue_time": _iso(snapshot.issue_time),
+                    "lead_hours": (point.valid_time - snapshot.issue_time).total_seconds() / 3600.0,
+                    "historical_mae": [item["historical_mae"] for item in attachment_components],
+                    "normalized_weight": [
+                        item["normalized_weight"] for item in attachment_components
                     ],
+                    "resampling_method": snapshot.resampling_method,
+                    "attachment3_components": list(components),
                 }
             )
+
+    for forecast in tail_forecasts:
+        for point in forecast.points:
+            rows.append(
+                {
+                    "schema_version": Q3_SIDECAR_SCHEMA_VERSION,
+                    "record_type": "forecast_value",
+                    "forecast_id": point.forecast_id,
+                    "kind": "pv_tail",
+                    "decision_time": _iso(point.decision_time),
+                    "valid_time": _iso(point.valid_time),
+                    "value_kw": point.power_kw,
+                    "model_version": point.model_version,
+                    "training_cutoff": _iso(point.training_cutoff),
+                    "source_refs": list(point.source_refs),
+                    "available_at": _iso(point.available_at),
+                    "value_kwh": point.energy_kwh,
+                    "fallback_reason": point.fallback_reason,
+                }
+            )
+
+    forecast_ids = tuple(str(row["forecast_id"]) for row in rows)
+    if len(forecast_ids) != len(set(forecast_ids)):
+        raise InputError("Q3 forecast provenance contains duplicate forecast_id values")
     return tuple(
         sorted(
             rows,
             key=lambda row: (
                 str(row["decision_time"]),
-                str(row["record_type"]),
+                str(row["kind"]),
                 str(row["valid_time"]),
             ),
         )
     )
 
 
-def plan_version_rows(ledgers: Iterable[Q3PlanLedger]) -> tuple[dict[str, Any], ...]:
-    """Return one row per immutable plan version and target slot."""
+def plan_version_rows(
+    ledgers: Iterable[Q3PlanLedger],
+    *,
+    forecast_links: Iterable[PlanSlotForecastLink],
+    known_forecast_ids: frozenset[str],
+) -> tuple[dict[str, Any], ...]:
+    """Return the complete version chain with explicit forecast references."""
+
+    link_by_key: dict[tuple[dt.date, int, int], PlanSlotForecastLink] = {}
+    for link in forecast_links:
+        key = (link.day, link.version, link.target_slot)
+        if key in link_by_key:
+            raise InputError(f"duplicate Q3 plan forecast-link for {key}")
+        unknown = set(link.forecast_ids) - known_forecast_ids
+        if unknown:
+            raise InputError(f"Q3 plan references unknown forecast_id: {sorted(unknown)[0]}")
+        link_by_key[key] = link
 
     rows: list[dict[str, Any]] = []
+    used_keys: set[tuple[dt.date, int, int]] = set()
+    grid = TimeGrid()
     for ledger in sorted(ledgers, key=lambda item: item.day):
         for version in ledger.versions:
+            issue_slot = (version.issue_time.hour * 60 + version.issue_time.minute) // STEP_MINUTES
+            previous = None if version.version == 0 else ledger.versions[version.version - 1]
             for slot, quantity in enumerate(version.committed_kwh):
+                key = (ledger.day, version.version, slot)
+                link = link_by_key.get(key)
+                if link is None:
+                    raise InputError(f"missing Q3 plan forecast-link for {key}")
+                used_keys.add(key)
+                interval = grid.interval(ledger.day, slot)
                 rows.append(
                     {
                         "schema_version": Q3_SIDECAR_SCHEMA_VERSION,
-                        "record_type": "plan_version_slot",
-                        "day": version.day.isoformat(),
-                        "version": version.version,
+                        "record_type": "plan_version",
+                        "version_id": _version_id(ledger, version.version),
                         "issue_time": _iso(version.issue_time),
-                        "target_slot": slot,
+                        "target_slot_start": _iso(interval.start),
+                        "target_slot_end": _iso(interval.end),
+                        "previous_committed_kwh": (
+                            None if previous is None else previous.committed_kwh[slot]
+                        ),
                         "committed_kwh": quantity,
+                        "purchase_is_fixed": slot < issue_slot,
+                        "forecast_ids": list(link.forecast_ids),
                     }
                 )
+    unused_keys = set(link_by_key) - used_keys
+    if unused_keys:
+        raise InputError(f"Q3 plan forecast-link has no matching version: {sorted(unused_keys)[0]}")
     return tuple(rows)
 
 
 def settlement_rows(ledgers: Iterable[Q3PlanLedger]) -> tuple[dict[str, Any], ...]:
-    """Return initial-plan and non-netted adjustment events.
+    """Return base-plan and non-zero adjustment billing events.
 
-    Emergency execution events will be added by the replay layer after its
-    still-pending physical recourse wording is transcribed into the machine
-    decision.  This function must not invent those actions.
+    Emergency events belong to the actual replay layer. Until that layer
+    supplies them, this writer must neither infer nor fabricate them.
     """
 
     rows: list[dict[str, Any]] = []
+    grid = TimeGrid()
     for ledger in sorted(ledgers, key=lambda item: item.day):
         initial = ledger.versions[0]
         for slot, (quantity, price) in enumerate(
             zip(initial.committed_kwh, ledger.base_prices_cny_per_kwh, strict=True)
         ):
+            interval = grid.interval(ledger.day, slot)
             rows.append(
                 {
                     "schema_version": Q3_SIDECAR_SCHEMA_VERSION,
-                    "record_type": "planned_purchase",
-                    "day": ledger.day.isoformat(),
+                    "record_type": "base_plan",
                     "issue_time": _iso(initial.issue_time),
-                    "target_slot": slot,
-                    "quantity_kwh": quantity,
+                    "target_slot_start": _iso(interval.start),
+                    "target_slot_end": _iso(interval.end),
+                    "previous_committed_kwh": None,
+                    "new_committed_kwh": quantity,
+                    "delta_plus_kwh": 0.0,
+                    "delta_minus_kwh": 0.0,
+                    "energy_kwh": quantity,
                     "price_cny_per_kwh": price,
                     "cost_cny": quantity * price,
                 }
             )
         for entry in ledger.adjustment_entries:
+            if (
+                entry.delta_plus_kwh <= ENERGY_ABS_TOL_KWH
+                and entry.delta_minus_kwh <= ENERGY_ABS_TOL_KWH
+            ):
+                continue
+            interval = grid.interval(ledger.day, entry.target_slot)
             rows.append(
                 {
                     "schema_version": Q3_SIDECAR_SCHEMA_VERSION,
-                    "record_type": "purchase_adjustment",
-                    "day": ledger.day.isoformat(),
+                    "record_type": "adjustment",
                     "issue_time": _iso(entry.issue_time),
-                    "target_slot": entry.target_slot,
+                    "target_slot_start": _iso(interval.start),
+                    "target_slot_end": _iso(interval.end),
                     "previous_committed_kwh": entry.previous_committed_kwh,
                     "new_committed_kwh": entry.new_committed_kwh,
                     "delta_plus_kwh": entry.delta_plus_kwh,
                     "delta_minus_kwh": entry.delta_minus_kwh,
+                    "energy_kwh": entry.delta_plus_kwh + entry.delta_minus_kwh,
                     "price_cny_per_kwh": entry.transaction_price_cny_per_kwh,
                     "cost_cny": entry.adjustment_cost_cny,
-                    "is_frozen": entry.is_frozen,
                 }
             )
     return tuple(rows)
@@ -249,21 +413,38 @@ def write_q3_sidecars(
     run_dir: str | Path,
     *,
     load_versions: Iterable[tuple[LoadForecastPoint, ...]],
-    pv_versions: Iterable[CombinedPVForecast],
+    pv_snapshots: Iterable[PVForecastSnapshot],
     plan_ledgers: Iterable[Q3PlanLedger],
+    forecast_links: Iterable[PlanSlotForecastLink],
+    tail_forecasts: Iterable[TailForecast] = (),
     overwrite: bool = False,
 ) -> Q3SidecarSet:
-    """Write each of the three accepted Q3 sidecars atomically."""
+    """Validate and write the three accepted Q3 sidecar files."""
 
     directory = Path(run_dir)
     load_versions_tuple = tuple(load_versions)
-    pv_versions_tuple = tuple(pv_versions)
+    pv_snapshots_tuple = tuple(pv_snapshots)
+    tail_forecasts_tuple = tuple(tail_forecasts)
     ledgers_tuple = tuple(plan_ledgers)
-    if not load_versions_tuple or not pv_versions_tuple or not ledgers_tuple:
-        raise InputError("Q3 formal sidecars require load, PV and plan records")
+    links_tuple = tuple(forecast_links)
+    if not load_versions_tuple or not pv_snapshots_tuple or not ledgers_tuple:
+        raise InputError("Q3 formal sidecars require load, PV snapshot and plan records")
     ledger_days = tuple(ledger.day for ledger in ledgers_tuple)
     if len(ledger_days) != len(set(ledger_days)):
         raise InputError("Q3 plan sidecars contain duplicate daily ledgers")
+
+    forecasts = forecast_provenance_rows(
+        load_versions=load_versions_tuple,
+        pv_snapshots=pv_snapshots_tuple,
+        tail_forecasts=tail_forecasts_tuple,
+    )
+    plans = plan_version_rows(
+        ledgers_tuple,
+        forecast_links=links_tuple,
+        known_forecast_ids=frozenset(str(row["forecast_id"]) for row in forecasts),
+    )
+    settlements = settlement_rows(ledgers_tuple)
+
     targets = (
         directory / FORECAST_PROVENANCE_FILENAME,
         directory / PLAN_VERSIONS_FILENAME,
@@ -273,28 +454,10 @@ def write_q3_sidecars(
         existing = tuple(path for path in targets if path.exists())
         if existing:
             raise InputError(f"Q3 sidecar already exists: {existing[0]}")
-    forecasts = forecast_provenance_rows(
-        load_versions=load_versions_tuple,
-        pv_versions=pv_versions_tuple,
-    )
-    plans = plan_version_rows(ledgers_tuple)
-    settlements = settlement_rows(ledgers_tuple)
     return Q3SidecarSet(
-        forecast_provenance=_write_jsonl(
-            targets[0],
-            forecasts,
-            overwrite=overwrite,
-        ),
-        plan_versions=_write_jsonl(
-            targets[1],
-            plans,
-            overwrite=overwrite,
-        ),
-        settlement_ledger=_write_jsonl(
-            targets[2],
-            settlements,
-            overwrite=overwrite,
-        ),
+        forecast_provenance=_write_jsonl(targets[0], forecasts, overwrite=overwrite),
+        plan_versions=_write_jsonl(targets[1], plans, overwrite=overwrite),
+        settlement_ledger=_write_jsonl(targets[2], settlements, overwrite=overwrite),
     )
 
 

@@ -1,8 +1,9 @@
-# Q3 接口澄清文本（待人工录入 machine decision）
+# Q3 已冻结接口澄清文本
 
-2026-09-12，队长提出以下工程建议，C 成员随后在本会话明确回复“认可”。本文件
-只把人工答复整理成无歧义文本，方便队长复核并亲自录入 `configs/decisions.toml`；
-受 `AGENTS.md` 约束，Agent 不修改批准状态、不代填 `confirmed_by/confirmed_at`。
+2026-09-12，队长提出以下接口建议，C 成员明确回复“认可”，队长随后确认四项
+可冻结。本文件记录该人工结论；受 `AGENTS.md` 约束，Agent 不修改既有 approved
+decision，也不代填 `confirmed_by/confirmed_at`。尚未选择的 tail 算法仍由
+`D_PV_TAIL_BASELINE=pending` 阻断。
 
 ## 1. 固定 24 h 窗口：HORIZON-B
 
@@ -12,14 +13,16 @@ baseline 补齐最新附件3 snapshot 无法覆盖的窗口尾部：
 - 最新可见附件3预测覆盖的 `valid_time` 永远优先；
 - baseline 只补没有附件3覆盖的尾部，不覆盖、不平均附件3已有节点；
 - baseline 不得读取 `available_at > decision_time` 的数据；
-- 每个补尾点保存 `decision_time/valid_time/training_cutoff/model_version/
-  data_version/source_refs`，明确标记 `is_tail_fallback=true`；
+- 每个补尾点保存 `forecast_id/decision_time/valid_time/value_kw/model_version/
+  training_cutoff/source_refs`，并固定
+  `fallback_reason="attachment3_horizon_exhausted"`；
 - 不得把补尾值伪装成附件3发布值；缺少获批 baseline 时显式阻断；
 - baseline 的具体历史算法另立小型 forecast decision，在其 machine 状态批准前
   不进入正式 Q3 runner。
 
-建议由人工在 machine decision 中明确 baseline 算法、冷启动、历史缺失和非负
-处理，并将该 decision 加入 Q3 gate。
+发布时刻先一次性保存144点不可变 `PVForecastSnapshot`；中间 MPC 只切片，不重新
+调用附件3 combiner/resampler。人工仍需明确 baseline 算法、冷启动、历史缺失和
+非负处理；该 pending decision 已加入 Q3 与 final gate。
 
 ## 2. 实际短缺：charge curtailment recourse
 
@@ -56,12 +59,12 @@ settlement_ledger.jsonl       计划、逐版调整及后续实际结算事件
 
 - `CaseResult.intervals` 只保存最终执行轨迹；
 - `CaseResult.result_files` 纳入三份 sidecar；
-- `metadata/manifest` 只保存相对路径、schema version、SHA-256、row count；
+- `metadata/manifest` 只保存相对路径、schema version、SHA-256 等索引信息；
 - 不把整张预测或交易账本塞入 `metadata`；
 - sidecar 写入必须拒绝静默覆盖，并通过 JSONL 往返、行数和哈希测试。
 
-当前 `problem/q3_sidecars.py` 只实现获准结构和计划/调整事件。紧急结算事件必须
-等待第2项被人工录入 machine decision 后再接入。
+当前 `problem/q3_sidecars.py` 已实现精确字段、完整计划版本链、预测ID引用检查和
+计划/调整事件。紧急结算事件由后续实际回放提供，不能由 sidecar writer 猜测。
 
 ## 4. B actual adapter 的选择性整合
 

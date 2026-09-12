@@ -30,10 +30,10 @@
 | Q3-M1 | PV 多版本怎样组合 | 已批准：`VERSION-B + WEIGHT-B + HISTORY-A` |
 | Q3-M2 | 平方倒数权重的 `epsilon_kw` | 已批准：`1 kW`；其他正值只作敏感性 |
 | Q3-M3 | 负载预测与日内更新 | 已批准：`LOAD-A + LF-A` |
-| Q3-M4 | 每十分钟重算时，24 h PV 曲线尾部怎样处理 | **需澄清**：见第 4 节三种互斥方案 |
+| Q3-M4 | 每十分钟重算时，24 h PV 曲线尾部怎样处理 | 已冻结 `HORIZON-B` 接口；具体 tail baseline 算法仍 pending |
 | Q3-M5 | 00/06/12/18 能修改哪些未来交付时隙 | 已批准：仅调整当日尚未开始的时隙；跨日只 look-ahead、不提交 |
 | Q3-M6 | 调整费的逐笔账单 | 已批准：`SETTLE-A-v2`，计划费、逐版调整费、紧急费相加 |
-| Q3-M7 | 实际回放时电池怎样因果响应 | **需澄清**：预测安排充电但实际供给不足时如何满足紧急互斥 |
+| Q3-M7 | 实际回放时电池怎样因果响应 | 已冻结：只削减/取消计划充电，不增加放电或重新优化 |
 | Q3-M8 | 窗口终端与年度边界 | 已批准：线性残值；年末入窗后去残值并强制 6000 kWh |
 | Q3-M9 | 同成本解的二级目标 | 未纳入批准口径；正式基线不得自行增加 |
 | Q3-M10 | 求解器和数值标准 | 已批准 SciPy/HiGHS；工程时限与容差需记录、不能接受非最优冒充成功 |
@@ -99,23 +99,16 @@ PV 组合还应保存候选 `issue_time`、`lead_hours`、历史 MAE、归一化
 `epsilon_kw` 和 fallback 原因。负载预测还应保存 7/14/21/28 日滞后值、权重、
 `ar1_phi`、最新可见残差和是否截断到 0。
 
-## 4. 十分钟 MPC 与 24 小时预报的接口冲突
+## 4. 十分钟 MPC 与 24 小时预报的冻结接口
 
-这是进入求解器前必须新回答的问题。已批准的重采样器以 00/06/12/18 的发布
-时刻为锚点，只生成 `issue_time+10min ... issue_time+24h`。如果 06:10 又要求
-固定 24 h MPC，06:00 的曲线只剩 23 h 50 min；到 11:50 时只剩 18 h 10 min。
+`HORIZON-B` 已冻结：00/06/12/18 发布时才组合24个真实整点并一次性重采样成
+不可变的144点 `PVForecastSnapshot`。中间每十分钟 MPC 从最近 snapshot 切出
+仍覆盖的点，只把超过其 `coverage_end` 的连续尾部交给 `PVTailBaseline`。
 
-批准文字同时要求“每十分钟固定 24 h 窗口”和“下一发布前保留本次预测版本”，
-但没有定义尾部输入。团队需选择一种澄清方案并记录到 `D_MODEL_Q3`：
-
-| 方案 | 做法 | 主要影响 |
-|---|---|---|
-| `HORIZON-A` | 发布时刻生成 24 h 曲线；其后十分钟控制使用剩余曲线，窗口逐渐缩短，下一发布时刻再恢复 24 h | 最简单，但 look-ahead 在 18–24 h 之间变化，终端价值需匹配 |
-| `HORIZON-B` | 每十分钟保持固定 24 h；最新附件3曲线覆盖的部分优先使用，尾部由获批的因果基线预测补齐并记录 fallback | 窗口固定，但依赖正式 Q2 型预测及完整 provenance |
-| `HORIZON-C` | 只在 00/06/12/18 求完整计划；中间十分钟只执行经批准的实时电池规则，不重做 24 h 优化 | 求解次数少，但与“每十分钟 MPC”提案不同 |
-
-不得把 06:00 的整点节点平移成 06:10、07:10 等伪造节点，也不得用下一次尚未
-发布的 forecast 补尾。
+例如 11:50 使用06:00 snapshot 时，12:00至次日06:00来自附件3，次日06:10至
+11:50来自 tail baseline。不得在06:10伪造07:10等小时节点，不得重新调用附件3
+combiner/resampler，也不得让 tail 覆盖附件3已有时隙。具体 tail 算法由 pending
+的 `D_PV_TAIL_BASELINE` 单独控制。
 
 ## 5. 已批准数学结构的实现拆解
 
@@ -176,16 +169,18 @@ pv_available = pv_use + pv_curtailment
 ```
 
 这里左侧使用的是 `pv_use`，因此右侧不能再次把 `pv_curtailment` 加进同一条平衡
-等式。紧急购电是 residual balancing energy，不是可自由套利的能源。还需由
-`D_REALTIME_DISPATCH` 明确：若时隙开始安排了充电但本格实际供给不足，是取消
-充电、改变电池动作，还是允许紧急电维持动作；实现者不得自行选。
+等式。紧急购电是 residual balancing energy，不是可自由套利的能源。实际回放
+已冻结为 charge curtailment recourse：`D_exec=D_plan`，`C_exec` 只能在
+`[0,C_plan]` 内向下削减；充电减到0仍不足时才产生 emergency。禁止增加放电、
+charge-to-discharge、重新求解或使用 emergency 给电池充电。PV/grid spill 的
+归属优先级仍不是该 contract 的一部分，实现时不得顺手添加。
 
 ## 7. 版本计划与结果审计接口
 
 现有 `IntervalResult` 能保存每个已执行时隙的初始计划量、最终确认量和紧急量，
 但无法表达 `100 -> 80 -> 100` 这种“最终净变化为 0、过程中有两笔交易”的情况。
 
-低侵入候选是为每个 Q3 run 保存三个独立 sidecar：
+已冻结为每个 Q3 run 保存三个独立 sidecar：
 
 ```text
 forecast_provenance.jsonl
@@ -193,10 +188,9 @@ plan_versions.jsonl
 settlement_ledger.jsonl
 ```
 
-`CaseResult.metadata` 只记录这些文件的相对路径和 SHA-256，不把主表内容塞进
-metadata。另一方案是提升 `CaseResult/result_io` schema 并增加结构化字段。
-两者都涉及 A 所有的 shared contract，需由 A 选择并 review；C 不应先写一套私有
-结果格式。
+`CaseResult.metadata["sidecars"]` 只记录相对路径、sidecar schema version 与
+SHA-256，不把主表内容塞进 metadata；`CaseResult.result_files` 登记三份文件。
+全局 `CaseResult/result_io` schema 保持 v1。
 
 计划快照最低字段：
 
@@ -257,13 +251,11 @@ transaction_price / cost_cny
 
 ## 10. 人工澄清记录区
 
-当前批准已经覆盖 Q3-M1/M2/M3/M5/M6/M8/M10。只需对发现的两个实现矛盾及
-一个工程接口作补充记录；Agent 不填写确认字段。
+当前 Q3-M4/Q3-M7 与审计 sidecar 已由队长和 C 成员冻结。仅剩 tail baseline
+具体算法需要单独形成证据和人工确认；Agent 不填写确认字段。
 
 ```text
-Q3-M4 horizon/tail：
-Q3-M7 预测充电遇实际短缺时的因果处理：
-审计 sidecar 与 CaseResult 的承载方式：
+D_PV_TAIL_BASELINE 算法：
 
 confirmed_by：
 confirmed_at：

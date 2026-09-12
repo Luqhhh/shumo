@@ -106,6 +106,14 @@ confirmed_by = "A（本会话用户）"
 confirmed_at = "2026-09-12"
 source = "2026-09-12本会话用户明确确认；docs/c_load_forecast_evidence.md；C-1/C-5；审阅提交7b90599"
 
+[decisions.D_PV_TAIL_BASELINE]
+status = "pending"
+choice = ""
+rationale = ""
+confirmed_by = ""
+confirmed_at = ""
+source = "HORIZON-B 已由队长与C成员确认；具体严格因果 PV tail baseline 算法待团队确认"
+
 [decisions.D_MODEL_Q1]
 status = "approved"
 choice = "按 docs/q1_model.md：目标 min sum_k price_k*g_k；g/c/d/u/E 变量；供需 g_k+d_k+u_k=load_k+c_k；弃光无售电收入；E_{k+1}=E_k+0.9c_k-d_k/0.9；E_0=E_144=6000；1200<=E_k<=10800；0<=c_k,d_k<=5000/6；二进制 z_k 实现充放电互斥；SciPy scipy.optimize.milp / HiGHS。"

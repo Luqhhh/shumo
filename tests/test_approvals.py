@@ -114,6 +114,7 @@ def test_final_required_set_is_explicit() -> None:
     assert "D_TIME_INTERNAL" in FINAL_REQUIRED_DECISION_IDS
     assert "D_RESAMPLE" in FINAL_REQUIRED_DECISION_IDS
     assert "D_LOAD_FORECAST" in FINAL_REQUIRED_DECISION_IDS
+    assert "D_PV_TAIL_BASELINE" in FINAL_REQUIRED_DECISION_IDS
 
 
 @pytest.mark.parametrize(
@@ -164,3 +165,28 @@ def test_q3_complete_approval_reaches_unimplemented_runner(tmp_path: Path):
     with pytest.raises(ModelNotImplementedError):
         run_case("q3", tmp_path)
     assert not (tmp_path / "outputs").exists()
+
+
+def test_q3_tail_baseline_pending_blocks_before_runner(tmp_path: Path, monkeypatch) -> None:
+    from microgrid.cases import CASE_RUNNERS, required_decisions, run_case
+
+    lines = []
+    for decision_id in required_decisions("q3"):
+        status = "pending" if decision_id == "D_PV_TAIL_BASELINE" else "approved"
+        lines.extend(
+            _decision_block(
+                decision_id,
+                status=status,
+                confirmed_by="tester" if status == "approved" else "",
+                confirmed_at="2026-09-12" if status == "approved" else "",
+            )
+        )
+    _write_decisions(tmp_path, lines)
+
+    def forbidden_runner(_context):
+        pytest.fail("Q3 runner must not run while the tail baseline is pending")
+
+    monkeypatch.setitem(CASE_RUNNERS, "q3", forbidden_runner)
+    with pytest.raises(PendingDecisionError) as excinfo:
+        run_case("q3", tmp_path)
+    assert excinfo.value.decision_ids == ["D-PV-TAIL-BASELINE"]
