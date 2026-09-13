@@ -85,9 +85,9 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 ## 4. 最短实施路径
 
 ```text
-1. 把附件1/2/3 adapter组装到release builder
-2. 完成正式runner的manifest/失败证据
-3. 再依次做真实1日、7日、1月、全年
+1. 完成正式runner的manifest/失败证据
+2. 导入本地原始附件后做真实1日审计
+3. 再依次做7日、1月、全年
 ```
 
 ## 5. 求解器开工验收
@@ -118,6 +118,7 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - [x] 一日结果可写三份带哈希sidecar及全局schema v1 CaseResult；
 - [x] 跨日driver每天重建合同账本，但SOC从前日末连续传入次日初；
 - [x] 跨日结果统一写入三份sidecar和一个schema v1 CaseResult；
+- [x] runtime input总线校验附件1/2/3全年网格、四次发布和来源哈希；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
 在真实forecast factory、跨日运行和年度runner完成前，正式年度runner仍不能返回成功。
