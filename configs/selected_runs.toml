@@ -8,8 +8,13 @@ note = "正式论文资产必须通过显式 run_id 选择；禁止默认使用 
 # case_id/run_id 匹配、result_files 存在且（若声明）SHA-256 匹配。
 [runs]
 q1 = "q1-a-formal-003"
+q3 = "q3-formal-delivery-20260913"
 # 其他 case 仍待完成
 # q2 = ""
-# q3 = ""
 # q4_2 = ""
 # q4_3 = ""
+
+[case_selections.q3]
+selection_status = "approved"
+source_run_id = "q3-terminal-reserve-evidence-20260913"
+approval_source = "2026-09-13本会话用户明确批准限定导出并以新正式交付目录作为Q3选定来源；原诊断文件保留。全局selection_status仍pending，不据此批准其他case或整个final提交。"

@@ -223,7 +223,7 @@ def export_case_result(
     """Formal numeric export entry point, gated separately from internal time.
 
     The D_TIME_TEMPLATE_EXPORT decision records the team's explicit mapping
-    interpretation.  Q1 is the only implemented writer; other cases still fail
+    interpretation. Q1 and explicitly approved Q3 deliveries have writers; other cases fail
     explicitly rather than copying values into unverified templates.
     """
 
@@ -237,9 +237,18 @@ def export_case_result(
     if case_result.case_id not in EXPECTED_SHEETS:
         raise InputError(f"unknown result case_id: {case_result.case_id!r}")
     if case_result.is_synthetic:
-        raise InputError("synthetic Q1 result cannot be exported through the formal writer")
+        raise InputError("synthetic result cannot be exported through the formal writer")
     if case_result.status != "success":
-        raise InputError(f"Q1 result status is not success: {case_result.status!r}")
+        raise InputError(f"result status is not success: {case_result.status!r}")
+    if case_result.case_id == "q3":
+        from .problem.q3_export import export_q3_case_result
+
+        output = (
+            Path(output_path)
+            if output_path is not None
+            else Path(repo_root) / "outputs/runs/q3" / case_result.run_id / "results/result3.xlsx"
+        )
+        return export_q3_case_result(Path(repo_root), case_result, output)
     if case_result.case_id != "q1":
         raise NotImplementedError(
             f"numeric template export is implemented only for Q1, not {case_result.case_id!r}"

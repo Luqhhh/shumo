@@ -196,7 +196,7 @@ def generate_final_assets(
     if not selected:
         raise PendingDecisionError(["D_MODEL_Q1"], "final paper asset selection is empty")
 
-    generators = {"q1": generate_q1_result_tables}
+    generators = {"q1": generate_q1_result_tables, "q3": generate_q3_result_tables}
     assets: dict[str, Path] = {}
     for case_id, run_id in selected.items():
         generator = generators.get(case_id)
@@ -207,6 +207,12 @@ def generate_final_assets(
             )
         assets[case_id] = generator(repo, run_id)
     return assets
+
+
+def generate_q3_result_tables(repo_root: str | Path, run_id: str) -> Path:
+    from .problem.q3_export import publish_q3_paper_assets
+
+    return publish_q3_paper_assets(Path(repo_root), run_id)
 
 
 def _fmt_number(value: float) -> str:

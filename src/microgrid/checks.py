@@ -198,6 +198,20 @@ def _check_run_evidence(
                             f"case {case_id}: export decision snapshot differs from current "
                             f"D_TIME_TEMPLATE_EXPORT.{field}"
                         )
+                if case_id == "q3" and (
+                    snapshot.get("q3_mapping_version") or current_decision.get("q3_mapping_version")
+                ):
+                    for field in (
+                        "q3_mapping_version",
+                        "q3_choice",
+                        "q3_scope_cases",
+                        "q3_formal_run_id",
+                        "q3_formal_source_run_id",
+                        "q3_audit_sha256",
+                        "q3_approval_source",
+                    ):
+                        if snapshot.get(field) != current_decision.get(field):
+                            blockers.append(f"case q3: export decision snapshot differs at {field}")
     return blockers
 
 
@@ -223,6 +237,8 @@ def check_selected_run(repo_root: str | Path, case_id: str, run_id: str) -> list
         blockers.append(f"case {case_id}: selected run status is not success")
     if manifest.get("is_synthetic") is not False:
         blockers.append(f"case {case_id}: selected run is not explicitly non-synthetic")
+    if manifest.get("diagnostic_only") is True:
+        blockers.append(f"case {case_id}: diagnostic run cannot be selected as formal evidence")
 
     filename = RESULT_FILE_BY_CASE[case_id]
     result_path = _selected_result_path(manifest, run_dir, filename)
