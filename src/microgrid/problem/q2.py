@@ -16,7 +16,6 @@ from ..artifacts import (
     sha256_file,
     verify_imported_inputs,
     verify_loaded_input_paths,
-    verify_required_inputs,
     write_json,
     write_manifest,
 )
@@ -28,6 +27,7 @@ from .q2_forecast import ForecastConfig
 from .q2_inputs import Q2InputBundle, load_q2_inputs
 from .q2_model import Q2ModelConfig
 from .result_io import save_case_result
+from .validation import validate_complete_run
 
 Q2_RUN_CONFIG_RELATIVE_PATH = Path("configs") / "q2_run.toml"
 
@@ -62,7 +62,7 @@ def _load_q2_run_settings(repo_root: Path) -> dict[str, Any]:
         data = tomllib.load(handle)
     section = data.get("q2", data)
     return dict(section) if isinstance(section, dict) else {}
-from .validation import validate_complete_run
+
 
 CASE_ID = "q2"
 
@@ -90,6 +90,8 @@ def _accounting_dict(engineering: Any) -> dict[str, Any]:
         "max_abs_ledger_residual_kwh": accounting.max_abs_ledger_residual_kwh,
         "pv_accounting_policy": accounting.pv_accounting_policy,
     }
+
+
 MODEL_DECISION_ID = "D_MODEL_Q2"
 Q2_DECISION_IDS = (
     "D_TIME_INTERNAL",
@@ -253,9 +255,7 @@ def _build_engine_config(
     pv_lags_value = settings.get("pv_lags")
     pv_lags = tuple(int(value) for value in pv_lags_value) if pv_lags_value else None
     pv_weights_value = settings.get("pv_weights")
-    pv_weights = (
-        tuple(float(value) for value in pv_weights_value) if pv_weights_value else None
-    )
+    pv_weights = tuple(float(value) for value in pv_weights_value) if pv_weights_value else None
     prices = tuple(point.price_cny_per_kwh for point in bundle.fixed_prices)
     default_terminal_value = 0.9 * sum(prices) / len(prices) if prices else 0.0
     annual_endpoint = _day(context, "annual_endpoint_day", dt.date(2025, 12, 31))
@@ -493,8 +493,14 @@ def run(context: CaseContext) -> CaseResult:
         result_paths = {
             path.name: str(path.relative_to(run_dir))
             for path in (
-                input_snapshot, effective_config, forecast_path, solver_records_path,
-                domain_result, validation_path, summary, solver_log,
+                input_snapshot,
+                effective_config,
+                forecast_path,
+                solver_records_path,
+                domain_result,
+                validation_path,
+                summary,
+                solver_log,
             )
         }
         result_hashes = {

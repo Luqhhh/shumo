@@ -95,10 +95,10 @@ def _slot_for_valid_time(valid_time: dt.datetime) -> int:
     start = valid_time - dt.timedelta(minutes=10)
     return (start.hour * 60 + start.minute) // 10
 
+
 def _interval_key_for_valid_time(valid_time: dt.datetime) -> tuple[dt.date, int]:
     start = valid_time - dt.timedelta(minutes=10)
     return (start.date(), (start.hour * 60 + start.minute) // 10)
-
 
 
 def _active_actuals(
@@ -178,7 +178,8 @@ def run_q2_engineering(
                 if (
                     config.annual_terminal_soc_kwh is not None
                     and config.annual_endpoint_day is not None
-                    and 1 <= (config.annual_endpoint_day - actual.day).days * 144 + 144 - actual.slot
+                    and 1
+                    <= (config.annual_endpoint_day - actual.day).days * 144 + 144 - actual.slot
                     <= config.model_config.horizon_steps
                 )
                 else (
@@ -197,9 +198,7 @@ def run_q2_engineering(
         plan_validation = validate_q2_plan(window, plan)
         if not plan_validation.ok:
             prefix = (
-                "final SOC "
-                if "annual terminal SOC mismatch" in plan_validation.issues
-                else ""
+                "final SOC " if "annual terminal SOC mismatch" in plan_validation.issues else ""
             )
             raise Q2EngineError(
                 prefix + "invalid solver plan: " + "; ".join(plan_validation.issues)
@@ -218,7 +217,9 @@ def run_q2_engineering(
                 "decision_time": decision_time.isoformat(sep=" "),
                 "horizon_steps": len(window.valid_times),
                 "status": plan.solver_status,
-                "fixed_purchase_count": sum(value is not None for value in window.fixed_purchase_kwh),
+                "fixed_purchase_count": sum(
+                    value is not None for value in window.fixed_purchase_kwh
+                ),
                 "message": plan.solver_message,
                 "metadata": plan.solver_metadata,
             }

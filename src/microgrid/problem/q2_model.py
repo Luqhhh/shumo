@@ -232,9 +232,7 @@ def _normalize_simultaneous_actions(
     charge = list(charge_kwh)
     discharge = list(discharge_kwh)
     adjustments: list[float] = []
-    for slot, (charge_value, discharge_value) in enumerate(
-        zip(charge, discharge, strict=True)
-    ):
+    for slot, (charge_value, discharge_value) in enumerate(zip(charge, discharge, strict=True)):
         if charge_value <= 0.0 or discharge_value <= 0.0:
             continue
         if min(charge_value, discharge_value) > SOLVER_ACTION_NORMALIZATION_TOL_KWH:
@@ -242,10 +240,7 @@ def _normalize_simultaneous_actions(
                 f"slot={slot} solver returned simultaneous charge/discharge: "
                 f"charge={charge_value}, discharge={discharge_value}"
             )
-        internal_delta = (
-            CHARGE_EFFICIENCY * charge_value
-            - discharge_value / DISCHARGE_EFFICIENCY
-        )
+        internal_delta = CHARGE_EFFICIENCY * charge_value - discharge_value / DISCHARGE_EFFICIENCY
         if internal_delta >= 0.0:
             corrected_charge = internal_delta / CHARGE_EFFICIENCY
             adjustments.extend((abs(charge_value - corrected_charge), discharge_value))
@@ -359,9 +354,7 @@ def solve_q2_window(window: Q2WindowInput, config: Q2ModelConfig) -> Q2Plan:
     discharge, discharge_adjustments = _normalize_solver_bounds(
         "discharge_kwh", series("d", horizon), upper_bound=MAX_BUS_ENERGY_KWH
     )
-    charge, discharge, exclusivity_adjustments = _normalize_simultaneous_actions(
-        charge, discharge
-    )
+    charge, discharge, exclusivity_adjustments = _normalize_simultaneous_actions(charge, discharge)
     charge, discharge, soc_action_adjustments = _normalize_first_action_soc(
         window.initial_soc_kwh,
         charge,
@@ -503,7 +496,10 @@ def validate_q2_plan(window: Q2WindowInput, plan: Q2Plan) -> Q2ValidationReport:
                 )
             ):
                 fixed_purchase = window.fixed_purchase_kwh[index]
-                if fixed_purchase is not None and abs(quantity - fixed_purchase) > ENERGY_ABS_TOL_KWH:
+                if (
+                    fixed_purchase is not None
+                    and abs(quantity - fixed_purchase) > ENERGY_ABS_TOL_KWH
+                ):
                     message = f"slot={index} fixed purchase mismatch"
                     issues.append(message)
                     violations.append(message)

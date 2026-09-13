@@ -162,9 +162,7 @@ def _lag_sum(
         raise InputError("missing weekly lags: " + ", ".join(missing))
 
     present = [
-        (weight, item)
-        for weight, item in zip(weights, lag_items, strict=True)
-        if item is not None
+        (weight, item) for weight, item in zip(weights, lag_items, strict=True) if item is not None
     ]
     if not present:
         raise InputError("missing weekly lags: " + ", ".join(missing))
@@ -264,9 +262,7 @@ class Q2ForecastBuilder:
         field: str,
         which: str,
     ) -> None:
-        lag_keys = [
-            (item.day - dt.timedelta(days=days), target_slot) for days in lags
-        ]
+        lag_keys = [(item.day - dt.timedelta(days=days), target_slot) for days in lags]
         if any(lag_key not in self._by_key for lag_key in lag_keys):
             return
         baseline, _reason = _lag_sum(
@@ -351,8 +347,7 @@ class Q2ForecastBuilder:
                 totals[slot] += item.load_kw - baseline
                 counts[slot] += 1
         row = tuple(
-            (totals[slot] / counts[slot]) if counts[slot] else 0.0
-            for slot in range(_STEPS_PER_DAY)
+            (totals[slot] / counts[slot]) if counts[slot] else 0.0 for slot in range(_STEPS_PER_DAY)
         )
         self._bias_cache[decision_day] = row
         return row
@@ -431,7 +426,9 @@ class Q2ForecastBuilder:
 
 
 def _age_steps(target_start: dt.datetime, residual_end: dt.datetime) -> int:
-    return max(0, int((target_start + dt.timedelta(minutes=10) - residual_end).total_seconds() // 600))
+    return max(
+        0, int((target_start + dt.timedelta(minutes=10) - residual_end).total_seconds() // 600)
+    )
 
 
 def build_q2_forecast(

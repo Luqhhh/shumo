@@ -14,7 +14,11 @@ from microgrid.problem.q2_engine import (
 from microgrid.problem.q2_forecast import ForecastConfig, ForecastPoint
 from microgrid.problem.q2_inputs import ActualInterval, FixedPricePoint, Q2InputBundle
 from microgrid.problem.q2_model import (
-    Q2ModelConfig, Q2Plan, Q2ValidationReport, Q2WindowInput, solve_q2_window,
+    Q2ModelConfig,
+    Q2Plan,
+    Q2ValidationReport,
+    Q2WindowInput,
+    solve_q2_window,
 )
 
 
@@ -253,12 +257,15 @@ def test_engine_freezes_midnight_purchase_contract_for_the_whole_day(monkeypatch
     assert solve_calls[1].fixed_purchase_kwh[-1] is None
     assert solve_calls[-1].fixed_purchase_kwh[0] == pytest.approx(243.0)
     assert tuple(record["fixed_purchase_count"] for record in result.solver_records) == (
-        0, *range(143, 0, -1)
+        0,
+        *range(143, 0, -1),
     )
 
 
 def test_fixed_purchase_values_are_enforced_by_the_model() -> None:
-    valid_times = tuple(dt.datetime(2025, 2, 1, 0, 10) + dt.timedelta(minutes=10 * i) for i in range(2))
+    valid_times = tuple(
+        dt.datetime(2025, 2, 1, 0, 10) + dt.timedelta(minutes=10 * i) for i in range(2)
+    )
     window = Q2WindowInput(
         valid_times=valid_times,
         price_cny_per_kwh=(1.0, 1.0),
@@ -274,11 +281,27 @@ def test_fixed_purchase_values_are_enforced_by_the_model() -> None:
 
 def test_engine_rejects_invalid_solver_plan_before_replay(monkeypatch) -> None:
     import microgrid.problem.q2_engine as engine
+
     monkeypatch.setattr(engine, "Q2ForecastBuilder", _FakeForecastBuilder)
     monkeypatch.setattr(engine, "solve_q2_window", _zero_action_plan)
-    monkeypatch.setattr(engine, "validate_q2_plan", lambda window, plan: Q2ValidationReport(False, ("synthetic invalid plan",), 1.0, 0.0, 0.0, ("synthetic invalid plan",)))
+    monkeypatch.setattr(
+        engine,
+        "validate_q2_plan",
+        lambda window, plan: Q2ValidationReport(
+            False, ("synthetic invalid plan",), 1.0, 0.0, 0.0, ("synthetic invalid plan",)
+        ),
+    )
     with pytest.raises(Q2EngineError, match="synthetic invalid plan"):
-        run_q2_engineering(_bundle(), Q2EngineConfig(action_start_day=dt.date(2025, 2, 1), action_end_day=dt.date(2025, 2, 1), forecast_config=ForecastConfig(weights=(.25, .25, .25, .25)), model_config=Q2ModelConfig(horizon_steps=144), is_synthetic=True))
+        run_q2_engineering(
+            _bundle(),
+            Q2EngineConfig(
+                action_start_day=dt.date(2025, 2, 1),
+                action_end_day=dt.date(2025, 2, 1),
+                forecast_config=ForecastConfig(weights=(0.25, 0.25, 0.25, 0.25)),
+                model_config=Q2ModelConfig(horizon_steps=144),
+                is_synthetic=True,
+            ),
+        )
 
 
 def test_engine_accounting_separates_planned_from_realized_emergency(monkeypatch) -> None:
@@ -337,8 +360,24 @@ def test_engine_accounting_separates_planned_from_realized_emergency(monkeypatch
 
 def test_annual_constraint_only_appears_when_explicit_endpoint_enters_window(monkeypatch) -> None:
     import microgrid.problem.q2_engine as engine
+
     calls = []
     monkeypatch.setattr(engine, "Q2ForecastBuilder", _FakeForecastBuilder)
-    monkeypatch.setattr(engine, "solve_q2_window", lambda window, config: calls.append(window) or _zero_action_plan(window, config))
-    run_q2_engineering(_bundle(), Q2EngineConfig(action_start_day=dt.date(2025, 2, 1), action_end_day=dt.date(2025, 2, 1), forecast_config=ForecastConfig(weights=(.25, .25, .25, .25)), model_config=Q2ModelConfig(horizon_steps=144), annual_terminal_soc_kwh=6000.0, annual_endpoint_day=dt.date(2025, 12, 31), is_synthetic=True))
+    monkeypatch.setattr(
+        engine,
+        "solve_q2_window",
+        lambda window, config: calls.append(window) or _zero_action_plan(window, config),
+    )
+    run_q2_engineering(
+        _bundle(),
+        Q2EngineConfig(
+            action_start_day=dt.date(2025, 2, 1),
+            action_end_day=dt.date(2025, 2, 1),
+            forecast_config=ForecastConfig(weights=(0.25, 0.25, 0.25, 0.25)),
+            model_config=Q2ModelConfig(horizon_steps=144),
+            annual_terminal_soc_kwh=6000.0,
+            annual_endpoint_day=dt.date(2025, 12, 31),
+            is_synthetic=True,
+        ),
+    )
     assert all(window.annual_terminal_step is None for window in calls)

@@ -153,7 +153,9 @@ def test_q2_defaults_cover_official_full_year_and_write_complete_evidence(
     tmp_path: Path, monkeypatch
 ) -> None:
     import json
+
     import microgrid.problem.q2 as q2
+
     repo = tmp_path / "repo"
     _write_decisions(repo)
     attachment1 = repo / "data" / "raw" / "附件1.xlsx"
@@ -165,15 +167,37 @@ def test_q2_defaults_cover_official_full_year_and_write_complete_evidence(
     monkeypatch.setattr(
         q2,
         "load_q2_inputs",
-        lambda **kwargs: captured.update(kwargs)
-        or Q2InputBundle(
-            tuple(FixedPricePoint(slot=i, price_cny_per_kwh=1.0, source_ref="test") for i in range(144)),
-            (),
-            (),
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or Q2InputBundle(
+                tuple(
+                    FixedPricePoint(slot=i, price_cny_per_kwh=1.0, source_ref="test")
+                    for i in range(144)
+                ),
+                (),
+                (),
+            )
         ),
     )
-    monkeypatch.setattr(q2, "run_q2_engineering", lambda bundle, config: captured.update(config=config) or _fake_engineering_result())
-    monkeypatch.setattr(q2, "validate_complete_run", lambda intervals, days: type("Report", (), {"ok": True, "issues": (), "checked_intervals": len(intervals), "max_abs_violation_kwh": 0.0})())
+    monkeypatch.setattr(
+        q2,
+        "run_q2_engineering",
+        lambda bundle, config: captured.update(config=config) or _fake_engineering_result(),
+    )
+    monkeypatch.setattr(
+        q2,
+        "validate_complete_run",
+        lambda intervals, days: type(
+            "Report",
+            (),
+            {
+                "ok": True,
+                "issues": (),
+                "checked_intervals": len(intervals),
+                "max_abs_violation_kwh": 0.0,
+            },
+        )(),
+    )
     output_dir = tmp_path / "run"
     run(CaseContext(repo_root=repo, case_id="q2", output_dir=output_dir, is_synthetic=True))
     assert captured["load_sheet_name"] == "小区负载"
@@ -206,6 +230,7 @@ def test_q2_defaults_cover_official_full_year_and_write_complete_evidence(
 
 def test_q2_provenance_verifies_the_paths_actually_loaded(tmp_path: Path, monkeypatch) -> None:
     import microgrid.problem.q2 as q2
+
     repo = tmp_path / "repo"
     _write_decisions(repo)
     custom1, custom2 = repo / "inputs" / "a1.xlsx", repo / "inputs" / "a2.xlsx"
@@ -214,11 +239,33 @@ def test_q2_provenance_verifies_the_paths_actually_loaded(tmp_path: Path, monkey
     custom2.write_bytes(b"two")
     seen: list[Path] = []
     monkeypatch.setattr(q2, "verify_imported_inputs", lambda root: [])
-    monkeypatch.setattr(q2, "verify_loaded_input_paths", lambda root, paths: seen.extend(paths) or [])
+    monkeypatch.setattr(
+        q2, "verify_loaded_input_paths", lambda root, paths: seen.extend(paths) or []
+    )
     monkeypatch.setattr(q2, "load_q2_inputs", lambda **kwargs: Q2InputBundle((), (), ()))
     monkeypatch.setattr(q2, "run_q2_engineering", lambda bundle, config: _fake_engineering_result())
-    monkeypatch.setattr(q2, "validate_complete_run", lambda intervals, days: type("Report", (), {"ok": True, "issues": (), "checked_intervals": len(intervals), "max_abs_violation_kwh": 0.0})())
-    run(CaseContext(repo_root=repo, case_id="q2", output_dir=tmp_path / "run", metadata={"attachment1_path": custom1, "attachment2_path": custom2}))
+    monkeypatch.setattr(
+        q2,
+        "validate_complete_run",
+        lambda intervals, days: type(
+            "Report",
+            (),
+            {
+                "ok": True,
+                "issues": (),
+                "checked_intervals": len(intervals),
+                "max_abs_violation_kwh": 0.0,
+            },
+        )(),
+    )
+    run(
+        CaseContext(
+            repo_root=repo,
+            case_id="q2",
+            output_dir=tmp_path / "run",
+            metadata={"attachment1_path": custom1, "attachment2_path": custom2},
+        )
+    )
     assert seen == [custom1, custom2]
 
 
@@ -259,9 +306,14 @@ def test_q2_record_writer_is_byte_identical_to_write_json(tmp_path: Path) -> Non
         {"unicode": "小区负载", "quote": 'a"b', "tab": "x\ty", "nested": {"k": [1, None, True]}},
     ]
     expected = write_json(tmp_path / "expected.json", forecast_records).read_bytes()
-    assert q2._write_json_records(tmp_path / "actual.json", forecast_records).read_bytes() == expected
+    assert (
+        q2._write_json_records(tmp_path / "actual.json", forecast_records).read_bytes() == expected
+    )
     # forecast_records is handed over as a generator, so iterators must work too.
-    assert q2._write_json_records(tmp_path / "iter.json", iter(forecast_records)).read_bytes() == expected
+    assert (
+        q2._write_json_records(tmp_path / "iter.json", iter(forecast_records)).read_bytes()
+        == expected
+    )
     assert (
         q2._write_json_records(tmp_path / "empty.json", []).read_bytes()
         == write_json(tmp_path / "empty_expected.json", []).read_bytes()
