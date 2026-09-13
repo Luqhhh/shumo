@@ -539,6 +539,36 @@ def _resolve_time_label(value: Any, *, base_date: _dt.date | None = None) -> Any
     return parse_time_label(value, base_date=base_date)
 
 
+def _right_endpoint_timestamp(
+    date_record: Any,
+    parsed: Any,
+    *,
+    raw_label: Any,
+    source_ref: str,
+) -> str | None:
+    """Right-endpoint timestamp for one cell of a date x time wide table.
+
+    Returns ``None`` when the row carries no date of its own.  A row date close
+    to the end of Python's calendar can push the sum past ``date.max``; that is
+    a bad label for this specific cell rather than a crash, so it is reported
+    as ``TimeLabelError`` alongside the cell that caused it.
+    """
+
+    if date_record.base_date is None:
+        return None
+    try:
+        stamp = _dt.datetime.combine(date_record.base_date, _dt.time()) + _dt.timedelta(
+            days=parsed.day_offset,
+            minutes=parsed.minute_of_day,
+        )
+    except OverflowError as exc:
+        raise TimeLabelError(
+            f"time label {str(raw_label)!r} at {source_ref} resolves past the "
+            f"supported calendar range from row date {date_record.base_date}"
+        ) from exc
+    return stamp.isoformat()
+
+
 def read_wide_attachment(
     path: str | Path,
     *,
@@ -574,11 +604,12 @@ def read_wide_attachment(
                 if value is None:
                     continue
                 parsed = _resolve_time_label(header_value, base_date=date_record.base_date)
+                cell_ref = f"{ws.cell(row=row[0].row, column=col_idx).column_letter}{row[0].row}"
                 records.append(
                     {
                         "source_file": str(p),
                         "sheet_name": sheet_name,
-                        "cell_ref": f"{ws.cell(row=row[0].row, column=col_idx).column_letter}{row[0].row}",
+                        "cell_ref": cell_ref,
                         "source_hash": digest,
                         "source_date": source_date.isoformat()
                         if hasattr(source_date, "isoformat")
@@ -586,17 +617,12 @@ def read_wide_attachment(
                         "raw_time_label": str(header_value),
                         "parsed_day_offset": parsed.day_offset,
                         "parsed_minute_of_day": parsed.minute_of_day,
-                        "parsed_timestamp": (
-                            _dt.datetime.combine(
-                                date_record.base_date or _dt.date(1900, 1, 1), _dt.time()
-                            )
-                            + _dt.timedelta(
-                                days=parsed.day_offset,
-                                minutes=parsed.minute_of_day,
-                            )
-                        ).isoformat()
-                        if date_record.base_date is not None
-                        else None,
+                        "parsed_timestamp": _right_endpoint_timestamp(
+                            date_record,
+                            parsed,
+                            raw_label=header_value,
+                            source_ref=f"{p.name}!{sheet_name}!{cell_ref}",
+                        ),
                         "value": value,
                         "unit": unit,
                         "kind": kind,

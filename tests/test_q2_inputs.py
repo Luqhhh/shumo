@@ -27,6 +27,23 @@ from microgrid.problem.result_io import case_result_to_dict, load_case_result, s
 from microgrid.schemas import InputError
 
 
+def test_actual_interval_at_the_calendar_edge_names_the_interval() -> None:
+    # A day at the end of Python's calendar cannot carry a whole day of
+    # boundaries.  That must name the offending interval instead of letting a
+    # bare OverflowError escape the contract.
+    with pytest.raises(InputError, match="not on the ten-minute grid"):
+        ActualInterval(
+            day=dt.date(9999, 12, 31),
+            slot=143,
+            start=dt.datetime(9999, 12, 31, 23, 50),
+            end=dt.datetime(9999, 12, 31, 23, 59, 59, 999999),
+            load_kw=600.0,
+            pv_kw=300.0,
+            load_source_ref="附件2.xlsx!负荷!B2 sha256=aaaaaaaaaaaa",
+            pv_source_ref="附件2.xlsx!光伏!B2 sha256=aaaaaaaaaaaa",
+        )
+
+
 def test_actual_interval_converts_ten_minute_power_to_energy() -> None:
     actual = ActualInterval(
         day=dt.date(2025, 2, 1),

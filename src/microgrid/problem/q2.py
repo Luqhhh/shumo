@@ -131,7 +131,9 @@ def _command(context: CaseContext) -> list[str]:
     raw = context.metadata.get("command")
     if isinstance(raw, (list, tuple)):
         return [str(item) for item in raw]
-    return ["python", "-m", "microgrid", "run", "--case", "q2"]
+    # Fall back to this context's own case, not a fixed one: the same helper is
+    # shared by Q2 and Q4-2, and a manifest must not name the wrong case.
+    return ["python", "-m", "microgrid", "run", "--case", context.case_id]
 
 
 def _resolve_run_dir(context: CaseContext, run_id: str) -> Path:

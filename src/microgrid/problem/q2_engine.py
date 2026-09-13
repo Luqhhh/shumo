@@ -9,7 +9,11 @@ from typing import Any
 
 from .contracts import ENERGY_ABS_TOL_KWH, BatteryState, CostBreakdown, IntervalResult
 from .q2_forecast import ForecastConfig, ForecastPoint, Q2ForecastBuilder
-from .q2_inputs import Q2InputBundle
+from .q2_inputs import (
+    Q2InputBundle,
+    VariablePriceBundle,
+    require_matching_q4_2_grid,
+)
 from .q2_model import Q2ModelConfig, Q2WindowInput, solve_q2_window, validate_q2_plan
 from .q2_replay import (
     PV_ACCOUNTING_POLICY,
@@ -18,6 +22,7 @@ from .q2_replay import (
     rows_to_interval_results,
     summarize_q2_cost,
 )
+from .q4_price_forecast import Q4PriceForecastBuilder, Q4PriceForecastPoint
 from .validation import validate_complete_run
 
 
@@ -81,6 +86,7 @@ class Q2EngineeringResult:
     metadata: dict[str, Any]
     is_synthetic: bool
     accounting: Q2Accounting = field(default_factory=Q2Accounting)
+    price_forecast_records: tuple[Q4PriceForecastPoint, ...] = ()
 
 
 class Q2EngineError(ValueError):
@@ -112,8 +118,14 @@ def _active_actuals(
 def run_q2_engineering(
     bundle: Q2InputBundle,
     config: Q2EngineConfig,
+    *,
+    variable_prices: VariablePriceBundle | None = None,
 ) -> Q2EngineeringResult:
-    """Run continuous ten-minute rolling control without writing artifacts."""
+    """Run continuous ten-minute rolling control without writing artifacts.
+
+    When ``variable_prices`` is supplied, only causal forecasts enter each
+    optimization window; realized prices are used exclusively by replay.
+    """
 
     ordered_actuals = tuple(sorted(bundle.actuals, key=lambda item: (item.day, item.slot)))
     active_actuals = _active_actuals(
@@ -124,8 +136,18 @@ def run_q2_engineering(
     if not active_actuals:
         raise Q2EngineError("action range has no actual intervals")
     price_by_slot = _fixed_price_by_slot(bundle)
-    if set(price_by_slot) != set(range(144)):
+    if variable_prices is None and set(price_by_slot) != set(range(144)):
         raise Q2EngineError("fixed prices must contain all 144 slots")
+    variable_price_by_key: dict[tuple[dt.date, int], float] = {}
+    price_history: tuple[Any, ...] = ()
+    if variable_prices is not None:
+        require_matching_q4_2_grid(bundle, variable_prices)
+        variable_price_by_key = {
+            (point.day, point.slot): point.price_cny_per_kwh for point in variable_prices.prices
+        }
+        price_history = tuple(
+            sorted(variable_prices.prices, key=lambda item: (item.day, item.slot))
+        )
 
     # The incremental forecast state below assumes the visible history is a
     # prefix of `ordered_actuals`, which holds because ActualInterval pins `end`
@@ -138,10 +160,13 @@ def run_q2_engineering(
     state = BatteryState(6000.0)
     replay_rows: list[Q2ReplayRow] = []
     forecast_records: list[ForecastPoint] = []
+    price_forecast_records: list[Q4PriceForecastPoint] = []
     solver_records: list[dict[str, Any]] = []
     daily_contracts: dict[tuple[dt.date, int], float] = {}
     forecast_builder = Q2ForecastBuilder(config.forecast_config)
     history_cursor = 0
+    price_forecast_builder = Q4PriceForecastBuilder() if variable_prices is not None else None
+    price_history_cursor = 0
     e_plan_total_kwh = 0.0
     for _position, actual in enumerate(active_actuals):
         decision_time = actual.start
@@ -156,18 +181,55 @@ def run_q2_engineering(
             horizon_start=decision_time,
             horizon_steps=config.model_config.horizon_steps,
         )
-        forecast_records.extend(forecast)
+        if variable_prices is None:
+            forecast_records.extend(forecast)
+        else:
+            # Retain the full day-ahead vintage and each subsequently executed
+            # first-step forecast, rather than millions of unused horizon rows.
+            forecast_records.extend(forecast if actual.slot == 0 else forecast[:1])
+        if price_forecast_builder is None:
+            window_prices = tuple(
+                price_by_slot[_slot_for_valid_time(point.valid_time)] for point in forecast
+            )
+            terminal_value = config.terminal_value_cny_per_kwh
+        else:
+            while (
+                price_history_cursor < len(price_history)
+                and price_history[price_history_cursor].end <= decision_time
+            ):
+                price_forecast_builder.add(price_history[price_history_cursor])
+                price_history_cursor += 1
+            price_horizon = price_forecast_builder.build(
+                decision_time=decision_time,
+                horizon_start=decision_time,
+                horizon_steps=config.model_config.horizon_steps + 144,
+            )
+            window_prices = tuple(
+                point.predicted_cny_per_kwh
+                for point in price_horizon[: config.model_config.horizon_steps]
+            )
+            terminal_prices = price_horizon[
+                config.model_config.horizon_steps : config.model_config.horizon_steps + 144
+            ]
+            terminal_value = (
+                0.9
+                * sum(point.predicted_cny_per_kwh for point in terminal_prices)
+                / len(terminal_prices)
+            )
+            price_forecast_records.extend(
+                price_horizon[: config.model_config.horizon_steps]
+                if actual.slot == 0
+                else price_horizon[:1]
+            )
         window = Q2WindowInput(
             valid_times=tuple(point.valid_time for point in forecast),
-            price_cny_per_kwh=tuple(
-                price_by_slot[_slot_for_valid_time(point.valid_time)] for point in forecast
-            ),
+            price_cny_per_kwh=window_prices,
             load_forecast_kwh=tuple(
                 point.load_kw / 6.0 * (1.0 + config.purchase_margin) for point in forecast
             ),
             pv_forecast_kwh=tuple(point.pv_kw / 6.0 for point in forecast),
             initial_soc_kwh=state.energy_kwh,
-            terminal_value_cny_per_kwh=config.terminal_value_cny_per_kwh,
+            terminal_value_cny_per_kwh=terminal_value,
             fixed_purchase_kwh=tuple(
                 daily_contracts.get(_interval_key_for_valid_time(point.valid_time))
                 for point in forecast
@@ -220,13 +282,29 @@ def run_q2_engineering(
                 "fixed_purchase_count": sum(
                     value is not None for value in window.fixed_purchase_kwh
                 ),
+                "terminal_value_cny_per_kwh": terminal_value,
+                "price_forecast_training_cutoff": (
+                    price_forecast_builder.training_cutoff.isoformat(sep=" ")
+                    if price_forecast_builder is not None
+                    and price_forecast_builder.training_cutoff is not None
+                    else None
+                ),
+                "price_forecast_ar1_phi": (
+                    price_forecast_builder.ar1_phi if price_forecast_builder is not None else None
+                ),
                 "message": plan.solver_message,
                 "metadata": plan.solver_metadata,
             }
         )
         row = replay_q2_actions(
             (actual,),
-            prices={key: price_by_slot[actual.slot]},
+            prices={
+                key: (
+                    variable_price_by_key[key]
+                    if variable_prices is not None
+                    else price_by_slot[actual.slot]
+                )
+            },
             planned={
                 key: (
                     committed_purchase_kwh,
@@ -274,6 +352,9 @@ def run_q2_engineering(
             (abs(row.ledger_residual_kwh) for row in replay_rows), default=0.0
         ),
     )
+    input_hashes = dict(bundle.input_hashes)
+    if variable_prices is not None:
+        input_hashes.update(dict(variable_prices.input_hashes))
     metadata: dict[str, Any] = {
         "model_version": config.forecast_config.model_version,
         "forecast_version": config.forecast_config.model_version,
@@ -287,7 +368,16 @@ def run_q2_engineering(
         },
         "decision_trace": {"count": len(solver_records)},
         "solver_status": [record["status"] for record in solver_records],
-        "input_hashes": dict(bundle.input_hashes),
+        "input_hashes": input_hashes,
+        "price_forecast_model_version": (
+            price_forecast_records[-1].model_version if price_forecast_records else None
+        ),
+        "price_forecast_training_cutoff": (
+            price_forecast_builder.training_cutoff.isoformat(sep=" ")
+            if price_forecast_builder is not None
+            and price_forecast_builder.training_cutoff is not None
+            else None
+        ),
         "validation": {
             "ok": validation.ok,
             "checked_intervals": validation.checked_intervals,
@@ -301,4 +391,5 @@ def run_q2_engineering(
         metadata=metadata,
         is_synthetic=config.is_synthetic,
         accounting=accounting,
+        price_forecast_records=tuple(price_forecast_records),
     )

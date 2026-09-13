@@ -59,7 +59,13 @@ class ActualInterval:
     pv_source_ref: str
 
     def __post_init__(self) -> None:
-        interval = TimeGrid().interval(self.day, self.slot)
+        try:
+            interval = TimeGrid().interval(self.day, self.slot)
+        except ValueError as exc:
+            raise InputError(
+                f"actual interval ({self.day!r}, {self.slot!r}) is not on the "
+                f"ten-minute grid: {exc}"
+            ) from exc
         if (self.start, self.end) != (interval.start, interval.end):
             raise InputError(f"actual interval is not aligned: {(self.day, self.slot)}")
         _require_nonnegative_finite(

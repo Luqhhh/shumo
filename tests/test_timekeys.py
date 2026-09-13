@@ -8,6 +8,7 @@ from microgrid.schemas import TimeLabelError
 from microgrid.timekeys import (
     excel_serial_to_date,
     is_available,
+    issue_time_from_forecast_label,
     parse_interval,
     parse_time_label,
     valid_time,
@@ -50,6 +51,24 @@ def test_interval_labels_are_literal_and_suspicious_is_reported():
 def test_excel_serial_date_systems():
     assert excel_serial_to_date(45658) == dt.date(2025, 1, 1)
     assert excel_serial_to_date(0, date_system="1904") == dt.date(1904, 1, 1)
+
+
+def test_excel_serial_at_the_calendar_edge_is_still_convertible():
+    assert excel_serial_to_date(2958465) == dt.date(9999, 12, 31)
+
+
+def test_excel_serial_past_the_calendar_is_a_label_error():
+    # Excel's serial range runs far past Python's calendar, so a mistyped or
+    # corrupt cell must surface as a bad label rather than a bare OverflowError.
+    with pytest.raises(TimeLabelError, match="outside the supported calendar range"):
+        excel_serial_to_date(3_000_000)
+    with pytest.raises(TimeLabelError, match="outside the supported calendar range"):
+        parse_time_label(3_000_000)
+
+
+def test_forecast_issue_time_past_the_calendar_is_a_label_error():
+    with pytest.raises(TimeLabelError, match="outside the supported calendar range"):
+        issue_time_from_forecast_label(dt.date(9999, 12, 31), "0:00+1")
 
 
 def test_unknown_labels_raise():

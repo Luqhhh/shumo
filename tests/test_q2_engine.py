@@ -12,7 +12,13 @@ from microgrid.problem.q2_engine import (
     run_q2_engineering,
 )
 from microgrid.problem.q2_forecast import ForecastConfig, ForecastPoint
-from microgrid.problem.q2_inputs import ActualInterval, FixedPricePoint, Q2InputBundle
+from microgrid.problem.q2_inputs import (
+    ActualInterval,
+    FixedPricePoint,
+    Q2InputBundle,
+    VariablePriceBundle,
+    VariablePricePoint,
+)
 from microgrid.problem.q2_model import (
     Q2ModelConfig,
     Q2Plan,
@@ -209,6 +215,64 @@ def test_engine_runs_without_optional_annual_terminal_target(monkeypatch) -> Non
 
     assert result.intervals[-1].state_end.energy_kwh == pytest.approx(6000.0)
     assert all(window.annual_terminal_step is None for window in solve_calls)
+
+
+def test_q4_engine_plans_with_forecast_prices_but_settles_at_actual_prices(monkeypatch) -> None:
+    import microgrid.problem.q2_engine as engine
+
+    solve_calls = []
+
+    def fake_solve(window, config):
+        solve_calls.append(window)
+        plan = _zero_action_plan(window, config)
+        return Q2Plan(
+            planned_purchase_kwh=plan.planned_purchase_kwh,
+            charge_kwh=plan.charge_kwh,
+            discharge_kwh=plan.discharge_kwh,
+            pv_used_kwh=plan.pv_used_kwh,
+            soc_kwh=plan.soc_kwh,
+            objective_cny=sum(window.price_cny_per_kwh) * 100.0,
+            solver_status=plan.solver_status,
+            solver_message=plan.solver_message,
+            solver_metadata=plan.solver_metadata,
+        )
+
+    monkeypatch.setattr(engine, "solve_q2_window", fake_solve)
+    prices = tuple(
+        VariablePricePoint(
+            day=item.day,
+            slot=item.slot,
+            start=item.start,
+            end=item.end,
+            price_cny_per_kwh=2.0 + 7.0 * (item.day - dt.date(2025, 1, 1)).days,
+            source_ref=f"price-{item.day}-{item.slot}",
+        )
+        for item in _bundle().actuals
+    )
+    price_bundle = VariablePriceBundle(
+        prices=prices,
+        input_hashes=(("attachment4", "c" * 64),),
+    )
+
+    result = run_q2_engineering(
+        _bundle(),
+        Q2EngineConfig(
+            action_start_day=dt.date(2025, 2, 1),
+            action_end_day=dt.date(2025, 2, 1),
+            forecast_config=ForecastConfig(),
+            model_config=Q2ModelConfig(horizon_steps=144),
+            annual_terminal_soc_kwh=6000.0,
+            is_synthetic=True,
+        ),
+        variable_prices=price_bundle,
+    )
+
+    actual_price = 2.0 + 7.0 * 31
+    assert solve_calls[0].price_cny_per_kwh[0] != pytest.approx(actual_price)
+    assert solve_calls[0].terminal_value_cny_per_kwh > 0.0
+    assert result.costs.planned_cost_cny == pytest.approx(144 * 100.0 * actual_price)
+    assert len(result.price_forecast_records) >= 144
+    assert tuple(window.annual_terminal_step for window in solve_calls) == tuple(range(144, 0, -1))
 
 
 def test_engine_freezes_midnight_purchase_contract_for_the_whole_day(monkeypatch) -> None:

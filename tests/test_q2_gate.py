@@ -51,3 +51,7 @@ def test_q2_approved_dependencies_reach_explicit_input_failure(tmp_path: Path) -
 
     assert "attachment1" in str(excinfo.value)
     assert not (repo / "outputs").exists()
+
+
+def test_q4_2_requires_approved_variable_price_forecast_decision() -> None:
+    assert "D_PRICE_FORECAST" in required_decisions("q4_2")

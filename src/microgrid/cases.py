@@ -46,7 +46,15 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_SETTLE",
         "D_MODEL_Q3",
     ),
-    "q4_2": ("D_TIME_INTERNAL", "D_EFF", "D_STATE", "D_INFO", "D_SETTLE", "D_MODEL_Q4_2"),
+    "q4_2": (
+        "D_TIME_INTERNAL",
+        "D_EFF",
+        "D_STATE",
+        "D_INFO",
+        "D_SETTLE",
+        "D_PRICE_FORECAST",
+        "D_MODEL_Q4_2",
+    ),
     "q4_3": (
         "D_TIME_INTERNAL",
         "D_EFF",

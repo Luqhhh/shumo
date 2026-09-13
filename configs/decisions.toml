@@ -95,16 +95,18 @@ confirmed_at = "2026-09-12"
 source = "团队讨论；D_STATE 已批准口径；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_PRICE_FORECAST]
-status = "proposed"
+status = "approved"
 choice = """
-采用 PRICE-A 信息边界：决策时可见当前价格和历史价格，未来真实价格不可提前
-使用；Q4回放/结算使用真实实现价格。7/14/21/28日同slot组合加AR(1)残差
-只是候选预测算法，仍须用附件4真实价格做严格因果验证，不能因写入本卡而视为
-已批准算法。若用于D_TERMINAL，必须保存预测版本、training_cutoff和误差证据。
+采用 PRICE-A 信息边界：计划器在决策时只使用区间结束时间不晚于决策时刻的
+附件4价格。预测采用7/14/21/28日同slot等权基线，并用可见历史残差拟合AR(1)
+短期修正，phi限制在[-0.99,0.99]，预测下界为0；版本为
+q4-price-same-slot-ar1-v1。Q4计划优化与D_TERMINAL只使用预测价格，正式回放
+的计划购电和紧急购电结算使用对应区间附件4实际价格。正式运行保存训练截止时刻、
+预测版本及基于附件4的严格因果分提前量误差证据。
 """
-rationale = "实时波动电价的题面语义不支持使用未来真实价格；候选算法需要数据验证后再决定。"
-confirmed_by = ""
-confirmed_at = ""
+rationale = "用户于2026-09-13明确批准本预测信息边界与既定7/14/21/28日同slot+AR(1)实施方案；正式运行生成真实附件4的严格因果误差证据。"
+confirmed_by = "用户（本对话明确批准）"
+confirmed_at = "2026-09-13"
 source = "C题附件4价格信息边界；C线 C-2 decision card；团队讨论"
 
 [decisions.D_LOAD_FORECAST]
@@ -268,15 +270,15 @@ confirmed_at = ""
 source = "C题附件2/附件3真实数据分析；C线 decision cards（含提交31a1661）；团队讨论"
 
 [decisions.D_MODEL_Q4_2]
-status = "proposed"
+status = "approved"
 choice = """
 Q4-2在Q2的因果负荷/PV预测、连续SOC和24小时滚动MILP基础上，
 将固定电价环境替换为严格因果预测的波动电价环境。优化只使用当时可见的
 历史价格和未来价格预测；实际回测结算使用对应时刻真实实现价格。
 """
-rationale = "Q4-2是Q2信息结构下的波动电价扩展。"
-confirmed_by = ""
-confirmed_at = ""
+rationale = "用户于2026-09-13明确批准按已讨论方案实施Q4-2，并基于现有Q2校准的负荷/PV预测、连续SOC与24小时MILP运行。"
+confirmed_by = "用户（本对话明确批准）"
+confirmed_at = "2026-09-13"
 source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_MODEL_Q4_3]

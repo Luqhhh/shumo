@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import shutil
+from collections.abc import Callable
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
@@ -234,7 +235,34 @@ def _q2_fixed_prices(repo_root: str | Path, run_id: str) -> tuple[float, ...]:
     return tuple(prices[slot] for slot in range(144))
 
 
-def _q2_daily_intervals(case_result: CaseResult) -> list[tuple[dt.date, tuple]]:
+def _q4_2_variable_prices(repo_root: str | Path, run_id: str) -> dict[tuple[dt.date, int], float]:
+    """Read a Q4-2 run's own realised Attachment 4 prices.
+
+    Q4-2 settles every interval at that interval's realised Attachment 4 price,
+    so its cost column cannot come from the 144-slot fixed table Q2 uses.  The
+    run's ``input_snapshot.json`` carries the full (day, slot) price grid.
+    """
+
+    snapshot = Path(repo_root) / "outputs" / "runs" / "q4_2" / run_id / "input_snapshot.json"
+    if not snapshot.is_file():
+        raise InputError(f"Q4-2 input snapshot not found: {snapshot}")
+    try:
+        payload = json.loads(snapshot.read_text(encoding="utf-8"))
+        records = payload["variable_prices"]
+        prices = {
+            (dt.date.fromisoformat(str(record["day"])), int(record["slot"])): float(
+                record["price_cny_per_kwh"]
+            )
+            for record in records
+        }
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise InputError(f"invalid Q4-2 variable-price snapshot: {snapshot}") from exc
+    if len(prices) != len(records):
+        raise InputError("Q4-2 variable-price snapshot contains duplicate day/slot records")
+    return prices
+
+
+def _rolling_daily_intervals(case_result: CaseResult) -> list[tuple[dt.date, tuple]]:
     grouped: list[tuple[dt.date, tuple]] = []
     start = 0
     intervals = case_result.intervals
@@ -245,11 +273,11 @@ def _q2_daily_intervals(case_result: CaseResult) -> list[tuple[dt.date, tuple]]:
             end += 1
         day_intervals = intervals[start:end]
         if len(day_intervals) != 144 or [item.slot for item in day_intervals] != list(range(144)):
-            raise InputError(f"Q2 export requires all 144 ordered slots for {day.isoformat()}")
+            raise InputError(f"rolling export requires all 144 ordered slots for {day.isoformat()}")
         grouped.append((day, day_intervals))
         start = end
     if not grouped:
-        raise InputError("Q2 result has no intervals")
+        raise InputError("rolling result has no intervals")
     return grouped
 
 
@@ -266,11 +294,11 @@ def _copy_cell_style(source_style, source_number_format: str, target) -> None:
     target.number_format = source_number_format
 
 
-def _validate_q2_export(
+def _validate_rolling_export(
     output: Path,
     case_result: CaseResult,
     daily: list[tuple[dt.date, tuple]],
-    prices: tuple[float, ...],
+    price_of: Callable[[dt.date, int], float],
 ) -> None:
     wb = load_workbook(output, data_only=False)
     try:
@@ -279,19 +307,21 @@ def _validate_q2_export(
             "0:00-0:10+1",
             "0:00+1-0:10+1",
         }:
-            raise InputError("Q2 export must not modify official template interval labels")
+            raise InputError("rolling export must not modify official template interval labels")
         for day_index, (day, intervals) in enumerate(daily):
             row = day_index + 2
             if _date_value(plan.cell(row=row, column=1).value) != day:
-                raise InputError(f"Q2 export date mismatch at 计划购电量!A{row}")
+                raise InputError(f"rolling export date mismatch at 计划购电量!A{row}")
             for slot, interval in enumerate(intervals):
                 value = plan.cell(row=row, column=slot + 2).value
                 if value is None or abs(float(value) - interval.planned_purchase_kwh) > 1e-9:
                     raise InputError(
-                        f"Q2 export readback mismatch at 计划购电量 row {row}, slot {slot}"
+                        f"rolling export readback mismatch at 计划购电量 row {row}, slot {slot}"
                     )
             expected_quantity = sum(item.planned_purchase_kwh for item in intervals)
-            expected_cost = sum(item.planned_purchase_kwh * prices[item.slot] for item in intervals)
+            expected_cost = sum(
+                item.planned_purchase_kwh * price_of(day, item.slot) for item in intervals
+            )
             quantity = plan.cell(row=row, column=146).value
             cost = plan.cell(row=row, column=147).value
             if (
@@ -300,15 +330,15 @@ def _validate_q2_export(
                 or cost is None
                 or abs(float(cost) - expected_cost) > 1e-8
             ):
-                raise InputError(f"Q2 export daily total mismatch at 计划购电量 row {row}")
+                raise InputError(f"rolling export daily total mismatch at 计划购电量 row {row}")
 
         charge = wb["充放电量"]
         if charge.max_row != 1 + 6 * len(daily):
-            raise InputError("Q2 export has an unexpected number of 充放电量 rows")
+            raise InputError("rolling export has an unexpected number of 充放电量 rows")
         for day_index, (day, intervals) in enumerate(daily):
             base_row = 2 + day_index * 6
             if _date_value(charge.cell(base_row, 1).value) != day:
-                raise InputError(f"Q2 export date mismatch at 充放电量!A{base_row}")
+                raise InputError(f"rolling export date mismatch at 充放电量!A{base_row}")
             for block in range(6):
                 block_intervals = intervals[block * 24 : (block + 1) * 24]
                 expected_charge = sum(item.action.charge_kwh for item in block_intervals)
@@ -322,7 +352,7 @@ def _validate_q2_export(
                     or actual_discharge is None
                     or abs(float(actual_discharge) - expected_discharge) > 1e-9
                 ):
-                    raise InputError(f"Q2 export readback mismatch in 充放电量 row {row}")
+                    raise InputError(f"rolling export readback mismatch in 充放电量 row {row}")
             start_energy = charge.cell(base_row, 6).value
             end_energy = charge.cell(base_row + 1, 6).value
             if (
@@ -331,14 +361,14 @@ def _validate_q2_export(
                 or end_energy is None
                 or abs(float(end_energy) - intervals[-1].state_end.energy_kwh) > 1e-9
             ):
-                raise InputError(f"Q2 export state readback mismatch for {day.isoformat()}")
+                raise InputError(f"rolling export state readback mismatch for {day.isoformat()}")
 
         expected_emergency = [
             item for item in case_result.intervals if item.emergency_purchase_kwh > 0.0
         ]
         emergency = wb["紧急购电量"]
         if emergency.max_row != 1 + len(expected_emergency):
-            raise InputError("Q2 export has an unexpected number of 紧急购电量 rows")
+            raise InputError("rolling export has an unexpected number of 紧急购电量 rows")
         for row, interval in enumerate(expected_emergency, start=2):
             if (
                 _date_value(emergency.cell(row, 1).value) != interval.day
@@ -346,17 +376,27 @@ def _validate_q2_export(
                 or emergency.cell(row, 3).value is None
                 or abs(float(emergency.cell(row, 3).value) - interval.emergency_purchase_kwh) > 1e-9
             ):
-                raise InputError(f"Q2 export readback mismatch in 紧急购电量 row {row}")
+                raise InputError(f"rolling export readback mismatch in 紧急购电量 row {row}")
     finally:
         wb.close()
 
 
-def _export_q2(repo_root: str | Path, case_result: CaseResult, output: Path) -> Path:
-    template = template_path(repo_root, "q2")
+def _export_rolling_template(
+    repo_root: str | Path,
+    case_result: CaseResult,
+    output: Path,
+    price_of: Callable[[dt.date, int], float],
+) -> Path:
+    """Fill an official result template from a rolling-MPC case result.
+
+    Q2 and Q4-2 share the workbook layout and differ only in where the
+    settlement price for an interval comes from, which ``price_of`` supplies.
+    """
+
+    template = template_path(repo_root, case_result.case_id)
     if not template.is_file():
         raise InputError(f"official template not found: {template}")
-    daily = _q2_daily_intervals(case_result)
-    prices = _q2_fixed_prices(repo_root, case_result.run_id)
+    daily = _rolling_daily_intervals(case_result)
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         raise InputError(f"output already exists: {output}")
@@ -367,8 +407,8 @@ def _export_q2(repo_root: str | Path, case_result: CaseResult, output: Path) -> 
         template_days = [_date_value(plan.cell(row, 1).value) for row in range(2, plan.max_row + 1)]
         result_days = [day for day, _ in daily]
         if template_days != result_days:
-            raise InputError("Q2 result dates do not match the official template date rows")
-        for day_index, (_, intervals) in enumerate(daily):
+            raise InputError("rolling result dates do not match the official template date rows")
+        for day_index, (day, intervals) in enumerate(daily):
             row = day_index + 2
             for slot, interval in enumerate(intervals):
                 plan.cell(row=row, column=slot + 2, value=interval.planned_purchase_kwh)
@@ -380,7 +420,9 @@ def _export_q2(repo_root: str | Path, case_result: CaseResult, output: Path) -> 
             plan.cell(
                 row=row,
                 column=147,
-                value=sum(item.planned_purchase_kwh * prices[item.slot] for item in intervals),
+                value=sum(
+                    item.planned_purchase_kwh * price_of(day, item.slot) for item in intervals
+                ),
             )
 
         charge = wb["充放电量"]
@@ -441,8 +483,30 @@ def _export_q2(repo_root: str | Path, case_result: CaseResult, output: Path) -> 
         wb.save(output)
     finally:
         wb.close()
-    _validate_q2_export(output, case_result, daily, prices)
+    _validate_rolling_export(output, case_result, daily, price_of)
     return output
+
+
+def _export_q2(repo_root: str | Path, case_result: CaseResult, output: Path) -> Path:
+    """Q2 settles at the fixed Attachment 1 price of the slot."""
+
+    fixed = _q2_fixed_prices(repo_root, case_result.run_id)
+    return _export_rolling_template(repo_root, case_result, output, lambda _day, slot: fixed[slot])
+
+
+def _export_q4_2(repo_root: str | Path, case_result: CaseResult, output: Path) -> Path:
+    """Q4-2 settles at the realised Attachment 4 price of that interval."""
+
+    variable = _q4_2_variable_prices(repo_root, case_result.run_id)
+    for day, intervals in _rolling_daily_intervals(case_result):
+        missing = [item.slot for item in intervals if (day, item.slot) not in variable]
+        if missing:
+            raise InputError(
+                f"Q4-2 price snapshot has no price for {day.isoformat()} slots {missing[:5]}"
+            )
+    return _export_rolling_template(
+        repo_root, case_result, output, lambda day, slot: variable[(day, slot)]
+    )
 
 
 def export_case_result(
@@ -453,8 +517,8 @@ def export_case_result(
     """Formal numeric export entry point, gated separately from internal time.
 
     The D_TIME_TEMPLATE_EXPORT decision records the team's explicit mapping
-    interpretation.  Q1 and Q2 have verified writers; later cases still fail
-    explicitly rather than copying values into unverified templates.
+    interpretation.  Q1, Q2 and Q4-2 have verified writers; the remaining cases
+    still fail explicitly rather than copying values into unverified templates.
     """
 
     try:
@@ -470,7 +534,7 @@ def export_case_result(
         raise InputError("synthetic result cannot be exported through the formal writer")
     if case_result.status != "success":
         raise InputError(f"result status is not success: {case_result.status!r}")
-    if case_result.case_id not in {"q1", "q2"}:
+    if case_result.case_id not in {"q1", "q2", "q4_2"}:
         raise NotImplementedError(
             f"numeric template export is not implemented for {case_result.case_id!r}"
         )
@@ -490,6 +554,8 @@ def export_case_result(
         output = repo / output
     if case_result.case_id == "q1":
         return _export_q1(repo, case_result, output)
+    if case_result.case_id == "q4_2":
+        return _export_q4_2(repo, case_result, output)
     return _export_q2(repo, case_result, output)
 
 
