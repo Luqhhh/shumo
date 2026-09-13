@@ -352,10 +352,9 @@ def settlement_rows(
                 }
             )
         for entry in ledger.adjustment_entries:
-            if (
-                entry.delta_plus_kwh <= ENERGY_ABS_TOL_KWH
-                and entry.delta_minus_kwh <= ENERGY_ABS_TOL_KWH
-            ):
+            # Physical feasibility tolerance is not an accounting write-off.
+            # Every nonzero billed revision must remain in the audit sidecar.
+            if entry.delta_plus_kwh == 0.0 and entry.delta_minus_kwh == 0.0:
                 continue
             interval = grid.interval(ledger.day, entry.target_slot)
             rows.append(
