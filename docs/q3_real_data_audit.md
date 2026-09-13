@@ -360,3 +360,37 @@ summary为`755836306c55a7a263a862f5e14cb6dd360933d8effccbe0a2596643db7e46f2`，
 本次独立技术复核不代替团队人工核验。所有原失败、新生产及派生证据继续只作诊断；
 未写入selected_runs.toml，未导出result3.xlsx，未开始Q4-3，原始题包/附件/模板/outputs
 均不提交Git。
+
+## 7. 后续单独批准的Q3正式交付
+
+用户进一步要求优先完成Q3剩余，并对具体模板列序、最终确认量/逐笔调整费、
+完整实际表和以新正式目录作为Q3选定来源方案明确回复“批准”。批准范围补记既有
+approved导出decision的Q3专用字段，保留原Q1 choice/status/确认字段；新增Q3 case
+级选定来源，全局selection_status仍pending，不批准其他case、D_EVAL或全局final。
+原Windows失败、本地不可达证据、原全年轨迹与修正诊断目录都保持原字节/原状态，
+没有把诊断目录直接写入selected_runs或改成正式状态。
+
+`054668a`在干净工作树生成`q3-formal-delivery-20260913`：新identity/manifest明确
+formal_delivery=true、diagnostic_only=false、artifact_regeneration_only=true及
+原轨迹`6e5ca4e`、修正结算`94f04c5`和批准审计报告来源。全部实际区间、动作、SOC、
+费用和三份sidecar未变，未再次求解全年。原输入/模型批准/源文件SHA、真实actual、
+全年物理/连续/末态/储备及逐笔费用重新核验通过。
+
+result3.xlsx的122785个单元格独立读回通过，覆盖两表各48096个十分钟区间、
+2004行实际充放电块和4647行紧急购电记录、原标签/日期、状态及费用。
+48096格真实区间->cell映射完整写入export_manifest；模板原件不变。
+正式Q3选定run检查阻断项[]，全部正式库存和同源资产哈希核验通过。
+原Q1选定导出快照四个必检字段对照未变。
+
+四指定日期的表1/2/3式结果、全年费用与三个发布时间交易统计、图和完整CSV均由
+该显式来源生成。论文补齐因果预测、合同与MILP、回放、储备局限、预报引入讨论；
+未执行全年单版本反事实，因此不捏造节费幅度。Q3独立论文6页编译通过，没有
+missing characters、undefined references、overfull或致命错误。
+最新ruff lint/format通过，启用可选solver测试的全部pytest为303 passed，无跳过。
+
+正式Excel SHA-256：`c9c4a22901aacd906449b746b8b0ef24009ccbbb398c338cb707d40776b0d012`；
+正式manifest：`50377eeb3355830b0129d18f9e7e63b304a2bbc4b955c5e7c187b86e06bb74cd`；
+独立论文PDF：`9e8627a84a06642975f50511489173fdf875bce3d64651cdd36a9c17b999e68b`。
+完整来源、命令与文件哈希见`docs/q3_delivery.md`。这是新增的正式交付，不改写
+第6节诊断阶段结论；所有原失败/诊断保全。代码PR和AI人工核验仍pending，不自动
+合并，不开始Q4、不解除全局final阻断，不提交原始题包/附件/模板/outputs。

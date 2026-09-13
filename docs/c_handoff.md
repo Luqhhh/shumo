@@ -5,7 +5,8 @@
 审核分支：`audit/q3-handoff-20260913`；交接源：`feat/q3-forecast-control@584b66c`
 
 已推送的实现：`dec302e`（失败上下文）、`6e5ca4e`（明确批准的年末储备）、
-`94f04c5`（非零微小结算交易写出）；审核PR：<https://github.com/Luqhhh/shumo/pull/3>。
+`94f04c5`（非零微小结算交易写出）、`054668a`（明确批准的Q3正式导出与同源资产）；
+审核PR：<https://github.com/Luqhhh/shumo/pull/3>。
 
 这份文档用于让下一位协作者直接继续 Q3 验证与交付，不重新打开已经由团队确认的
 架构和建模口径。接手前先阅读根目录 `AGENTS.md`；其中关于 decision gate、原始数据、
@@ -19,7 +20,9 @@ Q3 的因果预测、24小时滚动 MILP、实际回放、版本账本和三份 
 独立上界证明当时冻结合同下无法恢复到6000。用户随后明确批准限定最后24小时
 状态边界SOC>=6000，新生产全年334天/48096格成功，实际终点6000。
 原结算sidecar微小交易漏写已修复，另目录派生证据通过独立逐笔及哈希审核；不是
-第二次全年MPC运行。原失败和原全年文件保留。团队人工审核待完成，未选正式run。
+第二次全年MPC运行。用户随后单独批准限定Q3模板映射与新正式来源，
+`q3-formal-delivery-20260913`的result3.xlsx、独立validation、四展示日同源表图/CSV
+和6页独立论文PDF全部完成。原失败及诊断文件保留，代码/AI人工审核待完成。
 
 ## 2. 已经完成的内容
 
@@ -27,7 +30,7 @@ Q3 的因果预测、24小时滚动 MILP、实际回放、版本账本和三份 
   actual replay、结算和 artifact 写出。
 - 原交接全量测试为`263 passed, 1 skipped`；失败上下文补丁后为
   `265 passed, 1 skipped`，启用可选Q1 MILP测试后`266 passed`，ruff lint/format通过。
-- 最新全量测试为`289 passed`（启用可选solver测试，无跳过），ruff lint/format通过。
+- 最新全量测试为`303 passed`（启用可选solver测试，无跳过），ruff lint/format通过。
 - 真实1日审计通过：144格，4个计划版本，19次紧急购电，总费用
   `26112.095838` 元；这只是诊断值。
 - 真实连续7日审计通过：1008格，SOC跨午夜连续，28个计划版本，111次紧急购电，
@@ -45,6 +48,9 @@ Q3 的因果预测、24小时滚动 MILP、实际回放、版本账本和三份 
   manifest明确`artifact_regeneration_only=true`与源轨迹提交，不能称为新全年重跑。
 - 新全年artifacts内完整2月4032格已复核，SOC/费用与旧月度汇总一致；没有补造
   旧月度run目录。完整来源、结果及文件SHA-256见审计文档第6节。
+- Q3单独批准的正式交付完成：122785个Excel单元格读回通过，2004行充放电块、
+  4647行紧急购电记录；选定Q3正式来源检查阻断项[]。结果、6页论文PDF和完整
+  哈希见`docs/q3_delivery.md`，不是新全年求解；全局selection_status仍pending。
 
 关键实现集中在：
 
@@ -57,6 +63,8 @@ Q3 的因果预测、24小时滚动 MILP、实际回放、版本账本和三份 
 - `src/microgrid/problem/q3_sidecars.py`
 - `src/microgrid/problem/q3_terminal_reserve.py`
 - `scripts/rebuild_q3_settlement_evidence.py`
+- `src/microgrid/problem/q3_export.py`、`q3_reporting.py`
+- `scripts/export_q3_run.py`
 
 详细语义与证据见：
 
@@ -73,7 +81,7 @@ Q3 的因果预测、24小时滚动 MILP、实际回放、版本账本和三份 
 - 重采样：`RESAMPLE-LIN` 为主方案，PCHIP 仅作敏感性对照。
 - 负载：`LOAD-A + LF-A + LOAD-HORIZON-A`；只在00/06/12/18发布不可变的
   未来30小时版本，中间10分钟 MPC 只切片，不重新预测。
-- 价格：Q4 主语义为 `PRICE-A`，但 Q4-3 尚未批准和实现。
+- 价格：Q4使用独立分支/审批，不属于本次Q3交付；不因Q3完成而开始Q4-3。
 - 调整结算：`SETTLE-A`，相对上一版已确认计划逐次记录 delta。
 - PV 尾部：`TAIL-EXP2`，使用过去1至7天同 slot、2天半衰期的归一化权重；
   `TAIL-MEAN7` 仅作敏感性对照。
@@ -199,10 +207,15 @@ outputs/ingest-quarantine-20260913/
    ```
 
 5. 文档与必要修复已提交审核PR #3，请团队人工核验代码、全年及派生证据。
-6. 团队审核通过前，不得把该 run 写入 `configs/selected_runs.toml`。
-7. `result3.xlsx` 的正式导出仍被 Q3 模板时间映射口径阻断；批准后再实现导出层，
-   runner 不直接操作 Excel。
+6. 只选本会话明确批准的新正式目录`q3-formal-delivery-20260913`；原诊断不选，
+   其他case与全局selection_status不因此批准。
+7. Q3限定模板映射已单独批准，导出完成；不自动扩展其他模板。runner仍不写Excel。
 8. `D_MODEL_Q4_3` 未批准前，不要开始 Q4-3 正式模型。
+
+用户已经单独批准Q3限定模板映射和
+新正式来源，现仅在selected_runs新增`q3-formal-delivery-20260913`及其case级批准，
+原诊断run不改、全局pending不改；result3.xlsx和同源论文已完成。接下来直接审核
+`docs/q3_delivery.md`及交付包，不再重跑已验证年度轨迹或重开已批准模型讨论。
 
 ## 7. 接手完成的判定
 
@@ -214,4 +227,5 @@ outputs/ingest-quarantine-20260913/
 - 真实数据审计文档已更新并经过团队复核；
 - 正式 run 的选择和 Excel 导出均由团队按 gate 另行批准，没有被自动越过。
 
-当前技术运行与独立审核已完成，提交团队审核不等于团队已经批准。
+当前Q3技术交付已完成，用户已明确批准Q3模板/新正式来源；PR代码及AI人工核验仍
+待团队复核，不能由Agent代填。全局final不因单个Q3交付完成而自动批准。

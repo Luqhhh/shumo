@@ -17,6 +17,7 @@ from microgrid.problem.contracts import (
 from microgrid.problem.q3 import REQUIRED_DECISIONS
 from microgrid.problem.q3_export import (
     MAPPING_VERSION,
+    check_q3_delivery_inventory,
     create_q3_delivery,
     fill_q3_workbook,
     readback_q3_workbook,
@@ -225,3 +226,22 @@ def test_q3_delivery_never_overwrites_existing_directory(tmp_path):
             audit_report=tmp_path / "missing.json",
         )
     assert sentinel.read_text() == "preserve"
+
+
+def test_q3_delivery_inventory_detects_modified_file(tmp_path):
+    path = tmp_path / "validation.json"
+    path.write_text("verified", encoding="utf-8")
+    manifest = {
+        "result_files": {path.name: path.name},
+        "result_sha256": {path.name: file_digest(path)},
+    }
+    check_q3_delivery_inventory(tmp_path, manifest)
+    path.write_text("modified", encoding="utf-8")
+    with pytest.raises(InputError, match="hash mismatch"):
+        check_q3_delivery_inventory(tmp_path, manifest)
+
+
+@pytest.mark.parametrize("relative", ["../outside.json", 123])
+def test_q3_delivery_inventory_rejects_unowned_paths(tmp_path, relative):
+    with pytest.raises(InputError):
+        check_q3_delivery_inventory(tmp_path, {"result_files": {"outside.json": relative}})

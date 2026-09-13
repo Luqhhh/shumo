@@ -48,3 +48,39 @@ uv run --locked python scripts/export_q3_run.py \
 export_manifest、正式run manifest及同源论文表/四展示日图/CSV/资产哈希清单。
 源文件、已有交付目录或输出文件均不得覆盖；失败要保留新目录的failure/manifest/日志。
 不更改模型、已批准forecast/结算/回放口径或物理容差，不开始Q4-3。
+
+## 已完成的交付核验
+
+实现提交`054668a`在干净工作树生成正式目录，manifest为success、validation_ok=true、
+is_synthetic=false、diagnostic_only=false、formal_delivery=true，明确标注
+artifact_regeneration_only=true及原轨迹/修正账本来源。正式选定Q3检查阻断项为[]。
+新增来源范围只覆盖该Q3交付，不伪称重新求解，也不把原诊断manifest改为正式状态。
+
+- 全年48096格、实际初始/最终SOC均6000，跨日连续，末日145个状态边界检查通过。
+- 122785个单元格独立读回通过，包括两表各48096格、2004行实际充放电块、
+  4647行逐日紧急购电记录及费用/状态/原标签/日期/合并范围。
+- 全部原始输入未变，三份sidecar原字节不变，完整费用与原汇总在既有阈值内一致。
+- 正式库存全部文件哈希、论文资产哈希及发布后的同源文件核对通过。
+- 原Q1导出快照status/choice/confirmed_by/confirmed_at逐字段核对未变。
+- ruff lint/format通过，启用可选solver测试的全部pytest为303 passed，无跳过。
+- `paper/sections/07_q3.tex`补齐模型、算法、结果、预报引入讨论及局限；同源表图
+  来自选定正式目录，未编造单版本反事实节费结果。Q3独立PDF共6页，LaTeX编译成功，
+  无undefined references、missing characters、overfull或致命错误。
+
+交付位置：`outputs/runs/q3/q3-formal-delivery-20260913/results/result3.xlsx`；
+同源CSV、表图及报告在该目录`paper_assets/`；独立论文为`paper/build/q3_review.pdf`。
+
+| 文件 | SHA-256 |
+|---|---|
+| `result3.xlsx` | `c9c4a22901aacd906449b746b8b0ef24009ccbbb398c338cb707d40776b0d012` |
+| 正式`manifest.json` | `50377eeb3355830b0129d18f9e7e63b304a2bbc4b955c5e7c187b86e06bb74cd` |
+| 正式`domain_result.json` | `4d3561ef9c3680797bd1c3c0ead107bdd92159badb8e329db97401aeed8b3075` |
+| 正式`validation.json` | `a5cf6226b2886ff08e2843b09cb632ac4bb427b6815837427fa710485a6a659e` |
+| `export_manifest.json` | `52c16e3b27ac22762dffd967b4b8d86b1816bd7507c3769a70b75784c0c99c68` |
+| `paper_assets/asset_manifest.json` | `23c15823781adb27891256f28233af0daaad2e7c0548b111b1072d4280d2302f` |
+| `paper/build/q3_review.pdf` | `9e8627a84a06642975f50511489173fdf875bce3d64651cdd36a9c17b999e68b` |
+| 导出日志 | `e4412ccce51011699937b8e3a62ebe1a86e2d6247b83b6d9a8b3283a28200cf9` |
+| 论文编译日志 | `90f143dddee32f14b1d57e46e9f1ca4af51053bf717bb4feb7ef87bb38d53433` |
+
+其余文件SHA-256完整记录在正式manifest/资产清单。AI人工核验和代码PR人工审核仍
+待完成，不自动合并。全局final仍受其他case、评价及整个论文审批约束，不据此放行。

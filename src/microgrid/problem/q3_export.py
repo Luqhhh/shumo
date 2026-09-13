@@ -480,6 +480,23 @@ def create_q3_delivery(
     return delivered
 
 
+def check_q3_delivery_inventory(source: Path, manifest: dict) -> None:
+    for name, relative in manifest.get("result_files", {}).items():
+        if not isinstance(relative, str):
+            raise InputError("Q3 delivery inventory path is invalid")
+        path = source / relative
+        try:
+            path.resolve().relative_to(source.resolve())
+        except ValueError:
+            raise InputError("Q3 delivery inventory escapes its run directory") from None
+        if (
+            not path.is_file()
+            or path.name != name
+            or file_digest(path) != manifest.get("result_sha256", {}).get(name)
+        ):
+            raise InputError(f"Q3 delivery inventory hash mismatch: {name}")
+
+
 def publish_q3_paper_assets(repo: Path, run_id: str, output_dir: Path | None = None) -> Path:
     """Publish only the explicitly selected Q3 delivery's hash-checked assets."""
     import tomllib
@@ -499,6 +516,7 @@ def publish_q3_paper_assets(repo: Path, run_id: str, output_dir: Path | None = N
         raise InputError("Q3 selected delivery invalid: " + "; ".join(blockers))
     source = repo / "outputs/runs/q3" / run_id
     manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+    check_q3_delivery_inventory(source, manifest)
     asset_path = source / "paper_assets/asset_manifest.json"
     if (
         manifest.get("diagnostic_only") is not False
@@ -535,6 +553,15 @@ def export_q3_case_result(repo: Path, result: CaseResult, output: Path) -> Path:
         )
     validate_annual_result(result)
     source = repo / "outputs/runs/q3" / result.run_id
+    from ..checks import check_selected_run
+
+    blockers = check_selected_run(repo, "q3", result.run_id)
+    if blockers:
+        raise InputError("Q3 formal source failed its release evidence checks")
+    manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("formal_delivery") is not True or manifest.get("diagnostic_only") is not False:
+        raise InputError("Q3 diagnostic source cannot be formally exported")
+    check_q3_delivery_inventory(source, manifest)
     if load_case_result(source / "domain_result.json") != result:
         raise InputError("Q3 export result differs from saved formal source")
     try:

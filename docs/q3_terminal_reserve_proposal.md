@@ -92,4 +92,7 @@ selected run、正式比较或result3.xlsx模板映射。
 生产全年轨迹来源为`q3-terminal-reserve-validation-20260913`（`6e5ca4e`），
 修正结算写出证据为`q3-terminal-reserve-evidence-20260913`（`94f04c5`），后者
 明确标注派生，不声称重跑MPC。逐格复核、费用对账及文件哈希见审计文档第6节。
-最新全量pytest为289 passed；团队人工审核与正式结果/导出审批仍待完成。
+当时全量pytest为289 passed。随后用户单独批准限定Q3导出与新正式来源，
+result3.xlsx及同源四展示日表图/CSV、6页独立论文已完成，最新全量pytest303 passed。
+本卡原模型批准不自动扩大导出权限；新批准/映射/来源和文件哈希见`docs/q3_delivery.md`。
+代码/AI人工审核仍pending，不自动合并或放行其他case/全局final。

@@ -113,12 +113,14 @@ q_emergency > 0 => C = 0, S_grid = 0, S_PV = 0
 
 Q3 gate 必须检查共享四项、`D_RESAMPLE/D_SETTLE/D_LOAD_FORECAST/D_MODEL_Q3`。
 全局 final gate 也检查 `D_LOAD_FORECAST`，防止仅凭旧运行产物绕过负载决策。
-删除、改为pending/proposed、清空确认人或日期必须重新阻断；全部批准后，当前
-runner 应抛出 `ModelNotImplementedError`，不得返回假成功。
+删除、改为pending/proposed、清空确认人或日期必须重新阻断；runner已实现并完成
+真实全年诊断，任何前置检查失败必须保留失败证据，不得返回假成功。
 
 后续求解器验收还需覆盖未来信息扰动不影响当前决策、逐版交易手算、冻结时隙、
 午夜价格对齐、实际能量等式、紧急互斥、跨日/年度SOC、求解状态和预测provenance。
-正式输出必须来自 `CaseResult/IntervalResult`，另行完成模板映射和导出验证。
+正式输出必须来自 `CaseResult/IntervalResult`。2026-09-13用户随后明确批准限定
+Q3模板列序与新正式来源，范围及交付命令见`docs/q3_delivery.md`；原Q1确认字段保留，
+不扩展至其他case或全局final批准。
 
 预测敏感性保留 LF-B、半周半衰期、PV最新版本、56日误差历史、其他正epsilon及
 PCHIP；终端价值比较0.8v/v/1.2v。已有六小时预测误差证据不构成全年费用改善证据。
