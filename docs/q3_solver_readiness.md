@@ -23,7 +23,7 @@
 | 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
 | Forecast release builder | 已实现因果InfoSet生成 | `problem/q3_release_snapshots.py` | runner提供实际/预报archive |
 | Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | 完成 |
-| Q3 滚动 driver | 一日内存版已实现 | `problem/q3_rolling.py` | 接跨日runner |
+| Q3 滚动 driver | 一日/跨日连续版已实现 | `problem/q3_rolling.py` | 接正式runner |
 | Q3 年度 runner | 未实现 | `problem/q3.py` 明确报错 | 组装跨日、sidecars和artifacts |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
@@ -86,7 +86,7 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 
 ```text
 1. 把附件1/2/3 adapter组装到release builder
-2. 扩展跨日连续运行
+2. 完成正式runner的manifest/失败证据
 3. 再依次做真实1日、7日、1月、全年
 ```
 
@@ -116,6 +116,7 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - [x] window factory只选择最近已发布的不可变snapshot，并保留tail provenance；
 - [x] release builder先过滤InfoSet，再生成LOAD-A与组合/线性重采样PV snapshot；
 - [x] 一日结果可写三份带哈希sidecar及全局schema v1 CaseResult；
+- [x] 跨日driver每天重建合同账本，但SOC从前日末连续传入次日初；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
 在真实forecast factory、跨日运行和年度runner完成前，正式年度runner仍不能返回成功。

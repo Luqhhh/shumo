@@ -109,6 +109,58 @@ class Q3DayRun:
         )
 
 
+@dataclass(frozen=True)
+class Q3PeriodRun:
+    """Several consecutive Q3 days with continuous battery state."""
+
+    days: tuple[Q3DayRun, ...]
+
+    def __post_init__(self) -> None:
+        if not self.days:
+            raise ValueError("Q3 period run must contain at least one day")
+        for previous, current in zip(self.days, self.days[1:], strict=False):
+            if current.day != previous.day + dt.timedelta(days=1):
+                raise ValueError("Q3 period run days must be consecutive")
+            if current.state_start != previous.state_end:
+                raise ValueError("Q3 period run cannot reset battery state at midnight")
+
+    @property
+    def intervals(self) -> tuple[IntervalResult, ...]:
+        return tuple(interval for day in self.days for interval in day.intervals)
+
+    @property
+    def ledgers(self) -> tuple[Q3PlanLedger, ...]:
+        return tuple(day.ledger for day in self.days)
+
+    @property
+    def forecast_links(self) -> tuple[PlanSlotForecastLink, ...]:
+        return tuple(link for day in self.days for link in day.forecast_links)
+
+    @property
+    def emergency_entries(self) -> tuple[Q3EmergencySettlementEntry, ...]:
+        return tuple(entry for day in self.days for entry in day.emergency_entries)
+
+    @property
+    def state_start(self) -> BatteryState:
+        return self.days[0].state_start
+
+    @property
+    def state_end(self) -> BatteryState:
+        return self.days[-1].state_end
+
+    @property
+    def cost_breakdown(self) -> CostBreakdown:
+        return CostBreakdown(
+            planned_cost_cny=math.fsum(day.cost_breakdown.planned_cost_cny for day in self.days),
+            adjustment_cost_cny=math.fsum(
+                day.cost_breakdown.adjustment_cost_cny for day in self.days
+            ),
+            emergency_cost_cny=math.fsum(
+                day.cost_breakdown.emergency_cost_cny for day in self.days
+            ),
+        )
+
+
 def _actual_day(
     day: dt.date,
     actuals: tuple[ActualInterval, ...],
@@ -219,3 +271,43 @@ def run_q3_day(
         forecast_links=links,
         emergency_entries=tuple(emergencies),
     )
+
+
+def run_q3_period(
+    *,
+    days: tuple[dt.date, ...],
+    state_start: BatteryState,
+    actuals: tuple[ActualInterval, ...],
+    window_factory: Q3WindowFactory,
+    solver: Q3WindowSolver = solve_q3_window_milp,
+) -> Q3PeriodRun:
+    """Run consecutive days while carrying the physical state across midnight."""
+
+    if not days:
+        raise InputError("Q3 period requires at least one day")
+    if days != tuple(sorted(days)) or len(days) != len(set(days)):
+        raise InputError("Q3 period days must be unique and increasing")
+    for previous, current in zip(days, days[1:], strict=False):
+        if current != previous + dt.timedelta(days=1):
+            raise InputError("Q3 period days must be consecutive")
+    expected_keys = tuple((day, slot) for day in days for slot in range(STEPS_PER_DAY))
+    actual_keys = tuple((actual.day, actual.slot) for actual in actuals)
+    if actual_keys != expected_keys:
+        raise InputError("Q3 period actuals do not exactly cover every requested day and slot")
+
+    state = state_start
+    results: list[Q3DayRun] = []
+    offset = 0
+    for day in days:
+        day_actuals = actuals[offset : offset + STEPS_PER_DAY]
+        result = run_q3_day(
+            day=day,
+            state_start=state,
+            actuals=day_actuals,
+            window_factory=window_factory,
+            solver=solver,
+        )
+        results.append(result)
+        state = result.state_end
+        offset += STEPS_PER_DAY
+    return Q3PeriodRun(days=tuple(results))

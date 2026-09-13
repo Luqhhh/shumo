@@ -7,7 +7,7 @@ import pytest
 from microgrid.problem.contracts import STEPS_PER_DAY, BatteryState, TimeGrid
 from microgrid.problem.q2_inputs import ActualInterval
 from microgrid.problem.q3_plan_ledger import Q3PlanLedger
-from microgrid.problem.q3_rolling import run_q3_day
+from microgrid.problem.q3_rolling import run_q3_day, run_q3_period
 from microgrid.problem.q3_solver import Q3WindowSolution
 from microgrid.problem.q3_window import Q3WindowInput, Q3WindowPoint
 from microgrid.schemas import InputError
@@ -178,6 +178,43 @@ def test_one_day_driver_rejects_incomplete_actual_day() -> None:
             day=day,
             state_start=BatteryState(6_000.0),
             actuals=_actuals(day)[:-1],
+            window_factory=_window_factory,
+            solver=_zero_solution,
+        )
+
+
+def test_period_driver_carries_soc_and_resets_only_daily_contract_ledger() -> None:
+    first = dt.date(2025, 2, 1)
+    second = first + dt.timedelta(days=1)
+    result = run_q3_period(
+        days=(first, second),
+        state_start=BatteryState(6_000.0),
+        actuals=(*_actuals(first, emergency_slot=72), *_actuals(second)),
+        window_factory=_window_factory,
+        solver=_zero_solution,
+    )
+
+    assert len(result.days) == 2
+    assert len(result.intervals) == 288
+    assert result.days[0].state_end == result.days[1].state_start
+    assert result.days[1].state_start.energy_kwh == pytest.approx(6_000.0)
+    assert tuple(ledger.day for ledger in result.ledgers) == (first, second)
+    assert all(
+        tuple(version.issue_time.hour for version in ledger.versions) == (0, 6, 12, 18)
+        for ledger in result.ledgers
+    )
+    assert len(result.forecast_links) == 8 * STEPS_PER_DAY
+    assert result.cost_breakdown.emergency_cost_cny == pytest.approx(50.0)
+
+
+def test_period_driver_rejects_a_calendar_gap() -> None:
+    first = dt.date(2025, 2, 1)
+    third = first + dt.timedelta(days=2)
+    with pytest.raises(InputError, match="consecutive"):
+        run_q3_period(
+            days=(first, third),
+            state_start=BatteryState(6_000.0),
+            actuals=(*_actuals(first), *_actuals(third)),
             window_factory=_window_factory,
             solver=_zero_solution,
         )
