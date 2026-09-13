@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
+from dataclasses import replace
 
 import pytest
 
-from microgrid.problem.contracts import STEPS_PER_DAY, BatteryState, TimeGrid
+from microgrid.problem.contracts import STEPS_PER_DAY, BatteryState, CaseContext, TimeGrid
 from microgrid.problem.q2_inputs import ActualInterval
+from microgrid.problem.q3 import _write_failure_evidence
 from microgrid.problem.q3_plan_ledger import Q3PlanLedger
 from microgrid.problem.q3_rolling import run_q3_day, run_q3_period
-from microgrid.problem.q3_solver import Q3WindowSolution
+from microgrid.problem.q3_solver import Q3WindowSolution, Q3WindowSolveError
 from microgrid.problem.q3_window import Q3WindowInput, Q3WindowPoint
 from microgrid.schemas import InputError
 
@@ -204,6 +207,65 @@ def test_one_day_driver_adds_interval_key_to_execution_failure(monkeypatch) -> N
             window_factory=_window_factory,
             solver=_zero_solution,
         )
+
+
+@pytest.mark.parametrize("terminal_mode", ["terminal_value", "year_end_equality"])
+def test_one_day_driver_adds_context_to_solver_failure(terminal_mode: str, tmp_path) -> None:
+    day = dt.date(2025, 12, 31)
+    failing_slot = 143 if terminal_mode == "year_end_equality" else 34
+    decision_time = dt.datetime.combine(day, dt.time()) + dt.timedelta(minutes=10 * failing_slot)
+    cause = Q3WindowSolveError("MILP failed: status=2 HiGHS Status 8: Infeasible")
+
+    def factory(**kwargs):
+        window = _window_factory(**kwargs)
+        if terminal_mode == "year_end_equality" and window.decision_time == decision_time:
+            window = replace(
+                window,
+                terminal_mode=terminal_mode,
+                terminal_target_kwh=6_000.0,
+                points=tuple(point for point in window.points if point.day == day),
+            )
+        return window
+
+    def fail_solver(window):
+        if window.decision_time == decision_time:
+            raise cause
+        return _zero_solution(window)
+
+    with pytest.raises(Q3WindowSolveError) as caught:
+        run_q3_day(
+            day=day,
+            state_start=BatteryState(6_123.456789),
+            actuals=_actuals(day),
+            window_factory=factory,
+            solver=fail_solver,
+        )
+
+    message = str(caught.value)
+    assert f"decision_time={decision_time.isoformat()}" in message
+    assert f"day={day.isoformat()}, slot={failing_slot}" in message
+    assert "soc_kwh=6123.456789" in message
+    assert f"terminal_mode={terminal_mode}" in message
+    assert f"window_length={1 if terminal_mode == 'year_end_equality' else 144}" in message
+    assert str(cause) in message
+    assert caught.value.__cause__ is cause
+    assert caught.value.exit_code == cause.exit_code
+
+    run_id = "synthetic-solver-failure-context"
+    run_dir = tmp_path / "outputs" / "runs" / "q3" / run_id
+    _write_failure_evidence(
+        CaseContext(repo_root=tmp_path, case_id="q3", run_id=run_id, is_synthetic=True),
+        run_id,
+        run_dir,
+        stage="rolling_solve",
+        exc=caught.value,
+    )
+    for filename in ("failure.json", "manifest.json"):
+        evidence = json.loads((run_dir / filename).read_text(encoding="utf-8"))
+        assert evidence["error_message"] == message
+        assert evidence["error_type"] == "Q3WindowSolveError"
+        assert evidence["failure_stage"] == "rolling_solve"
+    assert not (run_dir / "summary.json").exists()
 
 
 def test_period_driver_carries_soc_and_resets_only_daily_contract_ledger() -> None:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from ..schemas import InputError
 from .contracts import ENERGY_ABS_TOL_KWH, BatteryAction, IntervalResult
@@ -11,6 +12,7 @@ from .q2_inputs import ActualInterval
 from .q3_plan_ledger import Q3EmergencySettlementEntry, Q3PlanLedger
 from .q3_replay import MinimumCurtailmentResult, apply_minimum_curtailment_recourse
 from .q3_solver import Q3WindowSolution, validate_q3_window_solution
+from .q3_terminal_reserve import Q3TerminalReserveError, q3_soc_lower_bound
 from .q3_window import Q3WindowInput
 
 
@@ -165,7 +167,7 @@ def execute_q3_window_step(
             price_cny_per_kwh=first.base_price_cny_per_kwh,
             cost_cny=(5.0 * first.base_price_cny_per_kwh * replay.emergency_purchase_kwh),
         )
-    return Q3ExecutedStep(
+    executed = Q3ExecutedStep(
         window=window,
         solution=solution,
         ledger_after=ledger_after,
@@ -176,3 +178,19 @@ def execute_q3_window_step(
         confirmed_purchase_kwh=confirmed,
         emergency_settlement=emergency_entry,
     )
+    for time, state in ((actual.start, replay.state_start), (actual.end, replay.state_end)):
+        if state.energy_kwh < q3_soc_lower_bound(time) - ENERGY_ABS_TOL_KWH:
+            evidence = json.loads(
+                json.dumps(asdict(executed), default=lambda item: item.isoformat())
+            )
+            evidence["violation_boundary_time"] = time.isoformat()
+            evidence["required_soc_kwh"] = q3_soc_lower_bound(time)
+            raise Q3TerminalReserveError(
+                "Q3 actual terminal reserve violated "
+                f"(decision_time={window.decision_time.isoformat()}, day={actual.day.isoformat()}, "
+                f"slot={actual.slot}, soc_kwh={window.battery_state.energy_kwh!r}, "
+                f"terminal_mode={window.terminal_mode}, window_length={len(window.points)}, "
+                f"boundary_time={time.isoformat()}, actual_soc_kwh={state.energy_kwh!r})",
+                evidence=evidence,
+            )
+    return executed

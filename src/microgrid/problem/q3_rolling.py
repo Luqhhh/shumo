@@ -21,7 +21,7 @@ from .q2_inputs import ActualInterval
 from .q3_controller import execute_q3_window_step
 from .q3_plan_ledger import Q3EmergencySettlementEntry, Q3PlanLedger
 from .q3_sidecars import PlanSlotForecastLink
-from .q3_solver import Q3WindowSolution, solve_q3_window_milp
+from .q3_solver import Q3WindowSolution, Q3WindowSolveError, solve_q3_window_milp
 from .q3_window import Q3WindowInput
 
 
@@ -241,7 +241,16 @@ def run_q3_day(
         if window.decision_time != actual.start or window.battery_state != state:
             raise InputError("Q3 window factory changed the requested decision time or state")
         previous_version = None if ledger is None else ledger.current.version
-        solution = solver(window)
+        try:
+            solution = solver(window)
+        except Q3WindowSolveError as exc:
+            raise Q3WindowSolveError(
+                "Q3 solve failed "
+                f"(decision_time={window.decision_time.isoformat()}, "
+                f"day={actual.day.isoformat()}, slot={actual.slot}, "
+                f"soc_kwh={state.energy_kwh!r}, terminal_mode={window.terminal_mode}, "
+                f"window_length={len(window.points)}): {exc}"
+            ) from exc
         try:
             executed = execute_q3_window_step(
                 window=window,

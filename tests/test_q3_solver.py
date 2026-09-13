@@ -28,12 +28,14 @@ def _window(
     steps: int = 1,
 ) -> Q3WindowInput:
     if planning_event == "base_plan":
-        decision = dt.datetime(2025, 12, 31)
+        decision = dt.datetime(2025, 2, 1)
     elif planning_event == "revision":
-        decision = dt.datetime(2025, 12, 31, 6)
+        decision = dt.datetime(2025, 2, 1, 6)
     else:
-        decision = dt.datetime(2025, 12, 31, 6, 10)
-    snapshot_issue = dt.datetime(2025, 12, 31, 6) if decision.hour == 6 else decision
+        decision = dt.datetime(2025, 2, 1, 6, 10)
+    snapshot_issue = (
+        dt.datetime.combine(decision.date(), dt.time(6)) if decision.hour == 6 else decision
+    )
     points = tuple(
         Q3WindowPoint(
             interval_start=(interval_start := decision + dt.timedelta(minutes=10 * index)),

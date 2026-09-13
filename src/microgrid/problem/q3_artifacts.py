@@ -11,6 +11,7 @@ from .q3_load_snapshot import LoadForecastSnapshot
 from .q3_pv_snapshot import PVForecastSnapshot, TailForecast
 from .q3_rolling import Q3DayRun, Q3PeriodRun
 from .q3_sidecars import Q3SidecarSet, write_q3_sidecars
+from .q3_terminal_reserve import validate_q3_terminal_reserve
 from .result_io import load_case_result, save_case_result
 from .validation import validate_complete_run
 
@@ -48,6 +49,12 @@ def write_q3_day_artifacts(
     if domain_path.exists() and not overwrite:
         raise InputError(f"result file already exists: {domain_path}")
 
+    reserve = validate_q3_terminal_reserve(day_run.intervals)
+    if not reserve["ok"]:
+        raise InputError(
+            "Q3 actual terminal reserve validation failed: " + "; ".join(reserve["issues"])
+        )
+
     sidecars = write_q3_sidecars(
         directory,
         load_versions=tuple(snapshot.points for snapshot in load_snapshots),
@@ -79,6 +86,7 @@ def write_q3_day_artifacts(
             "emergency_cost_cny": costs.emergency_cost_cny,
             "total_cost_cny": costs.total_cost_cny,
             "sidecars": sidecar_metadata,
+            "terminal_reserve": reserve,
         },
     )
     validation = validate_complete_run(result.intervals, (day_run.day,))
@@ -115,6 +123,12 @@ def write_q3_period_artifacts(
     if domain_path.exists() and not overwrite:
         raise InputError(f"result file already exists: {domain_path}")
 
+    reserve = validate_q3_terminal_reserve(period_run.intervals)
+    if not reserve["ok"]:
+        raise InputError(
+            "Q3 actual terminal reserve validation failed: " + "; ".join(reserve["issues"])
+        )
+
     sidecars = write_q3_sidecars(
         directory,
         load_versions=tuple(snapshot.points for snapshot in load_snapshots),
@@ -149,6 +163,7 @@ def write_q3_period_artifacts(
             "emergency_cost_cny": costs.emergency_cost_cny,
             "total_cost_cny": costs.total_cost_cny,
             "sidecars": sidecar_metadata,
+            "terminal_reserve": reserve,
         },
     )
     validation = validate_complete_run(result.intervals, expected_days)

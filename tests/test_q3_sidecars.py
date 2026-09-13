@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from microgrid.problem.q3_sidecars import (
     PlanSlotForecastLink,
     load_forecast_id,
     load_q3_sidecar,
+    settlement_rows,
     write_q3_sidecars,
 )
 from microgrid.schemas import InputError
@@ -254,3 +256,31 @@ def test_q3_sidecar_writes_supplied_emergency_event_at_right_endpoint(tmp_path: 
     assert emergency["target_slot_end"] == "2025-02-01T00:10:00"
     assert emergency["energy_kwh"] == pytest.approx(2.0)
     assert emergency["cost_cny"] == pytest.approx(15.0)
+
+
+def test_settlement_sidecar_retains_sub_tolerance_nonzero_round_trip_transactions() -> None:
+    day = dt.date(2025, 2, 1)
+    initial = (100.0,) * STEPS_PER_DAY
+    ledger = Q3PlanLedger.start(
+        day, initial_commitments_kwh=initial, base_prices_cny_per_kwh=(1.0,) * STEPS_PER_DAY
+    )
+    increased = list(initial)
+    increased[120] += 1e-7
+    ledger = ledger.revise(
+        dt.datetime.combine(day, dt.time(6)),
+        new_commitments_kwh=tuple(increased),
+        transaction_price_cny_per_kwh=2.0,
+    )
+    ledger = ledger.revise(
+        dt.datetime.combine(day, dt.time(12)),
+        new_commitments_kwh=initial,
+        transaction_price_cny_per_kwh=2.0,
+    )
+    rows = settlement_rows((ledger,))
+    adjustments = [row for row in rows if row["record_type"] == "adjustment"]
+    assert len(adjustments) == 2
+    assert 0 < adjustments[0]["delta_plus_kwh"] < 1e-6
+    assert 0 < adjustments[1]["delta_minus_kwh"] < 1e-6
+    assert ledger.current.committed_kwh == initial
+    assert math.fsum(row["cost_cny"] for row in adjustments) == ledger.adjustment_cost_cny
+    assert ledger.adjustment_cost_cny > 0.0
