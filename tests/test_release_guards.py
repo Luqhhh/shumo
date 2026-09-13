@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
+from microgrid.approvals import (
+    DECISION_CASE_SCOPES,
+    FINAL_REQUIRED_DECISION_IDS,
+    template_export_decision_id,
+)
 from microgrid.cases import CASE_IDS, run_case
 from microgrid.checks import assert_release_ready, collect_blockers, load_selected_runs
 from microgrid.cli import main
@@ -14,26 +20,7 @@ from microgrid.schemas import (
     ReleaseBlockedError,
 )
 
-DECISION_IDS = (
-    "D_TIME_INTERNAL",
-    "D_TIME_TEMPLATE_EXPORT",
-    "D_EFF",
-    "D_STATE",
-    "D_INFO",
-    "D_RESAMPLE",
-    "D_SETTLE",
-    "D_MODEL_Q1",
-    "D_MODEL_Q2",
-    "D_LOAD_FORECAST",
-    "D_PRICE_FORECAST",
-    "D_YEAR_BOUNDARY",
-    "D_TERMINAL",
-    "D_MPC",
-    "D_MODEL_Q3",
-    "D_MODEL_Q4_2",
-    "D_MODEL_Q4_3",
-    "D_EVAL",
-)
+DECISION_IDS = FINAL_REQUIRED_DECISION_IDS
 
 RESULT_BY_CASE = {
     "q1": "result1.xlsx",
@@ -57,6 +44,11 @@ def _write_decisions(repo: Path, *, approved: bool) -> None:
                 f'confirmed_by = "{"tester" if approved else ""}"',
                 f'confirmed_at = "{"2026-09-10" if approved else ""}"',
                 'source = "test fixture"',
+                *(
+                    [f"scope_cases = {json.dumps(DECISION_CASE_SCOPES[decision_id])}"]
+                    if decision_id in DECISION_CASE_SCOPES
+                    else []
+                ),
                 "",
             ]
         )
@@ -85,6 +77,54 @@ def _make_run(
         result_path.write_bytes(f"{case_id}:{run_id}\n".encode())
     else:
         result_path.unlink(missing_ok=True)
+
+    domain_path = run_dir / "domain_result.json"
+    domain_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "case_id": case_id,
+                "run_id": run_id,
+                "status": status,
+                "is_synthetic": is_synthetic,
+                "intervals": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "validation.json").write_text(
+        json.dumps({"ok": True, "violations": []}),
+        encoding="utf-8",
+    )
+
+    template = repo / "data" / "templates" / filename
+    template.parent.mkdir(parents=True, exist_ok=True)
+    if not template.exists():
+        template.write_bytes(f"template:{filename}\n".encode())
+
+    export_manifest = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "case_id": case_id,
+        "source_result_sha256": _sha256_bytes(domain_path),
+        "output_sha256": _sha256_bytes(result_path) if create_result else "",
+        "template_file": str(template.relative_to(repo)),
+        "template_sha256": _sha256_bytes(template),
+        "decision_snapshot": {
+            template_export_decision_id(case_id): {
+                "status": "approved",
+                "choice": "test choice",
+                "confirmed_by": "tester",
+                "confirmed_at": "2026-09-10",
+                **({"scope_cases": ["q4_2", "q4_3"]} if case_id in ("q4_2", "q4_3") else {}),
+            }
+        },
+    }
+    (run_dir / "export_manifest.json").write_text(
+        json.dumps(export_manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
     manifest = {
         "run_id": run_id,
         "case_id": case_id,
@@ -93,8 +133,75 @@ def _make_run(
         "result_files": {filename: f"results/{filename}"},
         "result_sha256": {filename: _sha256_bytes(result_path)} if create_result else {},
     }
+    if case_id in ("q4_2", "q4_3"):
+        from microgrid.approvals import load_decisions, normalize_decision_id
+        from microgrid.cases import required_decisions
+        from microgrid.problem.q4_evidence import ARTIFACT_NAMES, write_inventory
+
+        decisions = load_decisions(repo)
+        runtime = {
+            decision_id: decisions[normalize_decision_id(decision_id)]
+            for decision_id in required_decisions(case_id)
+        }
+        manifest["config_snapshot"] = {"decisions.toml": {"decisions": runtime}}
+        config = {
+            "model_version": "q4-v3-reserve",
+            "terminal_reserve": {"start": "2025-12-31 00:00:00", "minimum_energy_kwh": 6000.0},
+            "case_id": case_id,
+            "is_synthetic": is_synthetic,
+            "timely_control": True,
+            "price_method": "main",
+            "end_time": "2026-01-01 00:00:00",
+            "solver": {
+                "presolve": True,
+                "mip_rel_gap": 1e-4,
+                "time_limits_seconds": [10, 60],
+                "mip_feasibility_tolerance": 1e-9,
+                "primal_feasibility_tolerance": 1e-8,
+            },
+        }
+        (run_dir / "effective_config.json").write_text(json.dumps(config), encoding="utf-8")
+        for name in ARTIFACT_NAMES:
+            if not (run_dir / name).exists():
+                (run_dir / name).write_text(
+                    '{"status":0}\n' if name.endswith(".jsonl") else "", encoding="utf-8"
+                )
+        (run_dir / "validation.json").write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "violations": [],
+                    "checked_intervals": 48096,
+                    "feedback_rule_verified": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        plans_path = run_dir / "dispatch_plans.jsonl"
+        plans_path.write_text("", encoding="utf-8")
+        export_manifest["model_version"] = config["model_version"]
+        export_manifest["decision_snapshot"]["D_TERMINAL_RESERVE_Q4"] = runtime[
+            "D_TERMINAL_RESERVE_Q4"
+        ]
+        (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        inventory_path = run_dir / "evidence_manifest.json"
+        inventory_path.unlink(missing_ok=True)
+        write_inventory(
+            run_dir,
+            inventory_path,
+            {
+                "ok": True,
+                "checked_intervals": 48096,
+                "causal_forecasts_ok": True,
+                "intent_plan_binding_ok": True,
+            },
+            plans_path=plans_path,
+        )
+        manifest["evidence_manifest_sha256"] = _sha256_bytes(inventory_path)
+        export_manifest["evidence_manifest_sha256"] = _sha256_bytes(inventory_path)
+        (run_dir / "export_manifest.json").write_text(json.dumps(export_manifest), encoding="utf-8")
     (run_dir / "manifest.json").write_text(
-        __import__("json").dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
@@ -253,3 +360,25 @@ def test_cli_run_case_returns_pending_code(tmp_path, capsys):
     assert code == 4
     captured = capsys.readouterr()
     assert "pending" in (captured.out + captured.err)
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+@pytest.mark.parametrize("broken", ["q1_snapshot", "scope_cases", "choice"])
+def test_q4_release_requires_its_current_export_snapshot(tmp_path, case_id, broken):
+    repo = _ready_repo(tmp_path)
+    path = repo / "outputs" / "runs" / case_id / f"{case_id}-run-test" / "export_manifest.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    decision_id = "D_TIME_TEMPLATE_EXPORT_Q4"
+    if broken == "q1_snapshot":
+        data["decision_snapshot"]["D_TIME_TEMPLATE_EXPORT"] = data["decision_snapshot"].pop(
+            decision_id
+        )
+    else:
+        data["decision_snapshot"][decision_id][broken] = (
+            ["q3"] if broken == "scope_cases" else "stale mapping"
+        )
+    path.write_text(json.dumps(data), encoding="utf-8")
+    blockers = collect_blockers(repo, mode="final")
+    assert any(
+        f"case {case_id}:" in blocker and "export decision" in blocker for blocker in blockers
+    )

@@ -16,9 +16,10 @@ from pathlib import Path
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 
-from .approvals import require_approved_decisions
+from .approvals import require_approved_decisions, template_export_decision_id
 from .dataio import ensure_dir
 from .problem.contracts import CaseResult
+from .problem.validation import validate_complete_run
 from .schemas import InputError, PendingDecisionError
 
 TEMPLATE_BY_CASE = {
@@ -233,33 +234,6 @@ def _q2_fixed_prices(repo_root: str | Path, run_id: str) -> tuple[float, ...]:
     if len(records) != 144:
         raise InputError("Q2 fixed-price snapshot contains duplicate slot records")
     return tuple(prices[slot] for slot in range(144))
-
-
-def _q4_2_variable_prices(repo_root: str | Path, run_id: str) -> dict[tuple[dt.date, int], float]:
-    """Read a Q4-2 run's own realised Attachment 4 prices.
-
-    Q4-2 settles every interval at that interval's realised Attachment 4 price,
-    so its cost column cannot come from the 144-slot fixed table Q2 uses.  The
-    run's ``input_snapshot.json`` carries the full (day, slot) price grid.
-    """
-
-    snapshot = Path(repo_root) / "outputs" / "runs" / "q4_2" / run_id / "input_snapshot.json"
-    if not snapshot.is_file():
-        raise InputError(f"Q4-2 input snapshot not found: {snapshot}")
-    try:
-        payload = json.loads(snapshot.read_text(encoding="utf-8"))
-        records = payload["variable_prices"]
-        prices = {
-            (dt.date.fromisoformat(str(record["day"])), int(record["slot"])): float(
-                record["price_cny_per_kwh"]
-            )
-            for record in records
-        }
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise InputError(f"invalid Q4-2 variable-price snapshot: {snapshot}") from exc
-    if len(prices) != len(records):
-        raise InputError("Q4-2 variable-price snapshot contains duplicate day/slot records")
-    return prices
 
 
 def _rolling_daily_intervals(case_result: CaseResult) -> list[tuple[dt.date, tuple]]:
@@ -494,21 +468,6 @@ def _export_q2(repo_root: str | Path, case_result: CaseResult, output: Path) -> 
     return _export_rolling_template(repo_root, case_result, output, lambda _day, slot: fixed[slot])
 
 
-def _export_q4_2(repo_root: str | Path, case_result: CaseResult, output: Path) -> Path:
-    """Q4-2 settles at the realised Attachment 4 price of that interval."""
-
-    variable = _q4_2_variable_prices(repo_root, case_result.run_id)
-    for day, intervals in _rolling_daily_intervals(case_result):
-        missing = [item.slot for item in intervals if (day, item.slot) not in variable]
-        if missing:
-            raise InputError(
-                f"Q4-2 price snapshot has no price for {day.isoformat()} slots {missing[:5]}"
-            )
-    return _export_rolling_template(
-        repo_root, case_result, output, lambda day, slot: variable[(day, slot)]
-    )
-
-
 def export_case_result(
     repo_root: str | Path,
     case_result: CaseResult,
@@ -517,24 +476,47 @@ def export_case_result(
     """Formal numeric export entry point, gated separately from internal time.
 
     The D_TIME_TEMPLATE_EXPORT decision records the team's explicit mapping
-    interpretation.  Q1, Q2 and Q4-2 have verified writers; the remaining cases
-    still fail explicitly rather than copying values into unverified templates.
+    interpretation; the Q4 cases use the separate scoped
+    D_TIME_TEMPLATE_EXPORT_Q4 approval and their own exporter.  Q1 and Q2 have
+    verified writers; the remaining cases still fail explicitly rather than
+    copying values into unverified templates.
     """
 
-    try:
-        require_approved_decisions(repo_root, (TEMPLATE_EXPORT_DECISION_ID,))
-    except PendingDecisionError as exc:
-        raise PendingDecisionError(
-            [TEMPLATE_EXPORT_DECISION_ID],
-            "formal result-template export requires fully approved D_TIME_TEMPLATE_EXPORT",
-        ) from exc
     if case_result.case_id not in EXPECTED_SHEETS:
         raise InputError(f"unknown result case_id: {case_result.case_id!r}")
+    decision_id = template_export_decision_id(case_result.case_id)
+    try:
+        require_approved_decisions(repo_root, (decision_id,))
+    except PendingDecisionError as exc:
+        raise PendingDecisionError(
+            [decision_id],
+            f"formal result-template export requires fully approved {decision_id}: {exc}",
+        ) from exc
     if case_result.is_synthetic:
         raise InputError("synthetic result cannot be exported through the formal writer")
     if case_result.status != "success":
-        raise InputError(f"result status is not success: {case_result.status!r}")
-    if case_result.case_id not in {"q1", "q2", "q4_2"}:
+        raise InputError(
+            f"{case_result.case_id} result status is not success: {case_result.status!r}"
+        )
+    if case_result.case_id in ("q4_2", "q4_3"):
+        from .problem.q4_export import export_q4
+
+        repo = Path(repo_root).resolve()
+        output = (
+            Path(output_path)
+            if output_path is not None
+            else repo
+            / "outputs"
+            / "runs"
+            / case_result.case_id
+            / case_result.run_id
+            / "results"
+            / TEMPLATE_BY_CASE[case_result.case_id]
+        )
+        if not output.is_absolute():
+            output = repo / output
+        return export_q4(repo, case_result, output)
+    if case_result.case_id not in {"q1", "q2"}:
         raise NotImplementedError(
             f"numeric template export is not implemented for {case_result.case_id!r}"
         )
@@ -550,13 +532,28 @@ def export_case_result(
         / "results"
         / TEMPLATE_BY_CASE[case_result.case_id]
     )
-    if output.is_absolute() is False:
+    if not output.is_absolute():
         output = repo / output
-    if case_result.case_id == "q1":
-        return _export_q1(repo, case_result, output)
-    if case_result.case_id == "q4_2":
-        return _export_q4_2(repo, case_result, output)
-    return _export_q2(repo, case_result, output)
+    if case_result.case_id == "q2":
+        return _export_q2(repo, case_result, output)
+    if not case_result.run_id:
+        raise InputError("Q1 result has no run_id")
+    if len(case_result.intervals) != 144:
+        raise InputError("Q1 export requires exactly 144 intervals")
+    days = {interval.day for interval in case_result.intervals}
+    if len(days) != 1:
+        raise InputError("Q1 export requires all intervals to belong to one day")
+    run_validation = validate_complete_run(
+        case_result.intervals,
+        tuple(days),
+        require_daily_equal_ends=True,
+    )
+    if not run_validation.ok:
+        raise InputError(
+            "Q1 export refuses an incomplete or discontinuous result: "
+            + "; ".join(run_validation.issues)
+        )
+    return _export_q1(repo, case_result, output)
 
 
 def make_smoke_result_name(filename: str) -> str:

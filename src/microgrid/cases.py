@@ -42,6 +42,7 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_EFF",
         "D_STATE",
         "D_INFO",
+        "D_LOAD_FORECAST",
         "D_RESAMPLE",
         "D_SETTLE",
         "D_MODEL_Q3",
@@ -54,6 +55,7 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_SETTLE",
         "D_PRICE_FORECAST",
         "D_MODEL_Q4_2",
+        "D_TERMINAL_RESERVE_Q4",
     ),
     "q4_3": (
         "D_TIME_INTERNAL",
@@ -63,6 +65,7 @@ CASE_DECISIONS: dict[str, tuple[str, ...]] = {
         "D_RESAMPLE",
         "D_SETTLE",
         "D_MODEL_Q4_3",
+        "D_TERMINAL_RESERVE_Q4",
     ),
 }
 CASE_DESCRIPTIONS = {
@@ -89,6 +92,12 @@ def run_case(
     repo_root: str | Path = ".",
     *,
     run_id: str | None = None,
+    end_time: str | None = None,
+    price_method: str = "main",
+    pv_method: str = "v3",
+    solver_method: str = "scipy",
+    planning_method: str = "v3",
+    resume: bool = False,
 ) -> CaseResult:
     """Dispatch one formal case after decision gating."""
 
@@ -109,5 +118,25 @@ def run_case(
 
         raise ModelNotImplementedError(case_id, f"case {case_id}: no registered runner")
 
-    context = CaseContext(repo_root=Path(repo_root), case_id=case_id, run_id=run_id)
+    if case_id not in ("q4_2", "q4_3") and (
+        end_time is not None
+        or price_method != "main"
+        or pv_method != "v3"
+        or planning_method != "v3"
+        or solver_method != "scipy"
+        or resume
+    ):
+        raise InputError("diagnostic end/price method/resume options are available only for Q4")
+    metadata = {"price_method": price_method, "resume": resume}
+    if planning_method != "v3":
+        metadata["planning_method"] = planning_method
+    if solver_method != "scipy":
+        metadata["solver_method"] = solver_method
+    if pv_method != "v3":
+        metadata["pv_method"] = pv_method
+    if end_time is not None:
+        metadata["end_time"] = end_time
+    context = CaseContext(
+        repo_root=Path(repo_root), case_id=case_id, run_id=run_id, metadata=metadata
+    )
     return runner(context)

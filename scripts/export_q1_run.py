@@ -21,6 +21,7 @@ from microgrid.excel_export import (  # noqa: E402
 )
 from microgrid.paper_assets import generate_q1_result_tables  # noqa: E402
 from microgrid.problem.result_io import load_case_result  # noqa: E402
+from microgrid.problem.validation import validate_complete_run  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -41,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"InputError: incomplete run directory: {run_dir}", file=sys.stderr)
         return 2
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("run_id") != args.run_id:
+        print("InputError: manifest.run_id does not match requested run_id", file=sys.stderr)
+        return 2
     if manifest.get("case_id") != "q1" or manifest.get("status") != "success":
         print("InputError: only successful Q1 runs can be exported", file=sys.stderr)
         return 2
@@ -49,6 +53,23 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     result = load_case_result(domain_path)
+    if result.case_id != "q1" or result.run_id != args.run_id:
+        print("InputError: domain_result identity does not match requested Q1 run", file=sys.stderr)
+        return 2
+    if result.status != "success" or result.is_synthetic is not False:
+        print("InputError: domain_result is not a successful non-synthetic Q1 run", file=sys.stderr)
+        return 2
+    report = validate_complete_run(
+        result.intervals,
+        (result.intervals[0].day,) if result.intervals else (),
+        require_daily_equal_ends=True,
+    )
+    if not report.ok:
+        print(
+            "InputError: domain_result failed complete-run validation: " + "; ".join(report.issues),
+            file=sys.stderr,
+        )
+        return 2
     output = Path(args.output).resolve() if args.output else run_dir / "results" / "result1.xlsx"
     try:
         exported = export_case_result(repo, result, output_path=output)

@@ -15,7 +15,7 @@ from microgrid.problem.contracts import (
     IntervalResult,
     apply_battery_action,
 )
-from microgrid.schemas import PendingDecisionError
+from microgrid.schemas import InputError, PendingDecisionError
 
 
 def _write_export_decision(
@@ -85,6 +85,20 @@ def _q1_case_result() -> CaseResult:
         status="success",
         intervals=tuple(intervals),
     )
+
+
+def test_export_rejects_incomplete_q1_result(synthetic_template_repo):
+    repo = synthetic_template_repo
+    _write_export_decision(repo, status="approved")
+    complete = _q1_case_result()
+    incomplete = CaseResult(
+        case_id="q1",
+        run_id="run-1",
+        status="success",
+        intervals=complete.intervals[:-1],
+    )
+    with pytest.raises(InputError):
+        export_case_result(repo, incomplete, output_path=repo / "bad_result1.xlsx")
 
 
 def test_approved_template_writer_exports_q1_and_reads_back(synthetic_template_repo):
@@ -235,3 +249,44 @@ def test_q2_template_writer_is_the_default_for_q2(synthetic_template_repo):
 
     assert output.name == "result2.xlsx"
     assert output.parent == repo / "outputs" / "runs" / "q2" / "run-2" / "results"
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+def test_q1_mapping_approval_does_not_authorize_q4_export(tmp_path, case_id):
+    _write_export_decision(tmp_path, status="approved")
+    result = CaseResult(case_id=case_id, run_id="run-1", status="success")
+    with pytest.raises(PendingDecisionError) as excinfo:
+        export_case_result(tmp_path, result)
+    assert excinfo.value.decision_ids == ["D_TIME_TEMPLATE_EXPORT_Q4"]
+
+
+@pytest.mark.parametrize("case_id", ["q4_2", "q4_3"])
+@pytest.mark.parametrize(
+    "broken",
+    ["missing", "pending", "proposed", "confirmed_by", "confirmed_at", "scope_cases", "complete"],
+)
+def test_q4_export_requires_complete_scoped_mapping_and_does_not_fake_writer(
+    tmp_path, case_id, broken
+):
+    status = broken if broken in ("pending", "proposed") else "approved"
+    by = " " if broken == "confirmed_by" else "tester"
+    at = " " if broken == "confirmed_at" else "2026-09-12"
+    scope = '["q3"]' if broken == "scope_cases" else '["q4_2", "q4_3"]'
+    (tmp_path / "configs").mkdir()
+    lines = (
+        []
+        if broken == "missing"
+        else [
+            "[decisions.D_TIME_TEMPLATE_EXPORT_Q4]",
+            f'status = "{status}"',
+            f'confirmed_by = "{by}"',
+            f'confirmed_at = "{at}"',
+            f"scope_cases = {scope}",
+        ]
+    )
+    (tmp_path / "configs" / "decisions.toml").write_text("\n".join(lines), encoding="utf-8")
+    result = CaseResult(case_id=case_id, run_id="run-1", status="success")
+    expected = InputError if broken == "complete" else PendingDecisionError
+    with pytest.raises(expected):
+        export_case_result(tmp_path, result)
+    assert not (tmp_path / "outputs").exists()

@@ -15,6 +15,7 @@
 !/paper/build/.gitkeep
 /paper/generated/*
 !/paper/generated/.gitkeep
+/paper/figures/
 /local/*
 !/local/.gitkeep
 

@@ -4,6 +4,10 @@
 \usepackage{amssymb}
 \usepackage{booktabs}
 \usepackage{graphicx}
+\usepackage{caption}
+\usepackage{placeins}
+\usepackage{float}
+\usepackage{enumitem}
 \usepackage{hyperref}
 \usepackage{fvextra}
 \usepackage{xcolor}
@@ -11,21 +15,41 @@
   colorlinks=true,
   linkcolor=black,
   citecolor=black,
-  urlcolor=blue,
+  urlcolor=black,
   pdfauthor={},
-  pdfsubject={CUMCM 2026 C Stage 0 draft},
+  pdfsubject={CUMCM 2026 C manuscript draft},
   pdfkeywords={microgrid, CUMCM 2026 C, draft}
 }
 \pagestyle{plain}
 \setlength{\parindent}{2em}
-\setlength{\parskip}{0.25em}
-\newcommand{\PH}[1]{\textbf{[待计算/待确认：#1]}}
+\setlength{\parskip}{0pt}
+\linespread{1.18}
+\ctexset{
+  section = {format=\large\bfseries\heiti, beforeskip=1.2ex plus .3ex, afterskip=.8ex},
+  subsection = {format=\normalsize\bfseries\heiti, beforeskip=1ex plus .2ex, afterskip=.5ex},
+  subsubsection = {format=\normalsize\bfseries, beforeskip=.8ex, afterskip=.3ex}
+}
+\captionsetup{font=small, labelsep=quad, justification=centering, skip=6pt}
+\renewcommand{\arraystretch}{1.15}
+\setlist[enumerate]{leftmargin=2em, itemsep=2pt, topsep=3pt}
+\setlength{\textfloatsep}{12pt plus 2pt minus 2pt}
+\setlength{\floatsep}{10pt plus 2pt minus 2pt}
+\setlength{\intextsep}{10pt plus 2pt minus 2pt}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.7}
+\newcommand{\PH}[1]{{\small\textbf{[待计算/待确认：#1]}}}
+% CI compiles a draft from code alone; calculated figures stay local.
+\newcommand{\PaperGraphic}[2][]{%
+  \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+    \PH{图文件须从本地真实结果生成}%
+  }%
+}
 \newcommand{\SourceRef}[1]{\texttt{\small #1}}
 \input{settings}
 
-% Bibliography fallback: if biblatex is installed, use it; otherwise use a
-% truly empty manual bibliography in draft mode.  No fabricated research
-% references are introduced.
+% Use the same verified references in the biblatex and fallback builds.
 \IfFileExists{biblatex.sty}{%
   \IfFileExists{gb7714-2015.bbx}{%
     \usepackage[backend=biber,style=gb7714-2015]{biblatex}%
@@ -35,11 +59,5 @@
   \addbibresource{references.bib}%
   \newcommand{\PrintReferences}{\printbibliography[title=参考文献]}%
 }{%
-  \newcommand{\PrintReferences}{%
-    \section*{参考文献}%
-    \begin{thebibliography}{9}%
-    \bibitem{cumcm2026format} 全国大学生数学建模竞赛组委会. 全国大学生数学建模竞赛论文格式规范（2026 年修订稿）[S]. 2026.
-    \end{thebibliography}%
-    \noindent\PH{正式模型研究参考文献待补充；不得虚构研究文献}%
-  }%
+  \newcommand{\PrintReferences}{\input{references_fallback}}%
 }

@@ -1,35 +1,101 @@
-\section{问题 1}
+\section{问题一：单日购电与储能协同优化}
+\subsection{决策变量与目标函数}
+在日初已知全天输入的条件下，以144个十分钟区间为统一决策时域。对第$k$个区间，设置购电量$g_k$、充电量$c_k$、放电量$d_k$和光伏消纳量$u_k$，并以$E_k$表示区间开始时的储电量。购电费用最小化目标为
+\begin{equation}
+  \min J=\sum_{k=0}^{143}p_kg_k.
+  \label{eq:objective}
+\end{equation}
+储能会增加转换损耗，却可能替代高价时段的购电，故本文直接优化电价加权费用。
 
-\subsection{任务与信息条件}
-每天 0:00 制定当天计划；储能设备在 0:00 与 24:00 的储电量相同。
+\subsection{约束条件}
+\subsubsection{供需平衡}
+各区间购电、储能放电与光伏消纳共同供给负载和充电需求，满足
+\begin{equation}
+  g_k+d_k+u_k=\ell_k+c_k,\qquad k=0,\ldots,143.
+  \label{eq:balance}
+\end{equation}
+购电和光伏消纳的边界为
+\begin{equation}
+  g_k\ge0,\qquad 0\le u_k\le v_k.
+  \label{eq:pv}
+\end{equation}
+其中$v_k-u_k$为弃光量。当光伏富余而储能容量或功率不足时，允许弃光可维持供需平衡；本模型不设售电变量。
 
-\subsection{模型表达}
-Q1 采用已批准的变量定义：计划购电量 $g_k$、母线侧充电量 $c_k$、母线侧放电量 $d_k$、实际消纳光伏 $u_k$ 和电池内部储能 $E_k$。目标为最小化计划购电费用
-\[
-\min \sum_{k=0}^{143} price_k\, g_k .
-\]
-供需关系为
-\[
-g_k + d_k + u_k = load_k + c_k ,
-\]
-未消纳光伏不计售电收入。电池动态采用
-\[
-E_{k+1}=E_k+0.9c_k-\frac{d_k}{0.9},
-\]
-并满足 $1200\le E_k\le10800$、$E_0=E_{144}=6000$、
-$0\le c_k,d_k\le 5000/6$。每个区间使用二进制变量 $z_k$ 表达充放电互斥。
+\subsubsection{储能递推与初末状态}
+母线侧充入$c_k$时，电池内部增加$\eta_{\mathrm c}c_k$；母线侧放出$d_k$时，内部减少$d_k/\eta_{\mathrm d}$。由此有
+\begin{equation}
+  E_{k+1}=E_k+\eta_{\mathrm c}c_k-\frac{d_k}{\eta_{\mathrm d}}
+  =E_k+0.9c_k-\frac{d_k}{0.9}.
+  \label{eq:state}
+\end{equation}
+全部边界状态均须满足运行范围，并使日末恢复至日初水平：
+\begin{equation}
+  1200\le E_k\le10800,\quad k=0,\ldots,144;
+  \qquad E_0=E_{144}=6000.
+  \label{eq:bounds}
+\end{equation}
+初末状态相等，使费用不因净消耗日初已有电量而被低估。
 
-\subsection{求解过程}
-Q1 使用 SciPy/HiGHS 的 MILP 入口求解，每个十分钟区间对应一个二进制互斥变量。求解器返回状态与 objective 被如实记录；随后执行独立复算，不直接以 solver 的 success 作为最终验证。
+\subsubsection{功率限制与充放电互斥}
+最大母线侧功率5\,000 kW对应的十分钟电量上限为
+\begin{equation}
+  M=P_{\max}\Delta t=\frac{5000}{6}\ \mathrm{kWh}.
+  \label{eq:M}
+\end{equation}
+引入二进制变量$z_k$，将充放电互斥写为
+\begin{equation}
+  0\le c_k\le Mz_k,\qquad
+  0\le d_k\le M(1-z_k),\qquad z_k\in\{0,1\}.
+  \label{eq:mutex}
+\end{equation}
+$z_k=1$允许充电，$z_k=0$允许放电，待机时两者均为零。此处的$M$由设备参数确定，避免使用过大的任意常数。
 
-\subsection{结果展示}
-\IfFileExists{generated/q1_result_tables.tex}{%
-  \input{generated/q1_result_tables}%
-  \noindent 上述表 1 和表 2 与内部结果快照同源，对应 run \QOneRunId；全天购电量为 \QOneTotalPurchaseKwh{} kWh，全天购电费为 \QOneTotalCostCny{} 元。
-}{%
-  \input{generated/draft_tables}%
-  \PH{表 1、表 2 的正式数值待计算；本稿不填 0。}
-}
+\subsection{模型求解}
+式\eqref{eq:objective}--\eqref{eq:mutex}构成混合整数线性规划。变量按$(g,c,d,u,E,z)$排列，共有721个连续变量和144个二进制变量；供需平衡与状态递推形成288个等式，互斥条件形成288个不等式，其余条件由变量边界给出。
 
-\subsection{检验与讨论}
-独立复算检查了供需平衡、电池动态、充放电互斥、功率边界、储能边界、终端储能和费用一致性。当前 HiGHS 解得出的结果通过上述检查；这不构成对全局最优性的额外数学证明。
+采用SciPy 1.17.1的\texttt{milp}接口调用HiGHS求解\cite{scipyMilp,highs}，步骤见图\ref{fig:workflow}。求解后使用未舍入序列重新计算供需平衡、储能变化和费用，再汇总指定时段结果。本次目标值和求解器下界均为35\,126.948589元，相对最优间隙为0，在求解器数值精度下达到本模型的报告最优值。
+\begin{figure}[H]
+  \centering
+  \PaperGraphic[width=0.98\linewidth]{figures/q1_workflow.pdf}
+  \caption{问题一的模型建立与求解流程}
+  \label{fig:workflow}
+\end{figure}
+
+\subsection{计算结果}
+全天购电量为59\,482.699 kWh，购电费用为35\,126.949元。指定区间购电量与四小时充放电量分别见表\ref{tab:q1-purchase}、表\ref{tab:q1-battery}。表中仅在展示时保留三位小数，全部检验使用未舍入值。
+\input{tables/q1_results}
+
+\begin{figure}[H]
+  \centering
+  \PaperGraphic[width=0.96\linewidth]{figures/q1_dispatch.pdf}
+  \caption{问题一的十分钟购电与充放电计划}
+  \label{fig:dispatch}
+\end{figure}
+图\ref{fig:dispatch}中充电绘为正值、放电绘为负值，各值表示对应十分钟区间的电量。四小时汇总中充、放电量可同时为正，原因是设备在不同区间切换运行方式。例如4:00--8:00累计充电833.333 kWh、放电6\,365.841 kWh，而逐区间仍满足互斥条件。
+
+\subsection{调度特点与能量收支}
+结合图\ref{fig:input}、图\ref{fig:dispatch}及储电量轨迹图\ref{fig:soc}，可将调度过程理解为以下几个阶段。
+
+0:00--4:00电价较低，储能累计充电4\,500.000 kWh，内部储电量由6\,000增加至10\,050 kWh，为随后时段供电。日间光伏逐步超过负载，8:00--16:00以净充电为主，16:00储电量达到10\,800 kWh上界。16:00--20:00光伏衰减且电价处于较高水平，储能累计放电5\,780.132 kWh，20:00储电量降至4\,377.631 kWh。此后的购电与充放电同时受到电价变化和日末恢复条件影响，最终回到6\,000 kWh。
+\begin{figure}[H]
+  \centering
+  \PaperGraphic[width=0.96\linewidth]{figures/q1_soc.pdf}
+  \caption{问题一的储电量轨迹与运行边界}
+  \label{fig:soc}
+\end{figure}
+
+若低价时段购入1 kWh用于充电，完整充放电后最多向母线释放0.81 kWh。仅从购电价差看，当低价$p_{\mathrm{low}}$与高价$p_{\mathrm{high}}$满足$p_{\mathrm{low}}<0.81p_{\mathrm{high}}$时，跨时段转移才可能覆盖转换损耗；实际转移量还受到光伏、负载和设备边界限制。这解释了模型为何根据全天条件联合安排动作。
+
+全天充电量为20\,740.666 kWh，放电量为16\,799.940 kWh。对式\eqref{eq:state}求和，并代入$E_{144}=E_0$，得到
+\begin{equation}
+  \sum_k d_k=\eta_{\mathrm c}\eta_{\mathrm d}\sum_k c_k
+  =0.81\sum_k c_k.
+  \label{eq:roundtrip}
+\end{equation}
+因此，充放电转换损耗为3\,940.727 kWh。再对供需平衡式求和，有
+\begin{equation}
+  \sum_k g_k=\sum_k\ell_k-\sum_k u_k+\sum_k(c_k-d_k).
+  \label{eq:dailybalance}
+\end{equation}
+本次弃光量为零，55\,482.836 kWh光伏预测电量全部消纳。负载与光伏之差约55\,541.972 kWh，加上储能损耗即为全天购电量。表\ref{tab:q1-purchase}中三个指定区间购电量为零，仅表示对应区间由光伏与储能覆盖需求。
+\FloatBarrier

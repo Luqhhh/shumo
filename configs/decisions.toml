@@ -108,22 +108,6 @@ rationale = "用户于2026-09-13明确批准本预测信息边界与既定7/14/2
 confirmed_by = "用户（本对话明确批准）"
 confirmed_at = "2026-09-13"
 source = "C题附件4价格信息边界；C线 C-2 decision card；团队讨论"
-
-[decisions.D_LOAD_FORECAST]
-status = "proposed"
-choice = """
-采用 LF-A 作为 Q3 负载预测主方案：每天 00:00、06:00、12:00、18:00
-均可使用该决策时刻之前已观测的负载，对尚未开始的剩余时隙进行因果校正；
-不得使用决策时刻之后的 actual。每一版预测必须保存
-valid_time、available_at、training_cutoff、model_version、data_version。
-LF-B（仅 00:00 生成、日内不更新）作为敏感性对照；日内更新属于
-MODELING_ASSUMPTION，不得写成题面明文条件。
-"""
-rationale = "真实附件2上，28日同一时段均值代理的严格因果回测（191592个有效十分钟点）中，LF-A的MAE/RMSE为784.54/965.65，LF-B为787.73/969.77；收益较小但方向一致，因此主方案保留LF-A并保留LF-B对照。"
-confirmed_by = ""
-confirmed_at = ""
-source = "C题附件2真实负载；28日同slot只读因果回测；团队C-1 decision card"
-
 [decisions.D_RESAMPLE]
 status = "approved"
 choice = """
@@ -138,73 +122,53 @@ power_kw * (1/6 h)。不得把点值插值改写为小时平均功率的区间�
 rationale = "C-4真实数据审计支持整点功率点值语义；线性插值边界清晰，PCHIP用于敏感性检验。版本组合、权重和epsilon属于独立的forecast-combination层。"
 confirmed_by = "lqh、xjn、jjt"
 confirmed_at = "2026-09-11T19:27:00+08:00"
-source = "C-4 decision card；提交 0b06e37；三位队员于 2026-09-11 19:27（北京时间）确认"
+source = "C-4 decision card；证据提交0b06e37；批准记录提交9f8f323f0dd28acd7619715faba5319ca80d169a；三位队员于 2026-09-11 19:27（北京时间）确认"
 
 [decisions.D_SETTLE]
 status = "approved"
 choice = """
-采用 SETTLE-A-v2 作为待队伍确认的逐版结算口径；本区块仍为 proposed，
-不表示题面已经明确给出以下全部公式。00:00 计划为版本 0；每个后续发布
-时刻的新计划相对上一版已确认计划逐 target_slot 计算 delta。官方调整购电表
-只导出每个执行时隙的最终确认量，内部账本保留全部版本。
-
-符号和时间基准：q_plan_t 为版本 0 在执行时隙 t 的计划购电量；q_prev_vt
-和 q_new_vt 分别为版本 v 调整前后的已确认量；delta_plus_vt =
-max(q_new_vt - q_prev_vt, 0)，delta_minus_vt = max(q_prev_vt - q_new_vt, 0)，
-且 q_new_vt = q_prev_vt + delta_plus_vt - delta_minus_vt。p_base_t 是
-执行时隙 t 的正常购电价；p_trade_v 是版本 v 发布/交易时刻的价格。Q2/Q3
-的 p_base_t 来自附件 1；Q4 的 p_base_t 在回放结算时使用附件 4 对应执行
-时隙的实际价格，计划器仍只能使用已批准的未来价格信息。p_trade_v 在
-Q3 使用附件 1 在版本 v 发布时刻对应的固定价格；Q4 使用附件 4 在版本 v 发布
-时刻的实际价格；未来真实价格不得传给计划器。
-
-1. 正常计划购电：计划合同量按 q_plan_t * p_base_t 计费。即使其中一部分
-未被负荷实际利用、被弃置或被光伏/电池替代，仍视为已承诺合同量并全额付费；
-本 proposed 口径不提供未利用合同电退款。费用不得改按实际负荷、净负荷或
-事后剩余量重算。
-
-2. 紧急购电：每个执行十分钟区间先按实际回放量计算短缺；q_emergency_t
-= max(load_kwh_t + charge_kwh_t - q_adjusted_t - pv_used_kwh_t
-- discharge_kwh_t, 0)。紧急购电费为
-q_emergency_t * 5 * p_trade_t，其中 p_trade_t 是该执行区间的交易时刻
-价格；内部时间采用十分钟区间右端点作为 actual 可见和结算时刻。Q2/Q3 使用
-附件 1 的固定价格，Q4 使用附件 4 对应区间的实际价格。
-
-3. Q3 每次调整：对每个未冻结 target_slot，按本次发布时刻 v 的价格逐项计费：
-adjustment_cost_vt = 0.5 * p_trade_v * delta_minus_vt
-                     + 1.5 * p_trade_v * delta_plus_vt。
-delta_minus 是计划/上一版高于本版的减少部分，delta_plus 是本版高于上一版
-的增加部分；不得把最终版相对 00:00 版的一次差额替代逐版 delta。SETTLE-B
-（最终版相对版本 0 一次结算）仅作敏感性对照，不作为主口径。
-
-4. 逐版等式和冻结：每个版本 v 必须保存 target_slot、previous_committed_kwh、
-new_committed_kwh、delta_kwh、issue_time、transaction_price、is_frozen。
-若目标区间已经执行，或在 issue_time 之前已提交/确认且标记为冻结，则
-is_frozen=true 且 q_new_vt=q_prev_vt；只有未执行、未提交的未来时隙可以调整。
-Q2 不产生调整 delta，q_adjusted_t=q_plan_t。Q3 的 q_adjusted_t 是最终确认
-总量，不是增量；它满足 q_adjusted_t=q_plan_t+delta_plus_t-delta_minus_t
-并且 q_plan_t、delta_plus_t、delta_minus_t 均非负。
-
-5. Q4 价格：价格预测只进入 Q4 计划器；正式回放结算不使用预测价替代实际价。
-Q4 的正常计划费使用附件 4 对应执行时隙实际价格；Q4 的调整、减少违约、
-增加超出和紧急购电费使用发生该交易/执行时刻的附件 4 实际价格。
-
-6. 统一能量账本：令 S_grid_t = q_adjusted_t + q_emergency_t，令
-S_PV_t = pv_used_kwh_t，令 S_grid_spill_t 和 S_PV_curtail_t 为非负的
-未利用电网合同电和弃光量，则每个区间使用
-S_grid_t + S_PV_t + discharge_kwh_t
-= load_kwh_t + charge_kwh_t + S_grid_spill_t + S_PV_curtail_t。
-S_PV_t 不得超过 pv_available_kwh_t；账本等式只是物理记账，不得通过伪造
-供给或强制消纳来掩盖不可行。消去弃电/弃光项后，供需约束仍为
-grid_supplied_kwh + discharge_kwh + pv_kwh >= load_kwh + charge_kwh。
-
-正式成本必须为 planned_cost + adjustment_cost + emergency_cost，并使用实际
-回放负荷/PV；D_SETTLE 未人工批准前不得生成正式数值或正式提交文件。
+采用 docs/q3_model.md 的 SETTLE-A-v2：00:00 合同为版本0；正常费用为
+sum(q_plan[k]*p_base[k])，未利用合同电仍付费，无退款或售电收入。
+每次允许的调整相对上一版确认量：delta_plus=max(q_new-q_prev,0)，
+delta_minus=max(q_prev-q_new,0)，q_new=q_prev+delta_plus-delta_minus>=0。
+调整费用逐版累加 p_trade[v]*(1.5*delta_plus+0.5*delta_minus)，
+不抵销中间交易，不把最终合同量再次全额计为正常计划费。
+紧急电量是执行区间实际供需的剩余缺口，费用为5*p_exec[k]*q_emergency[k]；
+不得同时紧急购电和充电或弃电。实际PV分为PV_use和S_PV，合同余电为S_grid；
+q_final+PV_use+D+q_emergency=Load+C+S_grid，PV_actual=PV_use+S_PV。
+Q2无调整权；Q3仅在00/06/12/18发布后调整当日尚未开始的时隙；
+已执行时隙冻结，上一版已确认的未来量在允许发布时刻仍可调整。
+Q2/Q3的p_base及p_exec使用执行区间固定电价，Q3的p_trade使用发布时刻
+所在区间固定电价，均按附件1右端点标签映射到区间，禁止错移一格。
+Q4结算对应使用附件4执行区间/交易时刻实际价格，其预测信息和模型仍单独审批。
+正式总费用=planned_cost+adjustment_cost+emergency_cost，以实际回放账本计算。
+SETTLE-B仅作最终版相对版本0的一次调整敏感性对照。
 """
-rationale = "在 C-3 SETTLE-A 推荐的基础上锁定逐版 delta、冻结和账本字段；正常计划量全额计费、Q4 使用实际价格、未利用电退款和等式账本均是待队伍确认的 proposed 解释，不把题面未明示内容伪装成事实。"
-confirmed_by = "参赛队（用户批准）"
+rationale = "A在本会话明确批准D_SETTLE；采用已有SETTLE-A-v2提案，统一版本等式、可调整未来合同和不重复扣除弃光的物理账本；额外结算解释属于建模假设。"
+confirmed_by = "A（本会话用户）"
 confirmed_at = "2026-09-12"
-source = "C线 C-3 decision card；C题 PDF 第1-3页及附录1-5；configs/constants.toml；docs/shared_api.md；团队讨论"
+source = "2026-09-12本会话用户批准消息；docs/q3_model.md；C-3 decision card；B分支b4113b0的SETTLE-A-v2提案"
+
+[decisions.D_LOAD_FORECAST]
+status = "approved"
+choice = """
+Q3采用LOAD-A + LF-A。目标时刻前7/14/21/28天同slot负载按
+(8/15,4/15,2/15,1/15)加权；历史残差e[s]=load[s]-base[s]，
+从最长非零滞后开始，以截至decision_time的扩展残差做无截距AR(1)：
+phi=clip(sum(e[s-1]*e[s])/sum(e[s-1]^2),0,0.999)，分母为0时phi=0；
+forecast(t+h)=max(0,base(t+h)+phi^h*e[t])，h为十分钟步数。
+00/06/12/18使用available_at<=decision_time的历史更新，每版独立留存；
+一月仅作历史初始化，二月起运行；缺少所需周滞后或残差时显式报错，不填未来actual。
+保留半周半衰期和LF-B（当日00:00版不更新）敏感性。
+记录decision_time/valid_time/available_at/training_cutoff/lag_values/lag_weights/
+ar1_phi/latest_visible_residual/model_version/data_version/prediction_value。
+日内更新是MODELING_ASSUMPTION，算法和半衰期是EMPIRICAL_CHOICE；
+本次批准范围为Q3，不据此批准Q2或Q4的预测模型。
+"""
+rationale = "A明确正式确认LOAD-A + LF-A；官方附件2复算48096个共同目标，MAE为163.9090 kW，对比7天基线175.3080 kW和LF-B 166.9809 kW；不宣称参数唯一最优。"
+confirmed_by = "A（本会话用户）"
+confirmed_at = "2026-09-12"
+source = "2026-09-12本会话用户明确确认；docs/c_load_forecast_evidence.md；C-1/C-5；审阅提交7b90599"
 
 [decisions.D_MODEL_Q1]
 status = "approved"
@@ -247,51 +211,158 @@ confirmed_at = "2026-09-12"
 source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_MODEL_Q3]
-status = "proposed"
+status = "approved"
 choice = """
-Q3采用严格因果的24小时滚动MILP，沿用连续SOC、D_MPC和年度边界。
-预测时先构造 InfoSet：保留所有 available_at <= decision_time 的附件3版本；
-对同一 valid_time 的可见版本，不简单选择最新一版，而按 lead_hours 使用
-历史MAE平方倒数加权（VERSION-B + WEIGHT-B）。每个权重只能由该预测版本
-发布前已可获得的历史actual估计；主方案采用HISTORY-A扩展历史，
-HISTORY-C-56（过去56日）作敏感性对照。实际数据表明附件3预测误差随提前量
-显著增加，lead 1/24小时MAE约为18.69/374.79 kW，支持lead-specific权重，
-但加权结果须在完整回测中同时报告MAE和RMSE，不预设必然改善。
-
-负载采用LF-A：00:00、06:00、12:00、18:00可用当时已观测actual对剩余负载
-预测做因果更新；每版保存training_cutoff并禁止未来泄漏，LF-B作为敏感性对照。
-附件3光伏采用D_RESAMPLE的RESAMPLE-LIN主方案，PCHIP作敏感性。Q3合同购电
-只能在00/06/12/18调整；十分钟电池动作仍按D_MPC滚动，已执行或已提交时隙冻结。
-附件覆盖不足时允许回退到严格因果Q2预测，但必须记录fallback原因与次数。
+按docs/q3_model.md实现Q3严格因果24小时滚动MILP，SciPy milp/HiGHS；
+每10分钟只执行当前电池动作，合同仅00/06/12/18按D_SETTLE调整当日未来时隙。
+负载遵循D_LOAD_FORECAST；PV采用VERSION-B + WEIGHT-B + HISTORY-A：
+同valid_time全部可见版本按lead_hours分组的历史MAE平方倒数归一化加权，
+raw_weight=1/(MAE_h(decision_time)+1 kW)^2；误差历史valid_time<=当前decision_time，
+不以旧版本issue_time冻结权重。唯一小时预测经已批准D_RESAMPLE生成十分钟输入。
+预测发布版本保存到下一发布时刻，实际量只按D_INFO用于已结束区间回放和历史更新。
+采用D_EFF/D_STATE物理约束和连续SOC；24小时窗口使用线性终端价值
+-v_t*E_end，v_t=0.9*窗口结束后144个十分钟固定电价的均值。
+年度最终时点进入窗口时截断窗口、移除终端价值并约束E_2025_end=6000 kWh；
+不施加每日首尾相等。该年度约束仅补充本次Q3口径，不自动扩展到其他case。
+目标为窗口内新增计划费、逐版调整费、预测紧急费与终端价值，
+已发生费用视为常数；正式费用必须重算实际回放，不能累计优化目标冒充成本。
+超出当日的合同变量仅作lookahead，不提交或收费；次日00:00重新生成版本0。
+缺失预测、历史或无可行解须显式阻断并记录，不静默回退到未批准的Q2预测。
+敏感性保留最新PV版本、56日误差历史、epsilon=0.1/5/10 kW、PCHIP、
+LOAD半周半衰期、LF-B及终端价值0.8v/1.2v，不自动选入正式主结果。
 """
-rationale = "把C线已提出的版本、权重、负载更新和插值口径纳入B侧模型；历史回测只提供证据，不替代参赛队人工批准。"
-confirmed_by = ""
-confirmed_at = ""
-source = "C题附件2/附件3真实数据分析；C线 decision cards（含提交31a1661）；团队讨论"
+rationale = "A在本会话明确批准D_MODEL_Q3；按现有滚动MILP提案与C线可复现证据冻结实现口径，epsilon取已有1 kW复算基准；Q3所需滚动、终端和年度条件完整收进本decision，不依赖未接入gate的隐含批准。"
+confirmed_by = "A（本会话用户）"
+confirmed_at = "2026-09-12"
+source = "2026-09-12本会话用户批准消息；docs/q3_model.md；docs/c_forecast_version_evidence.md；B分支b4113b0的Q3/MPC/TERMINAL/YEAR_BOUNDARY提案；C线7b90599"
 
 [decisions.D_MODEL_Q4_2]
 status = "approved"
+scope_cases = ["q4_2"]
 choice = """
-Q4-2在Q2的因果负荷/PV预测、连续SOC和24小时滚动MILP基础上，
-将固定电价环境替换为严格因果预测的波动电价环境。优化只使用当时可见的
-历史价格和未来价格预测；实际回测结算使用对应时刻真实实现价格。
+按 docs/q4_implementation_plan.md v2 第1—7、9—10节及 Q4-2 模型卡实现完整
+共享因果点预测滚动MILP，SciPy milp/HiGHS；本卡包含Q4-2所需基础模型，
+不依赖尚未批准的D_MODEL_Q2，也不依赖D_RESAMPLE或附件3。
+LOAD-A采用7/14/21/28天同slot的8/4/2/1归一化权重及连续历史残差AR(1)；
+PV为七日同slot均值；价格为日/周/两周滞后0.5/0.3/0.2基线及残差AR(1)。
+仅使用InfoSet可见历史，00/06/12/18刷新，版本间冻结并切片；残差初始化、
+连续性、非负预测、缺历史报错及预测来源快照均遵循v2第2—3节。
+00:00提交当天144格唯一G0，此后合同冻结；每10分钟只执行当前电池动作；
+次日lookahead合同为虚拟量，不落账，不免费实施未来调整。Q4-2调整费严格为0。
+窗口为[t,min(r+24h,年度终点))，发布间收缩；覆盖不足显式missing_forecast，
+不以缩短00:00窗口漏交合同。MILP完整流、模式互斥及Gmax界按v2第4节。
+采用D_TIME_INTERNAL/D_EFF/D_STATE/D_INFO/D_SETTLE；实际量只用于固定保护
+和结束后结算。在十分钟平均功率恒定、本地控制器及时限幅的附加假设下，
+按v2第5节负荷优先反馈减少合法意图动作；非法意图不clip，响应假设不成立
+则execution_infeasible。计划费按G0及实际区间价，紧急费为5倍实际区间价，
+未用合同付费、无退款，以独立实际账本重算年度费用，不累计窗口目标。
+一月初始化E=6000，2025-02-01至2026-01-01连续334日、48096步，不每日重置。
+v_r=0.9*刷新时完整144格预测价均值；年度终点进入窗口时去残值并约束E_end=6000。
+年度必要可达界、实际端点失败terminal_infeasible及绝对1e-6 kWh/相对0容差按v2。
+求解status=0且独立校验通过才接受，gap=1e-4，10秒及超时最多60秒重试；
+缓存证书、checkpoint来源绑定、失败现场和正式产物按v2，不填零或回退未批准策略。
+导出与价格主/lag1比较分别由D_TIME_TEMPLATE_EXPORT_Q4和D_EVAL_Q4批准。
 """
-rationale = "用户于2026-09-13明确批准按已讨论方案实施Q4-2，并基于现有Q2校准的负荷/PV预测、连续SOC与24小时MILP运行。"
-confirmed_by = "用户（本对话明确批准）"
-confirmed_at = "2026-09-13"
-source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+rationale = "本会话用户明确要求落实Q4模型及相关范围的批准记录，批准此前交付的v2实施规范；设计证据不代表预测、MILP、全年端点或导出读回已验证。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；设计交付提交f8b4af0；docs/q4_implementation_plan.md v2；docs/q4_model_cards.md"
 
 [decisions.D_MODEL_Q4_3]
-status = "proposed"
+status = "approved"
+scope_cases = ["q4_3"]
 choice = """
-Q4-3在Q3的附件3预测、00/06/12/18调整机制、连续SOC和24小时滚动MILP基础上，
-加入严格因果的波动电价预测。负荷/PV信息边界遵循D_MODEL_Q3；
-价格信息边界遵循D_PRICE_FORECAST；市场承诺继续由commitment ledger固定。
+按 docs/q4_implementation_plan.md v2 第1—7、9—10节及 Q4-3 模型卡实现完整
+共享因果点预测滚动MILP，SciPy milp/HiGHS；基础物理、LOAD-A与价格预测、
+发布锚定窗口、实际反馈、终端价值、年度6000端点、容差、求解失败、缓存及
+checkpoint规则与v2 Q4共同规范一致，本卡完整覆盖，不沿用Q3旧窗口口径。
+负载与价格仅使用InfoSet可见历史，00/06/12/18刷新、版本间冻结；负载四周
+8/4/2/1权重及残差AR(1)，价格日/周/两周0.5/0.3/0.2基线及残差AR(1)。
+PV使用同valid_time全部可见官方版本，按原始lead_hours已实现历史MAE赋权
+raw_w=1/(MAE_lead(decision_time)+1 kW)^2并归一化；误差截止当前刷新时刻，
+无有效桶样本报错。唯一小时预测经D_RESAMPLE的RESAMPLE-LIN及最近结束区间
+PV均值左端代理生成十分钟右端点功率，转kWh；发布间不更新代理或权重。
+00:00提交当天完整144格G0；06/12/18仅调整当日未开始时隙，相对上一版
+确认量逐版计算正负部，交易方向互斥；已执行slot冻结。次日虚拟合同不落账，
+不得提前免费实施未来调整。优化交易价使用当前第一预测区间价；实际交易价为
+交易时刻所在区间附件4实际价，到区间结束后补费用，不读取未来actual计划。
+计划费=sum(p_actual*G0)，调整费逐版=sum(p_trade_actual*(1.5*plus+0.5*minus))，
+紧急费=sum(5*p_actual*U)；无减购退款，不以最终G重复全额收费。
+采用D_TIME_INTERNAL/D_EFF/D_STATE/D_INFO/D_SETTLE/D_RESAMPLE；完整MILP
+流账本、负荷优先及时限幅保护、execution_infeasible/terminal_infeasible、
+2025-02-01至2026-01-01连续334日48096步及独立校验均按v2第2、4—7节。
+导出与价格主/lag1比较分别由D_TIME_TEMPLATE_EXPORT_Q4和D_EVAL_Q4批准。
 """
-rationale = "Q4-3是Q3信息结构下的波动电价扩展。"
-confirmed_by = ""
-confirmed_at = ""
-source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+rationale = "本会话用户明确要求落实Q4模型及相关范围的批准记录，批准此前交付的v2实施规范；明确新增Q4窗口、反馈、预测和年度范围，不改写Q3既有批准。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；设计交付提交f8b4af0；docs/q4_implementation_plan.md v2；docs/q4_model_cards.md"
+
+[decisions.D_TERMINAL_RESERVE_Q4]
+status = "approved"
+scope_cases = ["q4_2", "q4_3"]
+choice = """
+在已批准Q4 v2模型上叠加最后24小时储能预留，形成q4-v3-reserve：
+reserve_start=2025-12-31 00:00，预测窗口内所有状态边界tau>=reserve_start
+约束E(tau)>=6000 kWh，包括提前进入该日期的窗口及当前实际状态。
+实际反馈后的状态同样检查，未满足则明确失败；此前下界1200、上界10800不变。
+保留实际年度终点E(2026-01-01 00:00)=6000 kWh及绝对1e-6 kWh/相对0容差，
+保留失败阻断，不clip、不用紧急电充电、不以未来actual修复计划；
+不改负载/PV/价格预测、经验参数、终端价值、合同权限、逐版费用或反馈规则。
+Q4-2/3各自主价格和lag1四条轨迹从2025-02-01实际初态E=6000独立连续重跑，
+不得从v2 checkpoint拼接或覆盖旧输出；完整主方案校验通过后才正式导出。
+"""
+rationale = "用户明确批准年末储能预留提案并要求继续实现、验证；新增路径约束用于降低末日放电后依赖预测充回的风险，不保证任意实际序列可行。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：批准该修订并继续实现、验证；docs/q4_terminal_reserve_proposal.md；docs/approvals/2026-09-12-q4-terminal-reserve.md"
+
+[decisions.D_TIME_TEMPLATE_EXPORT_Q4]
+status = "approved"
+scope_cases = ["q4_2", "q4_3"]
+choice = """
+批准 docs/q4_implementation_plan.md v2 第8节的Q4专用映射，仅写原模板副本。
+334天日期序号i对应row=i+2，slot k=0..143对应col=k+2（B:EO）；保留官方
+原标签，在export_manifest记录真实区间、原标签冲突及完整source_slot->cell映射。
+计划表写G0，EP=sum(G0)，EQ=planned_cost；Q4-3调整表写最终确认G，
+EP=sum(Gfinal)，EQ=adjustment_cost。总费用含紧急费写summary/论文表；
+允许输出副本新增明确命名的费用汇总表，列计划/调整/紧急/总费并纳入读回。
+充放电表展开334个六行块，首行2+6*i，B写六个四小时区间，C/D汇总实际
+充/放电；E/F在块第1/2行写0:00/24:00及真实日初/日末E，其余状态格空白。
+日期A按样式合并六行，清除副本原示例合并范围再复制样式，不改原件。
+紧急表逐日合并相邻U>共享容差的slot，写起止/总kWh，不跨日；无紧急量
+仍保留日期、空时间段和0，不保留省略行冒充全年。四展示日从同一全年轨迹提取。
+正式导出须完整来源绑定、独立全年物理/费用/实际端点校验和逐格读回通过，
+记录本decision及scope_cases快照；批准映射不表示已导出或官方已经勘误。
+"""
+rationale = "用户批准Q4相关范围；单列Q4导出decision，保留原D_TIME_TEMPLATE_EXPORT的Q1映射及已有快照。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；docs/q4_implementation_plan.md v2第8节；outputs/evidence/q4_design_audit.json为设计证据"
+
+[decisions.D_EVAL_Q4]
+status = "approved"
+scope_cases = ["q4_2", "q4_3"]
+choice = """
+批准 docs/q4_implementation_plan.md v2 第9—10节的Q4验证与价格比较范围。
+四条连续回放为Q4-2/3各自价格主方案和前一日同slot价格对照，其余假设相同，
+各策略独立连续真实SOC；保留负结果，不以全年误差反向调主参数。
+验证因果隔离、合同冻结/调整权限、预测尾部覆盖、虚拟合同不落账、残差
+初始化连续性、完整物理流、限充及不可及时响应分支、完美预测、35.5元逐版
+结算、非负价减购支配、实际年度末、求解失败、缓存破坏、checkpoint等价、
+来源override和模板读回。先真实单日/跨日/一周验证与性能评估，再全年。
+物理与年度端点采用绝对1e-6 kWh/相对0，未舍入费用独立重算总差<=0.01元。
+报告6h/24h预测MAE/RMSE及重叠样本口径、月指标、计划/调整/紧急/总费用、
+G0/Gfinal、外网实际用量sum(G_use+U)、紧急量/区间/天数、弃光、未用合同、
+吞吐、初末SOC、保护次数和运行/求解统计；展示舍入只在最后进行。
+预测误差下降不等于费用下降，不把不同实际价格制度间成本差称为策略节省；
+price-oracle仅作诊断、不自动为严格下界。未运行项记not_run，合成证据不进
+正式结果。批准方法不批准具体run选择、数值结论或AI人工核验。
+"""
+rationale = "用户批准Q4相关范围；新增Q4专用比较decision，不将Q4批准扩展为其他case的全局D_EVAL批准。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-12"
+source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；docs/q4_implementation_plan.md v2第9—10节"
 
 [decisions.D_EVAL]
 status = "proposed"
@@ -308,4 +379,75 @@ SOC边界命中、预测MAE/RMSE及fallback次数。
 rationale = "使模型比较与论文结论具有统一、可复现的证据链。"
 confirmed_by = ""
 confirmed_at = ""
-source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+source = "正式比较、验证设计、证据标准及结论边界。"
+
+
+[decisions.D_PV_BLEND_LONG_Q4]
+status = "approved"
+scope_cases = ["q4_3"]
+choice = """
+批准PV-BLEND-LONG，模型版本q4-v4-pv-blend-long，仅Q4-3/main显式启用。
+默认v3保留。只改原00/06/12/18刷新到目标区间右端点超过12小时的PV；
+(0,12]小时保持原v3值，发布间冻结完整快照并切片，不按当前切片距离重分组。
+F为原v3官方版本组合及插值后kW；H为InfoSet可见的七日同slot历史kW基线。
+按原刷新时距(12,18]/(18,24]小时及原刷新时H>1 kW/<=1 kW分桶。
+只用保存的原始预测对(s,j)，s<r且r-28日<u(j)<=r；actual实现后才计算
+abs(actual-F)、abs(actual-H)，同目标的不同旧issue各保留一次、等权，
+不回算旧预测，不用候选输出误差替代F误差，不读取未来actual或全年MAE选参。
+误差缓存2025-02-01空初始化，前7个完整运行日保持v3；2月8日00:00后启用，
+空桶alpha=1。mF/mH为同桶同样本28日MAE(kW)，aF=1/(mF+1 kW)^2，
+aH=1/(mH+1 kW)^2，alpha=aF/(aF+aH)，PV=alpha*F+(1-alpha)*H。
+一月初始化与原官方lead权重学习不变；LOAD/价格、合同权限、收缩窗口、反馈、
+费用、终端价值、求解器/容差及最后24小时E>=6000和硬实际末态均保留v3批准。
+保存F/H、原时距桶/历史代理组、窗口/截止/样本数/误差统计/alpha、输出及完整
+provenance哈希；独立审计因果重放预测并绑定求解/执行。恢复仅从校验后的
+已提交原始预测日志及截至checkpoint的可见历史重建缓存，拒绝跨版本续跑。
+本轮不叠加偏差校正、采购余量、新风险目标或终端策略，不按结果扫描28/7/12/1。
+"""
+rationale = "用户在选择长窗PV与历史基线融合后，对具体提案及单因素年度对照明确回复继续实现、验证明确 批准；据实落实其批准，不由Agent代选或扩大模型。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-13"
+source = "用户原文：继续实现、验证明确 批准；docs/approvals/2026-09-13-q4-pv-blend.md；docs/q4_next_model_candidates.md@e61a172；冻结提案SHA256 6f70a14c60a6412a1fd452973166370fa978e70ef11631f3901173244114c515"
+
+[decisions.D_EVAL_PV_BLEND_LONG_Q4]
+status = "approved"
+scope_cases = ["q4_3"]
+choice = """
+仅一次预先冻结的单因素评价：Q4-3/main融合候选对照已批准v3工程年度main
+q4-3-v3-engineering-annual-main-001；两者从2025-02-01 E=6000连续48096步
+至2026-01-01，实际输入一致，LOAD/价格预测逐项相同，PV之外口径不变。
+先真实连续周验证（包括冷启动及2月8日后的启用周）与因果/篡改/恢复回归，
+再候选从初态独立年度重跑。新run保留源码/批准快照及完整证据，不覆盖旧
+run、Excel或跨源码/schema续接。评价总费及计划/调整/紧急差额、合同余电、
+弃光、吞吐、保护、初末SOC、真实求解/性能、6h/24h及长窗预测误差。
+失败不剔除，不拿失败前缀费和完整年度费比较，不以MAE下降代替成本改善。
+这是已查看开发数据上的严格时间因果历史回放，不是未使用过的独立测试集。
+完整主方案物理/费用/末态/控制链通过后，按D_TIME_TEMPLATE_EXPORT_Q4原映射
+导出新副本并逐格读回，绑定本模型/评价补充批准和年末预留。运行选择与AI
+人工核验仍待实际确认；本批准不代替这两项，不扩大成lag1或其他机制扫描。
+"""
+rationale = "用户明确批准融合提案的实施、验证和单因素年度对照，保留既有v3工程基线；完整可行性和总费同口径比较优先。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-13"
+source = "用户原文：继续实现、验证明确 批准；docs/approvals/2026-09-13-q4-pv-blend.md；docs/q4_next_model_candidates.md@e61a172；冻结提案SHA256 6f70a14c60a6412a1fd452973166370fa978e70ef11631f3901173244114c515"
+
+
+[decisions.D_OPTIMIZATION_Q4]
+status = "approved"
+scope_cases = ["q4_2", "q4_3"]
+choice = """
+授权Agent一次性尝试docs/q4_all_optimization_plan.md内剩余优化策略：长窗PV融合
+与偏差校正、固定变量消元、LP有证书快路径、原生HiGHS、显式采购余量、联合
+误差情景采购、普通窗口终端价值。Agent事前决定并记录具体参数及来源，逐项
+单因素实现/验证，完成一种就提交推送一次，不再请求用户选参或批准。已完成
+O1/O2/O3/O4/O5/E5及v3四轨年度证据沿用，不重复改写。保留失败和负结果，
+不按全年反馈反复扫参。每个模型有独立版本/配置/批准/源码/运行与checkpoint，
+工程候选先冻结窗口和闭环测试判定净耗时及证书，经济候选先连续周再初态年度。
+完整可行主方案按原模板新副本导出并读回。原v3、因果边界、合同权限、实际
+反馈、收费、容差、最后24小时E>=6000和硬实际末态仍保留，仅候选所研究单一
+机制改变。AI人工核验不伪造，全局final真实阻断不绕开，不公开原题/全年材料。
+"""
+rationale = "用户明确委托Agent自行尝试方案内全部优化策略及参数、验证与提交推送；这是实际用户授权，具体算法细节在各模型卡中注明由Agent据此确定。"
+confirmed_by = "本会话用户"
+confirmed_at = "2026-09-13"
+source = "用户原文：我批准你后续的所有操作，你负责尝试方案里的所有优化策略，每测完一种就提交推送一次，不需要我批准或决定，你一次性完成这个 优化方案；docs/approvals/2026-09-13-q4-optimization-delegation.md"

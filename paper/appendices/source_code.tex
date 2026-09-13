@@ -1,4 +1,15 @@
-\section{完整可运行源程序代码}
-\input{generated/source_code}
+\section{核心源程序}
+本附录选录问题一中体现具体建模处理的约束构造、联合求解及独立复核代码。以下片段直接摘自\path{src/microgrid/problem/q1.py}，省略数据读写、日志、测试及通用工程代码；完整程序保留于支撑材料源码目录。片段需结合原文件中的类型定义、导入项与辅助函数运行。
 
-\noindent\PH{正式稿需引用与所选结果对应的源码快照；不得只放截图或仓库链接。}
+\subsection{供需平衡、储能递推与充放电互斥}
+变量按$(g,c,d,u,E,z)$排列，\texttt{index}给出各组变量的位置。下列函数将供需平衡和含效率损耗的状态递推写入等式约束，并利用母线侧电量上限构造充放电互斥不等式，对应正文式\eqref{eq:balance}、\eqref{eq:state}及\eqref{eq:mutex}。
+\VerbatimInput[firstline=89,lastline=127,fontsize=\footnotesize,breaklines=true,breakanywhere=true]{../src/microgrid/problem/q1.py}
+
+\subsection{日末恢复约束下的联合优化}
+以下片段选自\texttt{solve\_q1\_milp}，将光伏消纳上限、储电量边界、初末状态与二进制变量一并交给求解器。目标系数只在购电变量位置赋电价，因而优化结果对应全天购电费用。
+\VerbatimInput[firstline=142,lastline=183,fontsize=\footnotesize,breaklines=true,breakanywhere=true]{../src/microgrid/problem/q1.py}
+
+\subsection{物理残差与购电费用的独立复核}
+以下两段选自\texttt{validate\_q1\_solution}。在完成数组长度、有限性、非负性、互斥及状态边界检查后，逐区间重算供需与储能残差，再从输入电价重算购电费用。\texttt{issues}和\texttt{violation}分别记录异常说明及对应区间，电量与费用绝对容差均为$10^{-6}$（单位分别为kWh和元）。
+\VerbatimInput[firstline=343,lastline=367,fontsize=\footnotesize,breaklines=true,breakanywhere=true]{../src/microgrid/problem/q1.py}
+\VerbatimInput[firstline=376,lastline=383,fontsize=\footnotesize,breaklines=true,breakanywhere=true]{../src/microgrid/problem/q1.py}

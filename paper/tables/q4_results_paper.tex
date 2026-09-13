@@ -1,0 +1,86 @@
+% Explicitly bound scenario-procurement results; no model run or approval mutation.
+% selection SHA-256: 49d2e7b8422a4cc3942bbea734baa3d219417d89d0dd67d0859cf4f3de17324f
+% q4_2: q4-2-v4-scenario-procurement-annual-main-002
+% q4_3: q4-3-v4-scenario-procurement-annual-main-002
+\subsection{回放结果与分析}
+点预测基准与情景采购均从6\,000 kWh初态独立连续运行，覆盖2025年2月至12月的334日、48\,096个区间，实际末态均为6\,000 kWh。表\ref{tab:q4-annual}给出同条件实际费用。
+\begin{table}[H]\centering\small
+\caption{问题四点预测基准与情景采购的实际费用（单位：万元）}\label{tab:q4-annual}
+\begin{tabular}{llrrrr}\toprule
+合同条件 & 采购方案 & 初始合同费 & 调整费 & 紧急费 & 总费 \\ \midrule
+每日冻结 & 点预测基准 & 1296.3714 & 0.0000 & 421.7606 & 1718.1320 \\
+每日冻结 & 情景采购 & 1396.0073 & 0.0000 & 195.9010 & 1591.9083 \\
+\midrule
+允许调整 & 点预测基准 & 1315.2016 & 45.7007 & 225.7140 & 1586.6164 \\
+允许调整 & 情景采购 & 1408.4948 & 30.4363 & 101.3661 & 1540.2971 \\
+\bottomrule\end{tabular}\end{table}
+
+每日冻结条件下，情景采购比点预测基准节省1\,262\,236.91元（7.3466\%）。初始合同费增加99.6359万元，实际紧急费减少225.8596万元。
+允许调整条件下，情景采购比点预测基准节省463\,192.69元（2.9194\%）。初始合同费增加93.2931万元，实际紧急费减少124.3479万元，调整费另减少15.2645万元。
+
+图\ref{fig:q4-procurement}将费用分项和各月费用差并列。初始合同费增加而紧急费减少，净节省由三项账单共同决定。2月每日冻结方案费用比基准高1.8448万元，9月允许调整方案也高1.2803万元，其余月份费用均降低。因此，回放期节费并非逐月一致。
+\begin{figure}[H]\centering
+\PaperGraphic[width=0.98\linewidth]{figures/q4_procurement_comparison.pdf}
+\caption{情景采购与点预测基准的实际费用分解及月费用差}\label{fig:q4-procurement}
+\end{figure}
+
+\subsubsection{供电缺口与余电代价}
+费用降低伴随更高的合同余电与弃光，表\ref{tab:q4-operation}给出实际运行分项。
+\begin{table}[H]\centering\small
+\caption{情景采购的实际运行变化（电量单位：万kWh）}\label{tab:q4-operation}
+\begin{tabular}{lrrrr}\toprule
+ & \multicolumn{2}{c}{每日冻结} & \multicolumn{2}{c}{允许调整} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+指标 & 点预测 & 情景采购 & 点预测 & 情景采购 \\ \midrule
+紧急购电量 & 83.5854 & 37.8659 & 50.6744 & 22.1377 \\
+合同余电 & 54.3258 & 121.1281 & 76.7139 & 140.5479 \\
+弃光电量 & 138.0853 & 156.8237 & 145.6286 & 163.3391 \\
+电池吞吐量 & 1266.8205 & 1291.2090 & 1269.2923 & 1285.4029 \\
+动作保护次数（次） & 10707 & 5361 & 9016 & 4392 \\
+\bottomrule\end{tabular}\end{table}
+
+每日冻结条件下，紧急购电量减少45.7195万kWh，但合同余电增加66.8023万kWh，弃光增加18.7383万kWh。
+允许调整条件下，紧急购电量减少28.5367万kWh，但合同余电增加63.8339万kWh，弃光增加17.7105万kWh。
+动作保护次数也有所减少，但电池吞吐量增加。当前目标未计寿命损耗，不能据总电费降低推断电池全寿命费用改善。
+
+\subsubsection{点预测误差与候选方案比较}
+表\ref{tab:q4-prediction}列出两采购方案共同的点预测误差。情景采购改变了规划中的风险处理，保留原始点预测及其来源，因而费用改善来自采购安排的变化。
+\begin{table}[H]\centering\small
+\caption{问题四两采购方案共同的点预测误差}\label{tab:q4-prediction}
+\begin{tabular}{lrrrr}\toprule
+ & \multicolumn{2}{c}{6小时} & \multicolumn{2}{c}{24小时} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+变量 & MAE & RMSE & MAE & RMSE \\ \midrule
+负载（kW） & 163.91 & 227.69 & 166.98 & 233.88 \\
+光伏（kW，每日冻结） & 153.40 & 303.86 & 153.50 & 304.00 \\
+光伏（kW，允许调整） & 83.15 & 159.58 & 182.64 & 403.88 \\
+电价（元/kWh） & 0.0511 & 0.0700 & 0.0539 & 0.0737 \\
+\bottomrule\end{tabular}\end{table}
+6小时误差取每次刷新后首36格，共48\,096个非重叠样本；24小时误差按发布--目标对计算，共192\,168个样本，窗口重叠并截至观测末端。允许调整条件下，光伏6小时MAE较小，24小时MAE反而较大，需分别评价短窗和长窗。两类条件同时改变光伏信息与合同权限，不能把两类费用差单独解释为官方预报带来的收益。
+
+对其他模型机制也作了独立回放。表\ref{tab:q4-candidates}只列完整可行候选，每行仅改变所列机制，未将其联合叠加。
+\begin{table}[H]\centering\small
+\caption{不同独立模型候选的回放期实际总费（单位：万元）}\label{tab:q4-candidates}
+\begin{tabular}{lrr}\toprule
+独立机制 & 每日冻结 & 允许调整 \\ \midrule
+点预测基准 & 1718.1320 & 1586.6164 \\
+长窗光伏与历史基线融合 & --- & 1579.7981 \\
+长窗光伏偏差校正 & --- & 1590.7360 \\
+普通窗口75\%分位数残值 & --- & 1586.3447 \\
+显式80\%分位数采购余量 & 1712.1735 & 1599.9834 \\
+联合误差情景采购 & 1591.9083 & 1540.2971 \\
+\bottomrule\end{tabular}\end{table}
+表中横线表示未开展该条件的年度试验。长窗融合与残值调整在允许调整条件下略有节费，偏差校正和显式余量则增加费用；显式余量在每日冻结条件下有所改善。本轮两类条件均采用实际总费较低的联合误差情景采购。该比较基于已查看的开发年份，尚不足以证明其他年份仍有相同收益。
+
+\subsubsection{典型日的连续运行}
+图\ref{fig:q4-freeze}与图\ref{fig:q4-adjust}展示最新情景采购在12月21日的实际轨迹。各有144个动作区间和145个储能状态，日初沿用此前实际储电量。每日冻结条件下初始与最终合同重合；允许调整条件下可按发布预报更新尚未开始区间的合同。紧急购电及充放电均取实际执行量。
+每日冻结条件的当日合同共98\,116.693 kWh，实际紧急购电482.034 kWh。储电量从10\,781.398变为10\,162.913 kWh。
+\begin{figure}[!htbp]\centering
+\PaperGraphic[width=0.94\linewidth]{figures/q4_2_2025-12-21.pdf}
+\caption{情景采购在每日冻结条件下12月21日的实际运行结果}\label{fig:q4-freeze}
+\end{figure}
+允许调整条件有11个区间的最终合同与初始合同不同，合同总量由99\,272.136增加至99\,886.660 kWh，实际紧急购电207.906 kWh。储电量从10\,186.525变为10\,766.283 kWh。
+\begin{figure}[!htbp]\centering
+\PaperGraphic[width=0.94\linewidth]{figures/q4_3_2025-12-21.pdf}
+\caption{情景采购在允许调整条件下12月21日的实际运行结果}\label{fig:q4-adjust}
+\end{figure}

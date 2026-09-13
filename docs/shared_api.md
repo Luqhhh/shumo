@@ -2,6 +2,8 @@
 
 本文件对应 A 的 shared-core 接口。它不选择任何模型、求解器、结算公式或模板映射。
 
+Stage 1 后续共享语义以 [`docs/modeling_plan.md`](modeling_plan.md) 为架构冻结计划。其中建议新增/修订的 decision 在参赛队批准且 A 更新 contracts 前，不属于本文件已实现的 API；B/C 不得自行预先实现。
+
 ## 1. 决策与批准
 
 所有正式入口必须通过：
