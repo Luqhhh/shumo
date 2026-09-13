@@ -172,6 +172,8 @@ outputs/ingest-quarantine-20260913/
 1. 确认分支为 `feat/q3-forecast-control`，同步最新提交并检查工作区没有混入原始数据。
 2. 失败上下文补丁及本地连续复现已完成；先审核审计文档第5.2节的年末不可达证据。
    当前涉及年末边界/合同冻结/响应语义，须交团队讨论，不自动新增约束或改decision。
+   推荐候选、精确公式、局限及批准后验收顺序见
+   `docs/q3_terminal_reserve_proposal.md`；该提案尚未批准或实现。
 3. 把完整2月和全年结果补入 `docs/q3_real_data_audit.md`，同步更新
    `docs/q3_solver_readiness.md`，明确区分“诊断通过”和“正式结果”。
 4. 运行完整质量检查：
