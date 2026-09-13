@@ -6,7 +6,10 @@ Stage 0 never overwrites the official templates.  It can produce previews in
 
 from __future__ import annotations
 
+import datetime as dt
+import json
 import shutil
+from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -214,6 +217,234 @@ def _export_q1(repo_root: str | Path, case_result: CaseResult, output: Path) -> 
     return output
 
 
+def _q2_fixed_prices(repo_root: str | Path, run_id: str) -> tuple[float, ...]:
+    snapshot = Path(repo_root) / "outputs" / "runs" / "q2" / run_id / "input_snapshot.json"
+    if not snapshot.is_file():
+        raise InputError(f"Q2 input snapshot not found: {snapshot}")
+    try:
+        payload = json.loads(snapshot.read_text(encoding="utf-8"))
+        records = payload["fixed_prices"]
+        prices = {int(record["slot"]): float(record["price_cny_per_kwh"]) for record in records}
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise InputError(f"invalid Q2 fixed-price snapshot: {snapshot}") from exc
+    if set(prices) != set(range(144)):
+        raise InputError("Q2 fixed-price snapshot must contain every slot 0..143 exactly once")
+    if len(records) != 144:
+        raise InputError("Q2 fixed-price snapshot contains duplicate slot records")
+    return tuple(prices[slot] for slot in range(144))
+
+
+def _q2_daily_intervals(case_result: CaseResult) -> list[tuple[dt.date, tuple]]:
+    grouped: list[tuple[dt.date, tuple]] = []
+    start = 0
+    intervals = case_result.intervals
+    while start < len(intervals):
+        day = intervals[start].day
+        end = start
+        while end < len(intervals) and intervals[end].day == day:
+            end += 1
+        day_intervals = intervals[start:end]
+        if len(day_intervals) != 144 or [item.slot for item in day_intervals] != list(range(144)):
+            raise InputError(f"Q2 export requires all 144 ordered slots for {day.isoformat()}")
+        grouped.append((day, day_intervals))
+        start = end
+    if not grouped:
+        raise InputError("Q2 result has no intervals")
+    return grouped
+
+
+def _date_value(value: object) -> dt.date | None:
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    return None
+
+
+def _copy_cell_style(source_style, source_number_format: str, target) -> None:
+    target._style = copy(source_style)
+    target.number_format = source_number_format
+
+
+def _validate_q2_export(
+    output: Path,
+    case_result: CaseResult,
+    daily: list[tuple[dt.date, tuple]],
+    prices: tuple[float, ...],
+) -> None:
+    wb = load_workbook(output, data_only=False)
+    try:
+        plan = wb["计划购电量"]
+        if plan["B1"].value != "0:10-0:20" or plan["EO1"].value not in {
+            "0:00-0:10+1",
+            "0:00+1-0:10+1",
+        }:
+            raise InputError("Q2 export must not modify official template interval labels")
+        for day_index, (day, intervals) in enumerate(daily):
+            row = day_index + 2
+            if _date_value(plan.cell(row=row, column=1).value) != day:
+                raise InputError(f"Q2 export date mismatch at 计划购电量!A{row}")
+            for slot, interval in enumerate(intervals):
+                value = plan.cell(row=row, column=slot + 2).value
+                if value is None or abs(float(value) - interval.planned_purchase_kwh) > 1e-9:
+                    raise InputError(
+                        f"Q2 export readback mismatch at 计划购电量 row {row}, slot {slot}"
+                    )
+            expected_quantity = sum(item.planned_purchase_kwh for item in intervals)
+            expected_cost = sum(item.planned_purchase_kwh * prices[item.slot] for item in intervals)
+            quantity = plan.cell(row=row, column=146).value
+            cost = plan.cell(row=row, column=147).value
+            if (
+                quantity is None
+                or abs(float(quantity) - expected_quantity) > 1e-8
+                or cost is None
+                or abs(float(cost) - expected_cost) > 1e-8
+            ):
+                raise InputError(f"Q2 export daily total mismatch at 计划购电量 row {row}")
+
+        charge = wb["充放电量"]
+        if charge.max_row != 1 + 6 * len(daily):
+            raise InputError("Q2 export has an unexpected number of 充放电量 rows")
+        for day_index, (day, intervals) in enumerate(daily):
+            base_row = 2 + day_index * 6
+            if _date_value(charge.cell(base_row, 1).value) != day:
+                raise InputError(f"Q2 export date mismatch at 充放电量!A{base_row}")
+            for block in range(6):
+                block_intervals = intervals[block * 24 : (block + 1) * 24]
+                expected_charge = sum(item.action.charge_kwh for item in block_intervals)
+                expected_discharge = sum(item.action.discharge_kwh for item in block_intervals)
+                row = base_row + block
+                actual_charge = charge.cell(row, 3).value
+                actual_discharge = charge.cell(row, 4).value
+                if (
+                    actual_charge is None
+                    or abs(float(actual_charge) - expected_charge) > 1e-9
+                    or actual_discharge is None
+                    or abs(float(actual_discharge) - expected_discharge) > 1e-9
+                ):
+                    raise InputError(f"Q2 export readback mismatch in 充放电量 row {row}")
+            start_energy = charge.cell(base_row, 6).value
+            end_energy = charge.cell(base_row + 1, 6).value
+            if (
+                start_energy is None
+                or abs(float(start_energy) - intervals[0].state_start.energy_kwh) > 1e-9
+                or end_energy is None
+                or abs(float(end_energy) - intervals[-1].state_end.energy_kwh) > 1e-9
+            ):
+                raise InputError(f"Q2 export state readback mismatch for {day.isoformat()}")
+
+        expected_emergency = [
+            item for item in case_result.intervals if item.emergency_purchase_kwh > 0.0
+        ]
+        emergency = wb["紧急购电量"]
+        if emergency.max_row != 1 + len(expected_emergency):
+            raise InputError("Q2 export has an unexpected number of 紧急购电量 rows")
+        for row, interval in enumerate(expected_emergency, start=2):
+            if (
+                _date_value(emergency.cell(row, 1).value) != interval.day
+                or emergency.cell(row, 2).value != plan.cell(1, interval.slot + 2).value
+                or emergency.cell(row, 3).value is None
+                or abs(float(emergency.cell(row, 3).value) - interval.emergency_purchase_kwh) > 1e-9
+            ):
+                raise InputError(f"Q2 export readback mismatch in 紧急购电量 row {row}")
+    finally:
+        wb.close()
+
+
+def _export_q2(repo_root: str | Path, case_result: CaseResult, output: Path) -> Path:
+    template = template_path(repo_root, "q2")
+    if not template.is_file():
+        raise InputError(f"official template not found: {template}")
+    daily = _q2_daily_intervals(case_result)
+    prices = _q2_fixed_prices(repo_root, case_result.run_id)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        raise InputError(f"output already exists: {output}")
+    shutil.copyfile(template, output)
+    wb = load_workbook(output, data_only=False)
+    try:
+        plan = wb["计划购电量"]
+        template_days = [_date_value(plan.cell(row, 1).value) for row in range(2, plan.max_row + 1)]
+        result_days = [day for day, _ in daily]
+        if template_days != result_days:
+            raise InputError("Q2 result dates do not match the official template date rows")
+        for day_index, (_, intervals) in enumerate(daily):
+            row = day_index + 2
+            for slot, interval in enumerate(intervals):
+                plan.cell(row=row, column=slot + 2, value=interval.planned_purchase_kwh)
+            plan.cell(
+                row=row,
+                column=146,
+                value=sum(item.planned_purchase_kwh for item in intervals),
+            )
+            plan.cell(
+                row=row,
+                column=147,
+                value=sum(item.planned_purchase_kwh * prices[item.slot] for item in intervals),
+            )
+
+        charge = wb["充放电量"]
+        charge_styles = [
+            [
+                (
+                    copy(charge.cell(2 + offset, column)._style),
+                    charge.cell(2 + offset, column).number_format,
+                )
+                for column in range(1, 7)
+            ]
+            for offset in range(6)
+        ]
+        block_labels = (
+            "0:00-4:00",
+            "4:00-8:00",
+            "8:00-12:00",
+            "12:00-16:00",
+            "16:00-20:00",
+            "20:00-24:00",
+        )
+        charge.delete_rows(2, charge.max_row - 1)
+        for day_index, (day, intervals) in enumerate(daily):
+            base_row = 2 + day_index * 6
+            for block in range(6):
+                row = base_row + block
+                for column in range(1, 7):
+                    style, number_format = charge_styles[block][column - 1]
+                    _copy_cell_style(style, number_format, charge.cell(row, column))
+                charge.cell(row, 1, dt.datetime.combine(day, dt.time()) if block == 0 else None)
+                charge.cell(row, 2, block_labels[block])
+                block_intervals = intervals[block * 24 : (block + 1) * 24]
+                charge.cell(row, 3, sum(item.action.charge_kwh for item in block_intervals))
+                charge.cell(row, 4, sum(item.action.discharge_kwh for item in block_intervals))
+                charge.cell(row, 5, dt.time() if block == 0 else "24:00" if block == 1 else None)
+            charge.cell(base_row, 6, intervals[0].state_start.energy_kwh)
+            charge.cell(base_row + 1, 6, intervals[-1].state_end.energy_kwh)
+
+        emergency = wb["紧急购电量"]
+        emergency_style = [
+            (copy(emergency.cell(2, column)._style), emergency.cell(2, column).number_format)
+            for column in range(1, 4)
+        ]
+        emergency.delete_rows(2, emergency.max_row - 1)
+        emergency_rows = [
+            item for item in case_result.intervals if item.emergency_purchase_kwh > 0.0
+        ]
+        for row, interval in enumerate(emergency_rows, start=2):
+            for column in range(1, 4):
+                style, number_format = emergency_style[column - 1]
+                _copy_cell_style(style, number_format, emergency.cell(row, column))
+            emergency.cell(row, 1, dt.datetime.combine(interval.day, dt.time()))
+            emergency.cell(row, 2, plan.cell(1, interval.slot + 2).value)
+            emergency.cell(row, 3, interval.emergency_purchase_kwh)
+
+        wb.properties.creator = ""
+        wb.properties.lastModifiedBy = ""
+        wb.save(output)
+    finally:
+        wb.close()
+    _validate_q2_export(output, case_result, daily, prices)
+    return output
+
+
 def export_case_result(
     repo_root: str | Path,
     case_result: CaseResult,
@@ -222,7 +453,7 @@ def export_case_result(
     """Formal numeric export entry point, gated separately from internal time.
 
     The D_TIME_TEMPLATE_EXPORT decision records the team's explicit mapping
-    interpretation.  Q1 is the only implemented writer; other cases still fail
+    interpretation.  Q1 and Q2 have verified writers; later cases still fail
     explicitly rather than copying values into unverified templates.
     """
 
@@ -236,12 +467,12 @@ def export_case_result(
     if case_result.case_id not in EXPECTED_SHEETS:
         raise InputError(f"unknown result case_id: {case_result.case_id!r}")
     if case_result.is_synthetic:
-        raise InputError("synthetic Q1 result cannot be exported through the formal writer")
+        raise InputError("synthetic result cannot be exported through the formal writer")
     if case_result.status != "success":
-        raise InputError(f"Q1 result status is not success: {case_result.status!r}")
-    if case_result.case_id != "q1":
+        raise InputError(f"result status is not success: {case_result.status!r}")
+    if case_result.case_id not in {"q1", "q2"}:
         raise NotImplementedError(
-            f"numeric template export is implemented only for Q1, not {case_result.case_id!r}"
+            f"numeric template export is not implemented for {case_result.case_id!r}"
         )
     repo = Path(repo_root)
     output = (
@@ -253,11 +484,13 @@ def export_case_result(
         / case_result.case_id
         / case_result.run_id
         / "results"
-        / "result1.xlsx"
+        / TEMPLATE_BY_CASE[case_result.case_id]
     )
     if output.is_absolute() is False:
         output = repo / output
-    return _export_q1(repo, case_result, output)
+    if case_result.case_id == "q1":
+        return _export_q1(repo, case_result, output)
+    return _export_q2(repo, case_result, output)
 
 
 def make_smoke_result_name(filename: str) -> str:
