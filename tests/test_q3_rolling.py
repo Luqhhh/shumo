@@ -183,6 +183,29 @@ def test_one_day_driver_rejects_incomplete_actual_day() -> None:
         )
 
 
+def test_one_day_driver_adds_interval_key_to_execution_failure(monkeypatch) -> None:
+    day = dt.date(2025, 2, 1)
+
+    def fail_execution(**_kwargs):
+        raise InputError("synthetic replay failure")
+
+    monkeypatch.setattr(
+        "microgrid.problem.q3_rolling.execute_q3_window_step",
+        fail_execution,
+    )
+    with pytest.raises(
+        InputError,
+        match=r"2025-02-01T00:00:00 \(day=2025-02-01, slot=0\).*synthetic replay failure",
+    ):
+        run_q3_day(
+            day=day,
+            state_start=BatteryState(6_000.0),
+            actuals=_actuals(day),
+            window_factory=_window_factory,
+            solver=_zero_solution,
+        )
+
+
 def test_period_driver_carries_soc_and_resets_only_daily_contract_ledger() -> None:
     first = dt.date(2025, 2, 1)
     second = first + dt.timedelta(days=1)

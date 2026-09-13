@@ -242,12 +242,19 @@ def run_q3_day(
             raise InputError("Q3 window factory changed the requested decision time or state")
         previous_version = None if ledger is None else ledger.current.version
         solution = solver(window)
-        executed = execute_q3_window_step(
-            window=window,
-            solution=solution,
-            actual=actual,
-            current_ledger=ledger,
-        )
+        try:
+            executed = execute_q3_window_step(
+                window=window,
+                solution=solution,
+                actual=actual,
+                current_ledger=ledger,
+            )
+        except InputError as exc:
+            raise InputError(
+                "Q3 execution failed at "
+                f"{actual.start.isoformat()} (day={actual.day.isoformat()}, slot={actual.slot}): "
+                f"{exc}"
+            ) from exc
         ledger = executed.ledger_after
         if previous_version is None or ledger.current.version != previous_version:
             links = (

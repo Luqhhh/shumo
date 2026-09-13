@@ -24,7 +24,7 @@
 | Forecast release builder | 已实现因果InfoSet生成 | `problem/q3_release_snapshots.py` | runner提供实际/预报archive |
 | Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | 完成 |
 | Q3 滚动 driver | 一日/跨日连续版已实现 | `problem/q3_rolling.py` | 接正式runner |
-| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 待本地原始附件做真实分段验证 |
+| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 真实1日审计已定位固定放电回放阻断 |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
 ## 2. 剩余的 P0 阻断
@@ -41,6 +41,12 @@
 validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选择
 `ATTR-PV-FIRST`，回放现已将 surplus 明确拆成 `grid_spill` 与
 `pv_curtailment`，并能生成现有 `IntervalResult`；该归属是建模假设，不写成题面事实。
+
+2026-09-13真实附件导入后，2025-02-01单日审计在05:40（slot 34）按预期显式
+失败：计划放电559.900448 kWh，而合同电为0、实际负荷为531.227400 kWh、实际PV
+为0.046233 kWh，留下28.673048 kWh无法吸收。证据表明“计划放电不得向下调整”
+在真实预测误差下可能造成物理不可行。是否允许仅向下削减计划放电属于新的人工
+口径，未经确认不得实现或绕过；详见 `docs/q3_real_data_audit.md`。
 
 ## 3. 已提前补强的绿色测试
 
@@ -83,8 +89,8 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 ## 4. 最短实施路径
 
 ```text
-1. 导入本地原始附件后做真实1日审计
-2. 再依次做7日、1月、全年
+1. 人工处理真实1日审计暴露的固定放电回放口径
+2. 口径确认并实现后重跑真实1日，再依次做7日、1月、全年
 3. 全年稳定后才进入正式selected run与Excel导出
 ```
 
@@ -120,4 +126,5 @@ runner；这不代表真实数据验证或正式结果导出已经完成：
 - [x] runtime input总线校验附件1/2/3全年网格、四次发布和来源哈希；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-正式runner已实现，但在当前工作区原始附件未就位且真实分段验证未完成前，不得选择为正式run。
+正式runner已实现，原始附件及哈希已经就位；但真实1日审计仍被固定放电回放口径
+阻断。在人工确认并通过1日、7日、1月、全年验证前，不得选择为正式run。

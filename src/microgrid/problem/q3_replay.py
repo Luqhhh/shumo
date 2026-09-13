@@ -133,7 +133,11 @@ def apply_charge_curtailment(
     if unaccounted_surplus > ENERGY_ABS_TOL_KWH:
         raise InputError(
             "Q3 replay is infeasible under fixed planned discharge: surplus remains "
-            "after all contracted grid energy and actual PV are curtailed"
+            "after all contracted grid energy and actual PV are curtailed "
+            f"(unaccounted_surplus_kwh={unaccounted_surplus:.9g}, "
+            f"planned_discharge_kwh={planned_action.discharge_kwh:.9g}, "
+            f"confirmed_purchase_kwh={purchase:.9g}, actual_load_kwh={load:.9g}, "
+            f"actual_pv_kwh={pv:.9g})"
         )
     pv_used = max(0.0, pv - pv_curtailment)
     executed_action = BatteryAction(

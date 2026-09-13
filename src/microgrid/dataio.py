@@ -100,7 +100,7 @@ def decode_zip_name(info: zipfile.ZipInfo) -> str:
     return info.filename
 
 
-def classify_input(rel: PurePosixPath) -> tuple[str, str] | None:
+def classify_input(rel: PurePosixPath, *, source_is_c_root: bool = False) -> tuple[str, str] | None:
     """Map an official C-problem relative path to (kind, repository path).
 
     Returns None for unrelated A/B/D/E files and incidental OS metadata.
@@ -109,6 +109,7 @@ def classify_input(rel: PurePosixPath) -> tuple[str, str] | None:
     name = rel.name
     lower = name.lower()
     parts = [p.lower() for p in rel.parts]
+    is_c_scoped = source_is_c_root or "c题" in parts
 
     if name.endswith(":Zone.Identifier") or lower.endswith(".zone.identifier"):
         return None
@@ -124,6 +125,8 @@ def classify_input(rel: PurePosixPath) -> tuple[str, str] | None:
         return "rules", f"resources/{name}"
 
     if lower.endswith(".xlsx"):
+        if not is_c_scoped:
+            return None
         if re.fullmatch(r"result4-[23]\.xlsx", lower) or re.fullmatch(r"result[123]\.xlsx", lower):
             return "template", f"data/templates/{name}"
         if any("附件5" in p for p in parts):
@@ -236,9 +239,10 @@ def ingest_source(source_path: str | Path, repo_root: str | Path) -> dict[str, A
             items.append(entry)
         source_label = source.name
     else:
+        source_is_c_root = source.name.lower() == "c题"
         for rel_str, path in _iter_source_files(source, exclude_root=repo.resolve()):
             rel = _norm_rel(rel_str)
-            classified = classify_input(rel)
+            classified = classify_input(rel, source_is_c_root=source_is_c_root)
             if classified is None:
                 continue
             kind, dest_rel = classified

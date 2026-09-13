@@ -101,7 +101,7 @@ def test_attr_pv_first_keeps_all_pv_when_grid_spill_covers_surplus() -> None:
 
 
 def test_replay_rejects_surplus_caused_only_by_fixed_discharge() -> None:
-    with pytest.raises(InputError, match="fixed planned discharge"):
+    with pytest.raises(InputError, match="unaccounted_surplus_kwh=50"):
         apply_charge_curtailment(
             state_start=BatteryState(6_000.0),
             planned_action=BatteryAction(discharge_kwh=50.0),
