@@ -70,3 +70,49 @@ def test_official_attachment1_reader_keeps_raw_labels(tiny_attachment1):
     assert records[-1].raw_time_label == "0:00+1"
     assert records[-1].parsed_day_offset == 1
     assert hashlib.sha256(tiny_attachment1.read_bytes()).hexdigest() == records[0].source_hash
+
+
+def _wide_attachment(tmp_path: Path, date_value: object) -> Path:
+    from openpyxl import Workbook
+
+    path = tmp_path / "附件2.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "小区负载"
+    ws.append(["日期\\时间", "0:10", "0:20"])
+    ws.append([date_value, 1.0, 2.0])
+    wb.save(path)
+    return path
+
+
+def test_wide_reader_rejects_a_serial_past_the_calendar(tmp_path):
+    """A mistyped date cell is a bad label, never a bare OverflowError."""
+
+    from microgrid.dataio import read_wide_attachment
+    from microgrid.schemas import TimeLabelError
+
+    path = _wide_attachment(tmp_path, 3_000_000)
+    with pytest.raises(TimeLabelError, match="outside the supported calendar range"):
+        read_wide_attachment(path, sheet_name="小区负载", kind="load_kw", unit="kW")
+
+
+def test_wide_reader_reports_a_row_date_past_the_calendar(tmp_path):
+    """A row date at the very end of the calendar overflows the right endpoint."""
+
+    import datetime as dt
+
+    from microgrid.dataio import read_wide_attachment
+    from microgrid.schemas import TimeLabelError
+
+    path = tmp_path / "附件2.xlsx"
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "小区负载"
+    ws.append(["日期\\时间", "0:00+1", "0:20"])
+    ws.append([dt.date(9999, 12, 31), 1.0, 2.0])
+    wb.save(path)
+
+    with pytest.raises(TimeLabelError, match="past the supported calendar range"):
+        read_wide_attachment(path, sheet_name="小区负载", kind="load_kw", unit="kW")

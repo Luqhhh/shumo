@@ -246,14 +246,25 @@ def excel_serial_to_date(serial: int, *, date_system: str = "1900") -> _dt.date:
     if serial < 0:
         raise TimeLabelError(f"negative Excel serial date: {serial}")
     if date_system == "1904":
-        return _dt.date(1904, 1, 1) + _dt.timedelta(days=serial)
-    if date_system != "1900":
+        epoch, offset = _dt.date(1904, 1, 1), serial
+    elif date_system == "1900":
+        # Preserve Excel's fictitious 1900-02-29 for serial 60; modern dates are
+        # unambiguous after serial 60.
+        if 1 <= serial < 60:
+            epoch, offset = _dt.date(1899, 12, 31), serial - 1
+        else:
+            epoch, offset = _dt.date(1899, 12, 30), serial
+    else:
         raise TimeLabelError(f"unsupported Excel date system: {date_system!r}")
-    # Preserve Excel's fictitious 1900-02-29 for serial 60; modern dates are
-    # unambiguous after serial 60.
-    if 1 <= serial < 60:
-        return _dt.date(1899, 12, 31) + _dt.timedelta(days=serial - 1)
-    return _dt.date(1899, 12, 30) + _dt.timedelta(days=serial)
+    # Excel's serial range is far wider than Python's calendar, so a mistyped or
+    # corrupt cell can name a year past 9999.  That is a bad label, not a crash:
+    # report it as one and let the callers' existing error paths handle it.
+    try:
+        return epoch + _dt.timedelta(days=offset)
+    except OverflowError as exc:
+        raise TimeLabelError(
+            f"Excel serial date {serial} falls outside the supported calendar range"
+        ) from exc
 
 
 def issue_time_from_forecast_label(date_label: Any, clock_label: Any) -> _dt.datetime:
@@ -263,9 +274,18 @@ def issue_time_from_forecast_label(date_label: Any, clock_label: Any) -> _dt.dat
     if date_part.base_date is None:
         raise TimeLabelError(f"forecast date has no date: {date_label!r}")
     clock = parse_time_label(clock_label, base_date=date_part.base_date)
-    issue = _dt.datetime.combine(date_part.base_date, _dt.time()) + _dt.timedelta(
-        days=clock.day_offset, minutes=clock.minute_of_day
-    )
+    try:
+        issue = _dt.datetime.combine(date_part.base_date, _dt.time()) + _dt.timedelta(
+            days=clock.day_offset, minutes=clock.minute_of_day
+        )
+    except OverflowError as exc:
+        # A date cell at the very end of the calendar plus a next-day clock
+        # label names a moment Python cannot represent.  That is a bad label,
+        # not a crash.
+        raise TimeLabelError(
+            f"forecast issue time {date_label!r} {clock_label!r} falls outside the "
+            f"supported calendar range"
+        ) from exc
     return issue
 
 

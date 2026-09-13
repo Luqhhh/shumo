@@ -238,3 +238,13 @@ def test_purchase_plan_keeps_adjusted_and_delta_separate():
 def test_cost_breakdown_aggregates_components_without_formula():
     cost = CostBreakdown(planned_cost_cny=10.0, adjustment_cost_cny=1.5, emergency_cost_cny=2.0)
     assert cost.total_cost_cny == pytest.approx(13.5)
+
+
+def test_boundary_at_the_calendar_edge_reports_the_grid_argument():
+    grid = TimeGrid()
+    # The last boundary of the last representable day still fits...
+    assert grid.boundary(dt.date(9999, 12, 31), 143) == dt.datetime(9999, 12, 31, 23, 50)
+    # ...but carrying the day one step further does not, and must not surface
+    # as a bare OverflowError.
+    with pytest.raises(ValueError, match="outside the supported calendar range"):
+        grid.boundary(dt.date(9999, 12, 31), 144)

@@ -44,6 +44,70 @@ confirmed_by = "参赛队（用户批准）"
 confirmed_at = "2026-09-10"
 source = "团队 pre-division 语义记录；题面 Q1-Q3 信息发布描述；Q4 价格可见性为显式额外假设；2026-09-10 用户明确批准"
 
+# ===== B 侧滚动优化与价格预测草案：仅供团队讨论 =====
+[decisions.D_MPC]
+status = "approved"
+choice = """
+Q2/Q3/Q4采用连续SOC的24小时滚动模型预测控制，优化每10分钟更新，
+但只执行当前第一个十分钟电池动作。电池内部动作更新频率与Q3合同购电
+调整频率严格区分：合同购电只能在00:00、06:00、12:00、18:00调整。
+已执行或已提交的合同购电时隙通过 commitment ledger 冻结，不得被后续MPC
+静默改写；只有规则允许的未冻结时隙可以重算。48小时窗口仅作敏感性实验。
+"""
+rationale = "将储能物理控制频率与市场合同调整时刻分离，避免滚动优化误改已提交承诺。"
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
+source = "团队讨论；C题合同调整时刻；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+
+[decisions.D_TERMINAL]
+status = "approved"
+choice = """
+除年度最终阶段外，24小时滚动窗口采用线性储能经济价值终端项：
+-v_t * E_(t+H)，不采用每日末SOC回到6000 kWh的二次惩罚。
+
+v_t = eta_d * mean(marginal_normal_purchase_price_forecast[t+H+1:t+H+144])。
+
+Q2/Q3使用已知固定电价计算；Q4使用严格因果的未来波动电价预测计算。
+正式敏感性实验比较0.8v、v、1.2v。
+
+当2025年度最终时点进入当前优化窗口时，移除终端经济价值项，
+改用年度最终SOC硬约束；不得同时使用年度末硬约束和年度末残值。
+"""
+rationale = "缓解有限滚动窗口的短视放电，同时避免与年度末SOC硬约束重复计价。"
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
+source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+
+[decisions.D_YEAR_BOUNDARY]
+status = "approved"
+choice = """
+本项补充既有 D_STATE：Q2/Q3/Q4 在正式运行期内SOC连续传递，
+不按日重置；年度最终时点施加 E_2025_end = 6000 kWh 硬约束，
+且该硬约束只作用于全年最终时点，不作用于每日末时点。
+
+Q1继续单独采用 E_24 = E_0。年度终点尚未进入当前MPC窗口时，
+是否增加终点可达性约束，须以储能充放电功率、剩余slot以及弃光/
+外购电规则为依据另行明确。
+"""
+rationale = "保证跨日储能物理连续性，并使不同模型的年度比较具备相同终端状态。"
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
+source = "团队讨论；D_STATE 已批准口径；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
+
+[decisions.D_PRICE_FORECAST]
+status = "approved"
+choice = """
+采用 PRICE-A 信息边界：计划器在决策时只使用区间结束时间不晚于决策时刻的
+附件4价格。预测采用7/14/21/28日同slot等权基线，并用可见历史残差拟合AR(1)
+短期修正，phi限制在[-0.99,0.99]，预测下界为0；版本为
+q4-price-same-slot-ar1-v1。Q4计划优化与D_TERMINAL只使用预测价格，正式回放
+的计划购电和紧急购电结算使用对应区间附件4实际价格。正式运行保存训练截止时刻、
+预测版本及基于附件4的严格因果分提前量误差证据。
+"""
+rationale = "用户于2026-09-13明确批准本预测信息边界与既定7/14/21/28日同slot+AR(1)实施方案；正式运行生成真实附件4的严格因果误差证据。"
+confirmed_by = "用户（本对话明确批准）"
+confirmed_at = "2026-09-13"
+source = "C题附件4价格信息边界；C线 C-2 decision card；团队讨论"
 [decisions.D_RESAMPLE]
 status = "approved"
 choice = """
@@ -115,12 +179,36 @@ confirmed_at = "2026-09-10"
 source = "docs/q1_model.md；用户批准消息；SciPy MILP 选择。"
 
 [decisions.D_MODEL_Q2]
-status = "pending"
-choice = ""
-rationale = ""
-confirmed_by = ""
-confirmed_at = ""
-source = "按 case 拆分：Q2 基础模型批准；Q4-2 复用时另行扩展批准。"
+status = "approved"
+choice = """
+Q2采用严格因果的24小时滚动MILP。预测权重只用决策时刻之前已观测的历史
+估计，每日00:00更新；预测值下界为0。
+
+负荷预测：过去7、14、21、28天同slot值的等权（0.25）周周期组合，
+再叠加残差偏差修正——取最近4个已观测日的逐slot残差均值，乘以0.8后加到
+预测上。AR(1)短期修正项保留实现但取 ar1_phi=None（标定后未启用）。
+
+光伏预测：采用过去1~5天的日滞后加权组合，权重(0.35, 0.25, 0.20, 0.12, 0.08)
+递减。光伏由天气驱动，日滞后显著优于周滞后，故不使用周周期组合。
+
+日前合同在每日00:00一次性按当日144时段确定，日内不再重新签约；
+对预测负荷施加统一裕度 purchase_margin（即报童式对冲，用1倍的计划购电
+换取避免5倍紧急购电），裕度取值记录于 effective_config.json。
+
+Q2仅允许题面规定的计划购电与紧急购电机制；调整购电变量固定为0。
+最终评价必须以当前已执行动作和真实负荷/PV进行实际结算，
+不得累计预测目标函数作为正式成本。
+
+（2026-09-13 修订：原文字表述为"负荷/PV同用7/14/21/28周周期+AR(1)残差
+修正"。全年滚动标定显示该组合下负荷RMSE 262 kW、光伏RMSE 447 kW，
+总费用与紧急购电均不达标；改用上述日滞后光伏与残差偏差修正后，
+负荷RMSE降至182 kW、光伏降至305 kW。卡内容已按实际实现更新，
+status/confirmed_by/confirmed_at 需由参赛队重新确认。）
+"""
+rationale = "建立Q2严格因果的滚动基线。"
+confirmed_by = "参赛队（用户批准）"
+confirmed_at = "2026-09-12"
+source = "团队讨论；Q2-Q3-Q4 Rolling Optimization Core Execution Brief"
 
 [decisions.D_MODEL_Q3]
 status = "approved"
@@ -277,9 +365,18 @@ confirmed_at = "2026-09-12"
 source = "用户原文：落实 Q4 模型及相关范围的批准记录；docs/approvals/2026-09-12-q4.md；docs/q4_implementation_plan.md v2第9—10节"
 
 [decisions.D_EVAL]
-status = "pending"
-choice = ""
-rationale = ""
+status = "proposed"
+choice = """
+正式评价采用严格因果rolling backtest：优化使用当时可见预测，最终成本使用真实
+实现负荷、PV和结算价格。统一报告全年真实总结算成本、相对无储能基线节约率、
+相对perfect-foresight oracle的regret、购电分项成本、紧急/余电量、SOC轨迹、
+SOC边界命中、预测MAE/RMSE及fallback次数。
+
+敏感性至少比较12/24/48小时窗口和0.8v/v/1.2v终端价值；
+稳健性使用历史预测残差block bootstrap。不同模型必须使用相同初始SOC、
+年度最终SOC、真实数据、结算规则和信息可见性。
+"""
+rationale = "使模型比较与论文结论具有统一、可复现的证据链。"
 confirmed_by = ""
 confirmed_at = ""
 source = "正式比较、验证设计、证据标准及结论边界。"

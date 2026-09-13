@@ -131,9 +131,18 @@ class TimeGrid:
     def boundary(self, day: _dt.date, boundary_index: int) -> _dt.datetime:
         if not 0 <= boundary_index <= STEPS_PER_DAY:
             raise ValueError(f"boundary index must be in [0, {STEPS_PER_DAY}]")
-        return _dt.datetime.combine(day, _dt.time()) + _dt.timedelta(
-            minutes=STEP_MINUTES * boundary_index
-        )
+        try:
+            return _dt.datetime.combine(day, _dt.time()) + _dt.timedelta(
+                minutes=STEP_MINUTES * boundary_index
+            )
+        except OverflowError as exc:
+            # A day at the very end of Python's calendar cannot carry a whole
+            # day of boundaries.  Report it like any other out-of-range grid
+            # argument rather than letting a bare OverflowError escape.
+            raise ValueError(
+                f"day {day!r} with boundary index {boundary_index} falls outside "
+                f"the supported calendar range"
+            ) from exc
 
     def interval(self, day: _dt.date, interval_index: int) -> TimeInterval:
         if not 0 <= interval_index < STEPS_PER_DAY:

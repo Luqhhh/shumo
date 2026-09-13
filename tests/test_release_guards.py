@@ -16,7 +16,6 @@ from microgrid.checks import assert_release_ready, collect_blockers, load_select
 from microgrid.cli import main
 from microgrid.schemas import (
     InputError,
-    ModelNotImplementedError,
     PendingDecisionError,
     ReleaseBlockedError,
 )
@@ -309,12 +308,11 @@ def test_q1_approved_is_not_blocked_by_q3_or_export_pending(tmp_path):
         run_case("q1", repo)
 
 
-def test_approved_decisions_dispatch_to_unimplemented_runner(tmp_path):
+def test_approved_decisions_reach_explicit_q2_input_error(tmp_path):
     repo = tmp_path / "repo"
     _write_decisions(repo, approved=True)
-    with pytest.raises(ModelNotImplementedError) as excinfo:
+    with pytest.raises(InputError, match="attachment1"):
         run_case("q2", repo)
-    assert excinfo.value.case_id == "q2"
     # Dispatcher must not invent a fake solution or success.
     assert not (repo / "outputs").exists()
 

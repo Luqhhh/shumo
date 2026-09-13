@@ -216,6 +216,23 @@ def verify_required_inputs(
     return issues
 
 
+def verify_loaded_input_paths(
+    repo_root: str | Path, loaded_paths: tuple[Path, ...] | list[Path]
+) -> list[str]:
+    """Verify the exact files selected by a runner against the ingest manifest."""
+
+    repo = Path(repo_root).resolve()
+    required: list[str] = []
+    issues: list[str] = []
+    for raw_path in loaded_paths:
+        path = Path(raw_path).resolve()
+        try:
+            required.append(path.relative_to(repo).as_posix())
+        except ValueError:
+            issues.append(f"loaded input is outside repository and cannot be verified: {path}")
+    return issues + verify_required_inputs(repo, required)
+
+
 def run_dir_for(repo_root: str | Path, case_id: str, run_id: str) -> Path:
     return Path(repo_root) / "outputs" / "runs" / case_id / run_id
 
