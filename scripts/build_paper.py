@@ -151,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"paper_pdf: {pdf_path}")
     if args.target == "ai-details":
-        official = build_dir / "AI 工具使用详情.pdf"
+        # Official submission requires the exact filename "AI工具使用详情.pdf".
+        official = build_dir / "AI工具使用详情.pdf"
         shutil.copyfile(pdf_path, official)
         print(f"ai_details_pdf: {official}")
     print("latex_verified=true")
