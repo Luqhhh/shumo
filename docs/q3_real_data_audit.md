@@ -96,5 +96,27 @@ C成员于2026-09-13明确确认 `DISCHARGE-CURTAIL-PV-FIRST`：实际过供依�
 也不登记为正式run。该结果用于证明长于7日的SOC传递、计划版本、tail补齐和实际
 回放能够连续执行，不能替代全年终点验证。
 
-这些数值仅为分段诊断证据，不是正式Q3结果。下一步仍须完成全年运行，且正式Excel
-导出继续受独立模板口径约束。
+## 5. 全年首次审计失败证据
+
+首次全年诊断使用 run ID `q3-full-validation-20260913`，代码提交为 `12eaf8f`，从
+2026-09-13 12:04运行至13:03左右。输入 provenance 校验通过，但在
+`rolling_solve` 阶段失败：
+
+| 项目 | 记录 |
+|---|---|
+| 状态 | failed |
+| failure stage | rolling_solve |
+| error type | Q3WindowSolveError |
+| solver status | HiGHS status 8 / infeasible |
+| 是否合成数据 | 否 |
+| 已生成文件 | `manifest.json`、`failure.json`、运行日志 |
+| 未生成文件 | `summary.json`、`domain_result.json`、三份sidecar |
+
+当前异常包装只记录了窗口MILP不可行，没有带出 `decision_time/day/slot`，且 period
+在异常前没有写出中间 checkpoint。因此运行时长不能作为失败日期的可靠证据，也不能
+据此判断是年末边界、合同冻结还是其他实现问题。接手人应先让 solver 异常携带决策
+时刻、当前SOC、窗口终端模式和剩余格数，再复现定位；在证据明确前不得改变已批准
+口径、放宽约束或把该失败run登记为正式结果。
+
+以上数值和失败记录都只是诊断证据，不是正式Q3结果。正式Excel导出继续受独立模板
+口径约束。

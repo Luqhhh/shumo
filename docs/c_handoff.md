@@ -13,8 +13,9 @@
 ## 1. 一句话状态
 
 Q3 的因果预测、24小时滚动 MILP、实际回放、版本账本和三份 sidecar 已经接通；
-真实1日、连续7日和完整2月均已通过。全年诊断运行正在执行，尚未证明成功，也尚未
-选择为正式 run。不要重写求解器；先接管并完成全年验证闭环。
+真实1日、连续7日和完整2月均已通过。首次全年诊断已在 `rolling_solve` 阶段失败，
+尚未定位到具体决策时刻，也未选择为正式 run。不要重写求解器；先补足失败上下文并
+完成全年验证闭环。
 
 ## 2. 已经完成的内容
 
@@ -69,7 +70,7 @@ Q3 的因果预测、24小时滚动 MILP、实际回放、版本账本和三份 
 如果真实全年运行失败，应先保存失败证据并定位实现问题；不要为了让结果通过而自行
 改变上述 decision。确实需要更改口径时，必须回到团队进行人工确认。
 
-## 4. 正在运行的全年诊断
+## 4. 首次全年诊断失败
 
 运行标识：`q3-full-validation-20260913`
 
@@ -91,11 +92,12 @@ outputs/logs/q3-full-validation-20260913.log
 .venv\Scripts\python.exe -m microgrid run --case q3 --run-id q3-full-validation-20260913
 ```
 
-交接文档编写时，该进程仍在运行，目录中只有运行中的 `manifest.json`。日志反复出现
-`HighsMipSolverData::transformNewIntegerFeasibleSolution tmpSolver.run();` 是 HiGHS
-底层输出，不能单凭这行判断失败，最终以 runner 状态和独立 validator 为准。
+该进程从12:04运行至13:03左右，最终以退出码2结束。输入检查通过，但某个滚动窗口
+返回 HiGHS status 8 / infeasible。目录中保留 `manifest.json` 和 `failure.json`，日志
+反复出现的 `HighsMipSolverData::transformNewIntegerFeasibleSolution tmpSolver.run();`
+是 HiGHS 底层输出，不是独立的失败原因。
 
-成功后应出现并检查：
+本次没有生成以下成功产物：
 
 ```text
 manifest.json
@@ -106,7 +108,7 @@ plan_versions.jsonl
 settlement_ledger.jsonl
 ```
 
-必须核对：
+下一次全年成功后必须核对：
 
 1. `status`/`validation_ok` 为成功；
 2. 全年区间数、日期范围和输入哈希正确；
@@ -115,7 +117,7 @@ settlement_ledger.jsonl
 5. 三份 sidecar 都存在，manifest 中的相对路径和 SHA-256 与文件一致；
 6. `100 -> 80 -> 100` 之类计划变化保留完整版本和两笔交易，不能只留净变化。
 
-如果运行失败，保留并检查：
+本次失败证据已经保留：
 
 ```text
 outputs/runs/q3/q3-full-validation-20260913/failure.json
@@ -124,6 +126,10 @@ outputs/logs/q3-full-validation-20260913.log
 ```
 
 不要用 `xfail`、放宽物理阈值或删除失败目录来掩盖问题。
+
+现有异常没有记录失败窗口的 `decision_time`。接手后的第一个诊断改动应让
+`run_q3_day` 在 solver 抛错时补充日期、slot、当前SOC、terminal mode和窗口长度，
+再复现全年失败。该改动只增加可观察性，不应顺手改变任何模型约束。
 
 ## 5. 原始数据与本机准备
 
@@ -154,8 +160,8 @@ outputs/ingest-quarantine-20260913/
 ## 6. 接手后的最短行动顺序
 
 1. 确认分支为 `feat/q3-forecast-control`，同步最新提交并检查工作区没有混入原始数据。
-2. 接管全年运行；成功就完整审计 artifacts，失败就保存证据并只修复已批准口径内的
-   实现问题。
+2. 读取首次全年失败证据，先给 solver 异常增加决策时刻和窗口状态上下文，再复现；
+   只修复已批准口径内的实现问题。若涉及模型语义，先交团队重新确认。
 3. 把完整2月和全年结果补入 `docs/q3_real_data_audit.md`，同步更新
    `docs/q3_solver_readiness.md`，明确区分“诊断通过”和“正式结果”。
 4. 运行完整质量检查：
