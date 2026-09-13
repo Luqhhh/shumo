@@ -21,7 +21,8 @@
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
 | 实际回放 | 单步控制器与ATTR-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 组装完整滚动driver |
 | 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
-| Q3 年度 runner | 未实现 | `problem/q3.py` 明确报错 | 组装滚动、回放和 artifacts |
+| Q3 滚动 driver | 一日内存版已实现 | `problem/q3_rolling.py` | 接真实forecast factory与跨日runner |
+| Q3 年度 runner | 未实现 | `problem/q3.py` 明确报错 | 组装跨日、sidecars和artifacts |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
 ## 2. 剩余的 P0 阻断
@@ -71,6 +72,8 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - 单步控制器把00:00解转换成版本0、把06/12/18解追加为新版本，只执行第一格
   电池动作，并使用真实区间计算 charge curtailment 与紧急购电；紧急费用以区间
   右端点入账，sidecar 不再推测或伪造 replay 事件。
+- 一日滚动driver严格按144格执行“先构造预测窗口并求解、后传入当格actual回放”，
+  保留四版计划、冻结格的原预测引用、紧急账本、连续SOC和统一IntervalResult。
 
 以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
 
@@ -80,9 +83,9 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 ## 4. 最短实施路径
 
 ```text
-1. 组装合成1日滚动 driver
+1. 将真实forecast snapshot/provenance接入一日window factory
 2. 写入三份 sidecar 和 CaseResult
-3. 再依次做真实1日、7日、1月、全年
+3. 扩展跨日连续运行，再依次做真实1日、7日、1月、全年
 ```
 
 ## 5. 求解器开工验收
@@ -107,6 +110,7 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - [x] 单窗口 Q3 MILP 与独立 validator 已通过1格和完整144格合成测试；
 - [x] 单步计划版本更新、第一格回放和紧急结算 sidecar 已通过合成测试；
 - [x] `ATTR-PV-FIRST` 已由C成员确认，单步回放可生成 `IntervalResult`；
+- [x] 合成一日滚动driver覆盖144格、四版计划、冻结引用和紧急结算；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-在完整滚动 driver 和年度 runner 完成前，正式年度 runner仍不能返回成功。
+在真实forecast factory、跨日运行和年度runner完成前，正式年度runner仍不能返回成功。
