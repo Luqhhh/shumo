@@ -53,5 +53,10 @@ def test_q2_approved_dependencies_reach_explicit_input_failure(tmp_path: Path) -
     assert not (repo / "outputs").exists()
 
 
-def test_q4_2_requires_approved_variable_price_forecast_decision() -> None:
-    assert "D_PRICE_FORECAST" in required_decisions("q4_2")
+def test_q4_2_requires_its_scoped_model_and_reserve_decisions() -> None:
+    required = required_decisions("q4_2")
+    assert "D_MODEL_Q4_2" in required
+    assert "D_TERMINAL_RESERVE_Q4" in required
+    # the merged Q4-2 model is main's scenario procurement: it does not
+    # implement the causal price-forecast card, so that gate was dropped
+    assert "D_PRICE_FORECAST" not in required
