@@ -1,6 +1,6 @@
 \clearpage
 \section{符号说明}
-主要符号见表\ref{tab:notation}。问题一的电量变量索引为$k=0,\ldots,143$，储电量状态索引为$k=0,\ldots,144$；问题四沿连续时间网格使用相同的区间长度。
+主要符号见表\ref{tab:notation}。问题一、二的日内电量变量索引为$k=0,\ldots,143$，储电量状态索引为$k=0,\ldots,144$；问题四沿连续时间网格使用相同的区间长度。
 \begin{table}[H]
 \centering
 \caption{主要符号及含义}
@@ -15,8 +15,9 @@ $k,\tau_k$ & 区间索引、储能状态边界时刻 & --- \\
 $p_k$ & 区间外网电价 & 元/kWh \\
 $P_k^{\mathrm L},P_k^{\mathrm{PV}}$ & 负载功率、光伏功率 & kW \\
 $\ell_k,v_k$ & 负载电量、光伏电量 & kWh \\
-$g_k,u_k$ & 问题一购电量、光伏消纳量 & kWh \\
-$c_k,d_k$ & 问题一母线侧充电量、放电量 & kWh \\
+$\widehat\ell_k,\widehat v_k$ & 问题二预测负载、预测光伏电量 & kWh \\
+$g_k,e_k,u_k$ & 正常购电、紧急购电、光伏利用量 & kWh \\
+$c_k,d_k$ & 母线侧充电量、放电量 & kWh \\
 $E_k$ & 边界时刻$\tau_k$的电池内部储电量 & kWh \\
 $E_{\min},E_{\max}$ & 储电量运行下界1\,200、上界10\,800 & kWh \\
 $P_{\max},M$ & 母线侧功率上限5\,000、区间电量上限$5000/6$ & kW，kWh \\
