@@ -7,9 +7,9 @@ import pytest
 
 from microgrid.dataio import sha256_file
 from microgrid.problem.contracts import BatteryAction, BatteryState, IntervalResult
-from microgrid.problem.q3_artifacts import write_q3_day_artifacts
+from microgrid.problem.q3_artifacts import write_q3_day_artifacts, write_q3_period_artifacts
 from microgrid.problem.q3_plan_ledger import Q3PlanLedger
-from microgrid.problem.q3_rolling import Q3DayRun
+from microgrid.problem.q3_rolling import Q3DayRun, Q3PeriodRun
 from microgrid.problem.q3_sidecars import (
     PlanSlotForecastLink,
     Q3SidecarArtifact,
@@ -143,3 +143,37 @@ def test_q3_day_artifacts_refuse_overwriting_domain_result(tmp_path: Path) -> No
             pv_snapshots=(),
             is_synthetic=True,
         )
+
+
+def test_q3_period_artifacts_preserve_both_days_and_continuous_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    first = dt.date(2025, 2, 1)
+    second = first + dt.timedelta(days=1)
+    period = Q3PeriodRun(days=(_day_run(first), _day_run(second)))
+
+    def fake_writer(run_dir, **kwargs):
+        assert len(kwargs["plan_ledgers"]) == 2
+        assert len(kwargs["forecast_links"]) == 1_152
+        return _fake_sidecars(Path(run_dir))
+
+    monkeypatch.setattr("microgrid.problem.q3_artifacts.write_q3_sidecars", fake_writer)
+    artifacts = write_q3_period_artifacts(
+        tmp_path,
+        run_id="synthetic-q3-period",
+        period_run=period,
+        load_snapshots=(),
+        pv_snapshots=(),
+        is_synthetic=True,
+    )
+
+    assert len(artifacts.result.intervals) == 288
+    assert artifacts.result.metadata["start_day"] == "2025-02-01"
+    assert artifacts.result.metadata["end_day"] == "2025-02-02"
+    assert artifacts.result.metadata["day_count"] == 2
+    loaded = load_case_result(
+        artifacts.domain_result_path,
+        expected_days=(first, second),
+    )
+    assert loaded == artifacts.result

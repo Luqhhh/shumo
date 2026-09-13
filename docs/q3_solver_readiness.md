@@ -17,7 +17,7 @@
 | 统一 Q3 input bundle | 已实现并有 contract tests | `problem/q3_window.py` | solver 直接消费，不接 raw actual |
 | 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | 已接结构化 sidecar |
 | 结算账本 | 计划/调整/紧急事件已实现 | `q3_plan_ledger.py`、`q3_sidecars.py` | 汇总进年度 artifacts |
-| 结构化 sidecar/CaseResult | 一日artifact封装已实现 | `q3_sidecars.py`、`q3_artifacts.py` | 扩展跨日集合 |
+| 结构化 sidecar/CaseResult | 一日/跨日artifact封装已实现 | `q3_sidecars.py`、`q3_artifacts.py` | 完成 |
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
 | 实际回放 | 单步控制器与ATTR-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 组装完整滚动driver |
 | 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
@@ -117,6 +117,7 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - [x] release builder先过滤InfoSet，再生成LOAD-A与组合/线性重采样PV snapshot；
 - [x] 一日结果可写三份带哈希sidecar及全局schema v1 CaseResult；
 - [x] 跨日driver每天重建合同账本，但SOC从前日末连续传入次日初；
+- [x] 跨日结果统一写入三份sidecar和一个schema v1 CaseResult；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
 在真实forecast factory、跨日运行和年度runner完成前，正式年度runner仍不能返回成功。
