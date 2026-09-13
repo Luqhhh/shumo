@@ -1,7 +1,8 @@
 # Q3 年末储备补充口径（本会话用户已批准）
 
 日期：2026-09-13。原提案版本：`29d2999`。状态：本会话用户明确回复“批准”，
-同意第2节精确范围；实现与测试已接入，全年真实诊断仍待完成。
+同意第2节精确范围；实现已接入，完整真实全年48096格已执行成功，实际终点6000。
+原结算sidecar微小交易漏写已单独修复，派生证据与原轨迹分开留存；团队审核待完成。
 
 本卡回应全年诊断暴露的年末递归可达性缺口。用户的本次明确批准作为既有
 `D_MODEL_Q3`的补充写入choice/source，原status及confirmed_by/confirmed_at字段
@@ -88,4 +89,7 @@ selected run、正式比较或result3.xlsx模板映射。
    不写入selected_runs.toml，不导出result3.xlsx，不自动合并。
 
 当前诊断补丁与证据审核PR：<https://github.com/Luqhhh/shumo/pull/3>。
-本次模型补充批准不代表C线已经完成全年成功验收。
+生产全年轨迹来源为`q3-terminal-reserve-validation-20260913`（`6e5ca4e`），
+修正结算写出证据为`q3-terminal-reserve-evidence-20260913`（`94f04c5`），后者
+明确标注派生，不声称重跑MPC。逐格复核、费用对账及文件哈希见审计文档第6节。
+最新全量pytest为289 passed；团队人工审核与正式结果/导出审批仍待完成。

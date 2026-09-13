@@ -220,3 +220,143 @@ summary、domain result或三份成功sidecar，manifest中诊断文件哈希已
 
 以上数值和失败记录都只是诊断证据，不是正式Q3结果。正式Excel导出继续受独立模板
 口径约束。
+
+## 6. 明确批准后的全年轨迹与修正结算证据
+
+### 6.1 批准范围与运行来源
+
+本会话用户对限定范围明确回复“批准”：仅Q3在
+`2025-12-31 00:00 <= tau <= 2026-01-01 00:00`的所有窗口状态边界增加SOC>=6000，
+包括初态、跨日前瞻与终态；此前下界1200、上界10800、年度等式6000及残值0均不变。
+这是新增的保守模型假设，不是题面事实，不保证任意输入的递归可行性或实际终点等式。
+精确范围及局限见[`年末储备补充口径`](q3_terminal_reserve_proposal.md)。
+既有`D_MODEL_Q3`仅choice/source补记本次批准，原status和确认字段未代填或改写。
+预测、合同冻结、SETTLE-A、实际响应、共享物理阈值及HiGHS整数容差未改变。
+
+生产年度诊断`q3-terminal-reserve-validation-20260913`以干净提交`6e5ca4e`运行，
+source hash为`3b3fab47ed8b89479bcbc828131987f96a5320d90325958d3a71912793078631`。
+调用完整生产`q3.run`链，从2月1日SOC=6000连续执行334天、48096格，未每日重置、
+跳日、利用未来actual或拼接旧末态。一次构建1336个因果发布snapshot；观察脚本只
+增加进度和失败上下文，不改变生产构建、求解、回放或写出。运行耗时4052.171秒。
+日志在`outputs/evidence/q3-terminal-reserve-validation-20260913/run_diagnostic.log`。
+
+### 6.2 发现并修复的独立写出问题
+
+原年度滚动求解、实际回放和年度等式验证成功，生成summary、domain result及三份
+sidecar；但首次独立逐笔对账失败。原writer把增减量均不超过物理阈值`1e-6`的调整
+交易过滤了，尽管同一交易已按SETTLE-A计入账本和汇总。漏写2455笔非零交易，
+最大单笔增减量`9.876982858258998e-07` kWh，合计费用
+`0.00006788339322532307`元。原sidecar调整费用为`431146.9103190109`元；完整
+持久化版本链重算为`431146.91038689425`元，与原summary/domain费用完全一致。
+故此为序列化实现问题，不是模型不可行、汇总计算错误或应容差核销的交易。
+
+`94f04c5`将过滤条件改为增减量均**精确为零**才跳过；回归测试保留
+`100 -> 100+1e-7 -> 100`的两笔费用，净变化为零也不抵销。没有修改任何模型约束、
+decision、物理/整数容差、费用公式或原年度轨迹与汇总。
+
+原年度目录及失败审计日志原字节保留。使用
+`scripts/rebuild_q3_settlement_evidence.py`从完整持久化四版计划链重建结算，写入
+新诊断目录`outputs/runs/q3/q3-terminal-reserve-evidence-20260913/`：
+
+```bash
+uv run --locked python scripts/rebuild_q3_settlement_evidence.py \
+  --source-run-id q3-terminal-reserve-validation-20260913 \
+  --run-id q3-terminal-reserve-evidence-20260913
+```
+
+工具先核对输入和源文件哈希、完整版本、冻结及相邻计划量，使用现有生产ledger和
+结算函数重算，拒绝覆盖源目录或已有目标目录。forecast与plan sidecar按字节复制，
+执行区间字段完全相同；domain/summary仅更新run ID、sidecar哈希/行数和来源metadata。
+新manifest为`status=success`、`validation_ok=true`、`diagnostic_only=true`、
+`is_synthetic=false`、`artifact_regeneration_only=true`，写出代码为`94f04c5`，
+source hash为`2ffa43999ff86fb232354da25c8e15b6e3c9f0a8bf62a2911b07557fcb3a5363`。
+`trajectory_source`固定记录原`6e5ca4e`及原manifest、summary、四份结果SHA-256。
+**新目录是修正写出证据，不是第二次全年MPC运行。**
+
+### 6.3 全量独立复核结果
+
+只读审计脚本`outputs/evidence/q3-terminal-reserve-validation-20260913/audit_result.py`
+对新目录逐行复核，报告`independent_audit.json`为`validation_ok=true`。另核对
+原目录文件未变、两份复制sidecar字节相同、全部执行区间及原metadata费用未变。
+以下均为诊断证据，团队人工审核仍待完成。
+
+| 项目 | 独立复核 |
+|---|---|
+| 日期/区间 | 2025-02-01至2025-12-31，334天、48096格 |
+| 实际初始/最终SOC | 6000 / 6000 kWh |
+| 全程SOC最小/最大 | 1199.9999999999786 / 10800.000000000004 kWh，原1e-6阈值内，无clip |
+| 相邻/跨日连续 | 最大残差0；333个跨日边界完全相等 |
+| 电池状态方程最大残差 | 0 kWh |
+| complete-run validation | ok=true，48096格，issues=[] |
+| 最后一天储备 | 145个状态边界，最小6000，最大短缺0，ok=true |
+| actual来源 | 全部48096格与同哈希原始输入精确相同 |
+| 预测引用可见性 | 7,717,800次原始来源核验，均available_at<=decision_time |
+| 计划完整性 | 1336版，48096个完整四版链，已执行格计划量及预测引用冻结 |
+| 行为/物理检查 | 充放电互斥、功率限值、非负购电、PV消纳/弃光、合同余电、禁止紧急充电均通过 |
+
+预测sidecar含load 240480行、pv_attachment3 192384行、pv_tail 839160行。
+结算含基准计划48096笔、非零调整4592笔、紧急购电15690笔，逐笔核对价格时间与
+公式、完整非零调整事件及紧急事件。全年实际计划链没有方向反转实例（计数0）；
+因此不伪造真实往返案例，净零往返的独立contract回归测试仍保留。
+
+| 全年诊断费用 | 元 |
+|---|---:|
+| 计划购电 | 12453547.681701016 |
+| 逐版调整 | 431146.91038689425 |
+| 紧急购电 | 2130969.5233601714 |
+| 独立fsum总费用 | 15015664.115448082 |
+
+独立fsum总费用与原summary的`15015664.11544808`仅差浮点求和尾数，各分项与
+汇总的比较均使用原费用阈值`1e-5`，未放宽。
+
+### 6.4 完整2月的新增逐格证据
+
+第4节原月度诊断仍只有汇总值，没有补造旧月度目录。新年度运行由相同输入重新
+执行，其持久化结果内可逐格复核完整2月：4032格、112版、932笔紧急购电，
+SOC由6000连续到`10745.301616126822` kWh，与旧审计数值一致。新结算证据含
+2月基准计划4032笔、非零调整240笔，逐笔费用为：
+
+| 完整2月分项 | 元 |
+|---|---:|
+| 计划购电 | 1179058.6264242507 |
+| 逐版调整 | 14108.319007030788 |
+| 紧急购电 | 85994.41875962359 |
+| 独立fsum总费用 | 1279161.3641909051 |
+
+这些是新全年artifacts中的实际2月子集，不是旧月度诊断的追造manifest或sidecar；
+审计报告记录该子集数值，完整逐格证据保存在全年文件中。
+
+### 6.5 文件哈希与证据保全
+
+以下为新派生目录的原始字节SHA-256，已同时核对manifest与domain sidecar metadata：
+
+| 文件 | 行数 | SHA-256 |
+|---|---:|---|
+| `manifest.json` | — | `28139fb5f7787e7cfce7c3eaadb7077f4ceb0f1e0209c0399cd4daf925d65924` |
+| `summary.json` | — | `979a7eee8f68280b21ec0b8dc288110a2424e1e4545d7b86d2c144a7c3f0385b` |
+| `domain_result.json` | — | `d2a7bb2cb61270b268155d229a3f7c719e4dabdedb9b996ba5f39487af7b8d55` |
+| `forecast_provenance.jsonl` | 1272024 | `3700ce6052bcd187bd2b8cd2486bfc31dca823224a9764433c9771a1a17de429` |
+| `plan_versions.jsonl` | 192384 | `2fd4cfdd8db4bc3e8b5022837ed0fe0b5d21a429afc60d57e5d5f5c1bf14619e` |
+| `settlement_ledger.jsonl` | 68378 | `b42f3f5dcb5df36cb8618191e3b9dfb8fa872b380e5eb957c19e6f2aa6b38530` |
+
+原生产目录manifest为`dc7c3c11690febc5f2f17ee3b49146a6120c8157dc907e443ab5daa4e89297f6`，
+summary为`755836306c55a7a263a862f5e14cb6dd360933d8effccbe0a2596643db7e46f2`，
+原settlement为`5d95be23239c2d6cab81e97c043c0c2515aeff80050897cfbfb8aaca51f20f2a`。
+其他源结果SHA-256完整保存在新manifest的`trajectory_source.result_sha256`。
+以下审计证据都在`outputs/evidence/q3-terminal-reserve-validation-20260913/`：
+
+| 文件 | SHA-256 |
+|---|---|
+| `run_diagnostic.log` | `cab67e4399e856e5f3b1e10c163970113c120a951a206d4fc3d5337baa4ced2b` |
+| 首次失败`audit_result.log` | `7948e817048f764093866f34e8c53cd02f2c5333265b115e706a44baaa7d20b5` |
+| `audit_failure.json` | `087709783e433c1b32c44e06a2dc4e2f4b23a66f45dc1412f53555fb1942d4bc` |
+| `cost_reconciliation.json` | `cc5e57d5370c15a94306ce06f63ecb6874cc37013660d2cd928efc014ea3fe1d` |
+| `rebuild_settlement.log` | `a9f6ae850c43a68b58c470dac34d0b719b50368fc76cda71fc4766bf7f04ae1f` |
+| `independent_audit.json` / `audit_result-corrected.log` | `c7451872268e57949164d476fb1999270ffae2be135c1781dd08021aa5bad840` |
+| `audit_result.py` | `0cf11125772d7324299db10d530536a54bf1fc287c5f7e24f9741b5ba423ddb2` |
+
+质量检查：ruff lint/format通过；`MICROGRID_RUN_SOLVER_TESTS=1 uv run --locked pytest -q`
+全量289 passed，无跳过。代码和文档提交审核PR <https://github.com/Luqhhh/shumo/pull/3>；
+本次独立技术复核不代替团队人工核验。所有原失败、新生产及派生证据继续只作诊断；
+未写入selected_runs.toml，未导出result3.xlsx，未开始Q4-3，原始题包/附件/模板/outputs
+均不提交Git。

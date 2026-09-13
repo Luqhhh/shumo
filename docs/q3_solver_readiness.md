@@ -1,6 +1,6 @@
 # C 线 Q3 求解器开工检查表
 
-工作分支：`feat/q3-forecast-control`；共享基线为 `origin/main@f8b4af0`。
+审核分支：`audit/q3-handoff-20260913`；交接源为 `feat/q3-forecast-control@584b66c`。
 本文件只记录实现准备和剩余门禁，不改写人工批准口径。
 
 ## 1. 当前状态
@@ -16,7 +16,7 @@
 | PV snapshot/window | 接口与测试已实现 | `problem/q3_pv_snapshot.py` | 接入获批 `TAIL-EXP2` |
 | 统一 Q3 input bundle | 已实现并有 contract tests | `problem/q3_window.py` | solver 直接消费，不接 raw actual |
 | 计划版本与冻结 | 已有内存实现 | `problem/q3_plan_ledger.py` | 已接结构化 sidecar |
-| 结算账本 | 计划/调整/紧急事件已实现 | `q3_plan_ledger.py`、`q3_sidecars.py` | 汇总进年度 artifacts |
+| 结算账本 | 计划/调整/紧急事件已实现，非零微小调整不再漏写 | `q3_plan_ledger.py`、`q3_sidecars.py` | 逐笔与汇总对账，不按物理容差核销费用 |
 | 结构化 sidecar/CaseResult | 一日/跨日artifact封装已实现 | `q3_sidecars.py`、`q3_artifacts.py` | 完成 |
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
 | 实际回放 | DISCHARGE-CURTAIL-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 完整2月通过；年末charge curtailment已独立复算 |
@@ -25,7 +25,8 @@
 | Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | 完成 |
 | Q3 滚动 driver | 一日/跨日连续版已实现 | `problem/q3_rolling.py` | 接正式runner |
 | 窗口失败上下文 | 已实现并验证失败文件留存 | `q3_rolling.py`、`tests/test_q3_rolling.py` | 本地复现定位到12月31日22:10、slot 133 |
-| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 年末递归可达性阻断，待团队讨论 |
+| Q3 年末储备 | 用户明确批准限定最后24小时所有状态边界SOC>=6000 | `q3_terminal_reserve.py`、`q3_solver.py` | 不扩大范围；仍独立检查实际年度等式 |
+| Q3 年度 runner | 334天、48096格真实诊断成功，实际终点6000 | `problem/q3.py`、审计文档第6节 | 修正结算证据独立复核；团队审核，不选正式run |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
 ## 2. 剩余的 P0 阻断
@@ -107,33 +108,48 @@ terminal_mode/window_length`，保留原异常类型及原因链，并验证现�
 窗口预测。独立重建窗口、重复MILP及单格回放全部复核，剩余格可充电量上界证明
 年末SOC至多5957.055995045398 kWh，必然达不到6000；详见审计文档第5.2节。
 
-因此P0现为年末合同冻结、预测等式与受限实际响应之间的递归可达性问题，而非输入
+因此当时P0为年末合同冻结、预测等式与受限实际响应之间的递归可达性问题，而非输入
 缺失或该窗口HiGHS误报。须将证据交团队讨论；不得自行新增储能储备、额外交易、
 紧急充电、放宽年度等式或修改其他获批语义。原Windows失败时刻仍未知，不倒填原
 记录。本地复现的失败文件、窗口/ledger/前格解、可达性证书和日志完整保留，均未
 登记为正式结果，亦未伪造缺失的成功sidecar。
 
-后续候选已整理为[`Q3年末储备补充提案`](q3_terminal_reserve_proposal.md)：
-仅建议最后24小时所有状态边界增加SOC>=6000，保留年度等式及其他获批口径。
+后续补充已整理为[`Q3年末储备补充口径`](q3_terminal_reserve_proposal.md)：
+仅在最后24小时所有状态边界增加SOC>=6000，保留年度等式及其他获批口径。
 本会话用户已对限定范围明确回复“批准”；窗口约束、独立验证、回放失败留证和
 artifacts独立复核已接入。该下界仍不保证实际跨入储备期或实际终点等式，必须
 连续全年诊断与独立复核，不能把旧失败证据当成新口径的验证结果。
 补充实现后ruff lint/format通过，启用可选solver测试的全量pytest为`280 passed`，
 新增14项检查覆盖储备边界、跨日前瞻、初始状态、年度等式、实际失败留证和写出前复核。
 
+批准后，以`6e5ca4e`从2月1日SOC=6000完整执行生产年度链，未重置或跳日。
+`q3-terminal-reserve-validation-20260913`完成334天、48096格，实际年末SOC=6000，
+最后一天145个真实状态边界最低6000；全程SOC连续。该诊断不是储备规则对任意
+输入必然成功的证明。
+
+逐笔审计发现原结算sidecar漏写2455笔已计费的非零微小调整，共
+`0.00006788339322532307`元；原计划账本、汇总费用和执行轨迹正确。
+`94f04c5`仅修复写出过滤，所有非零调整均保留，不改变模型、容差或费用公式。
+新目录`q3-terminal-reserve-evidence-20260913`使用完整持久化版本链重建结算证据，
+两份预测/计划sidecar保持原字节，动作与SOC保持原值；manifest明确标注
+`artifact_regeneration_only=true`和源轨迹提交。这不是第二次全年MPC运行。
+原目录及首次独立对账失败日志完整保留；最终独立复核及哈希见审计文档第6节。
+最新全量质量检查为ruff lint/format通过、`289 passed`（启用可选solver测试，无跳过）。
+
 ## 4. 最短实施路径
 
 ```text
 1. 真实1日、7日和完整2月审计已通过
 2. 窗口求解失败上下文已补充且通过失败文件留存测试
-3. 本地复现已证实年末递归可达性缺口，提交团队讨论，不自动改变decision
-4. 经团队批准必要的后续动作、全年成功并复核后，再另行审批selected run与Excel导出
+3. 年末缺口已定位；用户明确批准限定储备，完整真实全年已执行成功
+4. 微小调整写出问题已修复，来源明确的派生证据提交独立审计与团队审核
+5. 团队复核后仍须另行审批selected run与Excel导出，不自动合并
 ```
 
 ## 5. 正式 runner 实现验收
 
 以下项目均已成立，因此 `problem/q3.py` 已由明确报错的占位实现升级为正式
-runner；这不代表真实数据验证或正式结果导出已经完成：
+runner；这不代表正式run选择或结果导出已经批准：
 
 - [x] 当前分支已同步队长批准 Q3 decision 的 main；
 - [x] `D_LOAD_FORECAST/D_SETTLE/D_MODEL_Q3` approved 且确认字段完整；
@@ -162,5 +178,6 @@ runner；这不代表真实数据验证或正式结果导出已经完成：
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
 正式runner已实现，原始附件及哈希已经就位，真实1日、连续7日和完整2月审计已经
-通过。首次全年诊断在窗口求解阶段失败；在失败定位、全年验证完成并经团队复核前，
-不得选择为正式run。
+通过。首次全年失败及本地不可达证据继续保留；经明确批准限定储备后，新全年真实
+运行已成功，修正结算证据另目录派生并可复核。团队人工审核仍待完成；不得选择为
+正式run，result3.xlsx模板时间映射仍需单独批准，Q4-3 gate未变。
