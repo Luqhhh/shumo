@@ -21,7 +21,8 @@
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
 | 实际回放 | 单步控制器与ATTR-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 组装完整滚动driver |
 | 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
-| Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | runner负责在发布时刻生成snapshot |
+| Forecast release builder | 已实现因果InfoSet生成 | `problem/q3_release_snapshots.py` | runner提供实际/预报archive |
+| Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | 完成 |
 | Q3 滚动 driver | 一日内存版已实现 | `problem/q3_rolling.py` | 接跨日runner |
 | Q3 年度 runner | 未实现 | `problem/q3.py` 明确报错 | 组装跨日、sidecars和artifacts |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
@@ -84,7 +85,7 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 ## 4. 最短实施路径
 
 ```text
-1. 在runner中从因果InfoSet生成00/06/12/18真实snapshot
+1. 把附件1/2/3 adapter组装到release builder
 2. 写入三份 sidecar 和 CaseResult
 3. 扩展跨日连续运行，再依次做真实1日、7日、1月、全年
 ```
@@ -113,6 +114,7 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - [x] `ATTR-PV-FIRST` 已由C成员确认，单步回放可生成 `IntervalResult`；
 - [x] 合成一日滚动driver覆盖144格、四版计划、冻结引用和紧急结算；
 - [x] window factory只选择最近已发布的不可变snapshot，并保留tail provenance；
+- [x] release builder先过滤InfoSet，再生成LOAD-A与组合/线性重采样PV snapshot；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
 在真实forecast factory、跨日运行和年度runner完成前，正式年度runner仍不能返回成功。
