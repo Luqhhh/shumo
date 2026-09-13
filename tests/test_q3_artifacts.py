@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -177,3 +178,30 @@ def test_q3_period_artifacts_preserve_both_days_and_continuous_state(
         expected_days=(first, second),
     )
     assert loaded == artifacts.result
+
+
+@pytest.mark.parametrize("period", [False, True])
+def test_artifact_writer_rechecks_realized_reserve_before_writing_sidecars(
+    tmp_path, period
+) -> None:
+    day_run = _day_run(dt.date(2025, 12, 31))
+    low = BatteryState(5999.0)
+    invalid = replace(
+        day_run,
+        state_start=low,
+        state_end=low,
+        intervals=tuple(replace(i, state_start=low, state_end=low) for i in day_run.intervals),
+    )
+    kwargs = {"period_run": Q3PeriodRun((invalid,))} if period else {"day_run": invalid}
+    writer = write_q3_period_artifacts if period else write_q3_day_artifacts
+    with pytest.raises(InputError, match="actual terminal reserve validation failed"):
+        writer(
+            tmp_path,
+            run_id="synthetic-invalid-reserve",
+            load_snapshots=(),
+            pv_snapshots=(),
+            is_synthetic=True,
+            **kwargs,
+        )
+    assert not (tmp_path / "domain_result.json").exists()
+    assert not (tmp_path / "forecast_provenance.jsonl").exists()

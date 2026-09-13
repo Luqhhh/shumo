@@ -31,6 +31,7 @@ from .q3_runtime_inputs import (
     load_q3_runtime_inputs,
     release_times,
 )
+from .q3_terminal_reserve import Q3TerminalReserveError
 from .q3_window_factory import Q3SnapshotWindowFactory
 
 CASE_ID = "q3"
@@ -105,6 +106,20 @@ def _write_failure_evidence(
     manifest["failure_stage"] = stage
     manifest["error_type"] = type(exc).__name__
     manifest["error_message"] = str(exc)
+    cause: BaseException | None = exc
+    while cause is not None:
+        if isinstance(cause, Q3TerminalReserveError):
+            evidence_path = write_json(
+                run_dir / "terminal_reserve_failure_step.json", cause.evidence
+            )
+            try:
+                evidence_relative = evidence_path.relative_to(context.repo_root).as_posix()
+            except ValueError:
+                evidence_relative = str(evidence_path)
+            manifest["diagnostic_files"] = {evidence_path.name: evidence_relative}
+            manifest["diagnostic_sha256"] = {evidence_path.name: file_digest(evidence_path)}
+            break
+        cause = cause.__cause__
     write_manifest(run_dir, manifest, overwrite=True)
 
 
@@ -147,6 +162,7 @@ def _summary(
         "adjustment_cost_cny": result.metadata["adjustment_cost_cny"],
         "emergency_cost_cny": result.metadata["emergency_cost_cny"],
         "total_cost_cny": result.metadata["total_cost_cny"],
+        "terminal_reserve": result.metadata.get("terminal_reserve"),
     }
 
 

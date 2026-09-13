@@ -21,6 +21,7 @@ from .contracts import (
     SOC_MAX_KWH,
     SOC_MIN_KWH,
 )
+from .q3_terminal_reserve import q3_soc_lower_bound
 from .q3_window import Q3WindowInput
 
 COST_ABS_TOL_CNY = 1e-5
@@ -151,9 +152,14 @@ def solve_q3_window_milp(
     integrality = np.zeros(variable_count, dtype=int)
     rows = _ConstraintRows(variable_count)
 
-    lower[index["e"]] = SOC_MIN_KWH
+    state_times = (window.decision_time, *(point.interval_end for point in window.points))
+    lower[index["e"]] = [q3_soc_lower_bound(time) for time in state_times]
     upper[index["e"]] = SOC_MAX_KWH
     lower[index["e"].start] = upper[index["e"].start] = window.battery_state.energy_kwh
+    # Fixing E_0 must not overwrite its reserve constraint. Keep the actual
+    # state unchanged and let the MILP explicitly reject an infeasible start.
+    if q3_soc_lower_bound(window.decision_time) > SOC_MIN_KWH:
+        rows.add(((index["e"].start, 1.0),), q3_soc_lower_bound(window.decision_time), np.inf)
     if window.terminal_mode == "year_end_equality":
         target = float(window.terminal_target_kwh)
         lower[index["e"].stop - 1] = upper[index["e"].stop - 1] = target
@@ -447,6 +453,9 @@ def validate_q3_window_solution(
     for k, energy in enumerate(solution.energy_kwh):
         if energy < SOC_MIN_KWH - ENERGY_ABS_TOL_KWH or energy > SOC_MAX_KWH + ENERGY_ABS_TOL_KWH:
             issues.append(f"energy[{k}] is outside approved bounds")
+        time = window.decision_time if k == 0 else window.points[k - 1].interval_end
+        if energy < q3_soc_lower_bound(time) - ENERGY_ABS_TOL_KWH:
+            issues.append(f"energy[{k}] violates Q3 terminal reserve at {time.isoformat()}")
     if abs(solution.energy_kwh[0] - window.battery_state.energy_kwh) > ENERGY_ABS_TOL_KWH:
         issues.append("initial battery state does not match window")
     if (
