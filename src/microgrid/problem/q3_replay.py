@@ -1,10 +1,11 @@
-"""Q3 charge-curtailment recourse and ATTR-PV-FIRST accounting.
+"""Q3 minimum action-curtailment recourse and ATTR-PV-FIRST accounting.
 
-The actual replay may reduce planned charging enough to keep the current
-interval feasible. It must not add discharge, reverse direction, re-optimize,
-or use emergency energy to charge the battery. Under the user-approved
-ATTR-PV-FIRST rule, realized surplus is attributed to unused contracted grid
-energy before any remaining surplus is recorded as PV curtailment.
+The actual replay may reduce planned charging when supply is short and reduce
+planned discharge when supply is excessive. It must not increase either
+action, reverse direction, re-optimize, or use emergency energy to charge the
+battery. Under the user-approved DISCHARGE-CURTAIL-PV-FIRST rule, excessive
+supply is removed in this order: unused contracted grid energy, planned
+discharge curtailment, then PV curtailment.
 """
 
 from __future__ import annotations
@@ -31,8 +32,8 @@ def _non_negative(name: str, value: object) -> float:
 
 
 @dataclass(frozen=True)
-class ChargeCurtailmentResult:
-    """Physical current-slot result with ATTR-PV-FIRST spill attribution."""
+class MinimumCurtailmentResult:
+    """Physical current-slot result under DISCHARGE-CURTAIL-PV-FIRST."""
 
     state_start: BatteryState
     state_end: BatteryState
@@ -59,15 +60,13 @@ class ChargeCurtailmentResult:
             value = float(getattr(self, name))
             if not math.isfinite(value) or value < -ENERGY_ABS_TOL_KWH:
                 raise ValueError(f"{name} must be finite and non-negative")
-        if not math.isclose(
-            self.executed_action.discharge_kwh,
-            self.planned_action.discharge_kwh,
-            rel_tol=0.0,
-            abs_tol=ENERGY_ABS_TOL_KWH,
+        if self.executed_action.charge_kwh > self.planned_action.charge_kwh + ENERGY_ABS_TOL_KWH:
+            raise ValueError("minimum recourse cannot increase planned charge")
+        if (
+            self.executed_action.discharge_kwh
+            > self.planned_action.discharge_kwh + ENERGY_ABS_TOL_KWH
         ):
-            raise ValueError("charge recourse cannot change planned discharge")
-        if self.executed_action.charge_kwh > self.planned_action.charge_kwh:
-            raise ValueError("charge recourse cannot increase planned charge")
+            raise ValueError("minimum recourse cannot increase planned discharge")
         if (
             self.emergency_purchase_kwh > ENERGY_ABS_TOL_KWH
             and self.executed_action.charge_kwh > ENERGY_ABS_TOL_KWH
@@ -106,15 +105,15 @@ class ChargeCurtailmentResult:
             raise ValueError("charge-curtailment state transition is inconsistent")
 
 
-def apply_charge_curtailment(
+def apply_minimum_curtailment_recourse(
     *,
     state_start: BatteryState,
     planned_action: BatteryAction,
     confirmed_purchase_kwh: float,
     actual_load_kwh: float,
     actual_pv_kwh: float,
-) -> ChargeCurtailmentResult:
-    """Apply the frozen minimum recourse to one realized ten-minute slot."""
+) -> MinimumCurtailmentResult:
+    """Apply DISCHARGE-CURTAIL-PV-FIRST to one realized ten-minute slot."""
 
     purchase = _non_negative("confirmed_purchase_kwh", confirmed_purchase_kwh)
     load = _non_negative("actual_load_kwh", actual_load_kwh)
@@ -128,12 +127,15 @@ def apply_charge_curtailment(
     surplus = max(normal_supply - load - executed_charge, 0.0)
     grid_spill = min(purchase, surplus)
     surplus_after_grid = max(0.0, surplus - grid_spill)
-    pv_curtailment = min(pv, surplus_after_grid)
-    unaccounted_surplus = max(0.0, surplus_after_grid - pv_curtailment)
+    discharge_curtailment = min(planned_action.discharge_kwh, surplus_after_grid)
+    executed_discharge = max(0.0, planned_action.discharge_kwh - discharge_curtailment)
+    surplus_after_discharge = max(0.0, surplus_after_grid - discharge_curtailment)
+    pv_curtailment = min(pv, surplus_after_discharge)
+    unaccounted_surplus = max(0.0, surplus_after_discharge - pv_curtailment)
     if unaccounted_surplus > ENERGY_ABS_TOL_KWH:
         raise InputError(
-            "Q3 replay is infeasible under fixed planned discharge: surplus remains "
-            "after all contracted grid energy and actual PV are curtailed "
+            "Q3 replay surplus remains after grid spill, discharge curtailment and PV "
+            "curtailment "
             f"(unaccounted_surplus_kwh={unaccounted_surplus:.9g}, "
             f"planned_discharge_kwh={planned_action.discharge_kwh:.9g}, "
             f"confirmed_purchase_kwh={purchase:.9g}, actual_load_kwh={load:.9g}, "
@@ -142,11 +144,11 @@ def apply_charge_curtailment(
     pv_used = max(0.0, pv - pv_curtailment)
     executed_action = BatteryAction(
         charge_kwh=executed_charge,
-        discharge_kwh=planned_action.discharge_kwh,
+        discharge_kwh=executed_discharge,
         max_bus_energy_kwh=planned_action.max_bus_energy_kwh,
     )
     state_end = apply_battery_action(state_start, executed_action)
-    return ChargeCurtailmentResult(
+    return MinimumCurtailmentResult(
         state_start=state_start,
         state_end=state_end,
         planned_action=planned_action,

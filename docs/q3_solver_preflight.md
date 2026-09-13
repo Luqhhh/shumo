@@ -34,7 +34,7 @@
 | Q3-M4b | 每十分钟重算时，24 h 负载曲线尾部怎样处理 | C-7 已批准 `LOAD-HORIZON-A`：发布时冻结30 h，中间切24 h |
 | Q3-M5 | 00/06/12/18 能修改哪些未来交付时隙 | 已批准：仅调整当日尚未开始的时隙；跨日只 look-ahead、不提交 |
 | Q3-M6 | 调整费的逐笔账单 | 已批准：`SETTLE-A-v2`，计划费、逐版调整费、紧急费相加 |
-| Q3-M7 | 实际回放时电池怎样因果响应 | 已冻结：只削减/取消计划充电，不增加放电或重新优化 |
+| Q3-M7 | 实际回放时电池怎样因果响应 | 已冻结：DISCHARGE-CURTAIL-PV-FIRST最小响应 |
 | Q3-M8 | 窗口终端与年度边界 | 已批准：线性残值；年末入窗后去残值并强制 6000 kWh |
 | Q3-M9 | 同成本解的二级目标 | 未纳入批准口径；正式基线不得自行增加 |
 | Q3-M10 | 求解器和数值标准 | 已批准 SciPy/HiGHS；工程时限与容差需记录、不能接受非最优冒充成功 |
@@ -181,16 +181,12 @@ pv_available = pv_use + pv_curtailment
 
 这里左侧使用的是 `pv_use`，因此右侧不能再次把 `pv_curtailment` 加进同一条平衡
 等式。紧急购电是 residual balancing energy，不是可自由套利的能源。实际回放
-已冻结为 charge curtailment recourse：`D_exec=D_plan`，`C_exec` 只能在
-`[0,C_plan]` 内向下削减；充电减到0仍不足时才产生 emergency。禁止增加放电、
-charge-to-discharge、重新求解或使用 emergency 给电池充电。PV/grid spill 的
-归属优先级仍不是该 contract 的一部分，实现时不得顺手添加。
-
-单步控制器现已完成计划版本更新、第一格 charge-curtailment 回放和紧急费用记录。
-2026-09-13，C成员选择 `ATTR-PV-FIRST`：总 surplus 先归入不超过合同量的
-`grid_spill`，剩余部分才归入不超过实际PV的 `pv_curtailment`。该规则不改变
-费用，但固定了弃光/合同浪费指标；若两类可用来源全部扣除后仍有 surplus，说明
-计划放电本身造成过供，回放显式失败。单步结果现可无歧义转换成 `IntervalResult`。
+已冻结为 `DISCHARGE-CURTAIL-PV-FIRST` 最小响应：`C_exec` 只能在
+`[0,C_plan]` 内向下削减，充电减到0仍不足时才产生 emergency；供给过剩时先记录
+`grid_spill`，再令 `D_exec` 在 `[0,D_plan]` 内向下削减，最后才记录
+`pv_curtailment`。禁止增加充放电、方向反转、重新求解或使用 emergency 给电池
+充电。该规则不改变合同费用，但固定了实际动作、弃光和合同浪费指标；执行SOC传入
+下一次MPC。单步结果可无歧义转换成 `IntervalResult`。
 
 ## 7. 版本计划与结果审计接口
 

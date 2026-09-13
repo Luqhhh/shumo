@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,7 @@ from .contracts import (
 from .q3_window import Q3WindowInput
 
 COST_ABS_TOL_CNY = 1e-5
+MIP_FEASIBILITY_TOLERANCE = 1e-9
 
 
 class Q3WindowSolveError(InputError):
@@ -251,18 +253,32 @@ def solve_q3_window_milp(
         )
         rows.add(((pv_used, -1.0), (emergency_mode, point.pv_kwh)), -np.inf, 0.0)
 
-    options: dict[str, float] = {}
+    # HiGHS permits binary values to differ from integers by 1e-6 by default.
+    # With the 833.33 kWh big-M this can leak a visible opposite battery action.
+    # Tighten only the numerical integrality tolerance; physical validation
+    # remains at the shared ENERGY_ABS_TOL_KWH and no model constraint changes.
+    options: dict[str, float] = {
+        "mip_feasibility_tolerance": MIP_FEASIBILITY_TOLERANCE,
+    }
     if time_limit_s is not None:
         if not math.isfinite(time_limit_s) or time_limit_s <= 0:
             raise InputError("Q3 time_limit_s must be finite and positive")
         options["time_limit"] = float(time_limit_s)
-    result = milp(
-        c=objective,
-        integrality=integrality,
-        bounds=Bounds(lower, upper),
-        constraints=rows.build(),
-        options=options or None,
-    )
+    with warnings.catch_warnings():
+        # SciPy forwards this supported HiGHS option but warns because it is
+        # not part of scipy.optimize.milp's small documented option allowlist.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Unrecognized options detected:.*mip_feasibility_tolerance.*",
+            category=RuntimeWarning,
+        )
+        result = milp(
+            c=objective,
+            integrality=integrality,
+            bounds=Bounds(lower, upper),
+            constraints=rows.build(),
+            options=options,
+        )
     if result.status != 0 or result.x is None:
         raise Q3WindowSolveError(
             f"Q3 window MILP failed: status={result.status} message={result.message!r}"
@@ -385,7 +401,10 @@ def validate_q3_window_solution(
         ):
             issues.append(f"slot {k}: battery action exceeds the bus limit")
         if c > ENERGY_ABS_TOL_KWH and d > ENERGY_ABS_TOL_KWH:
-            issues.append(f"slot {k}: simultaneous charge and discharge")
+            issues.append(
+                f"slot {k}: simultaneous charge and discharge "
+                f"(charge_kwh={c:.9g}, discharge_kwh={d:.9g})"
+            )
         if pv > point.pv_kwh + ENERGY_ABS_TOL_KWH:
             issues.append(f"slot {k}: PV use exceeds forecast")
         if spill > q + ENERGY_ABS_TOL_KWH:

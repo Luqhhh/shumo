@@ -19,12 +19,12 @@
 | 结算账本 | 计划/调整/紧急事件已实现 | `q3_plan_ledger.py`、`q3_sidecars.py` | 汇总进年度 artifacts |
 | 结构化 sidecar/CaseResult | 一日/跨日artifact封装已实现 | `q3_sidecars.py`、`q3_artifacts.py` | 完成 |
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
-| 实际回放 | 单步控制器与ATTR-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 组装完整滚动driver |
+| 实际回放 | DISCHARGE-CURTAIL-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 真实7日已通过 |
 | 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
 | Forecast release builder | 已实现因果InfoSet生成 | `problem/q3_release_snapshots.py` | runner提供实际/预报archive |
 | Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | 完成 |
 | Q3 滚动 driver | 一日/跨日连续版已实现 | `problem/q3_rolling.py` | 接正式runner |
-| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 真实1日审计已定位固定放电回放阻断 |
+| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 真实1日、7日审计已通过 |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
 ## 2. 剩余的 P0 阻断
@@ -42,11 +42,11 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 `ATTR-PV-FIRST`，回放现已将 surplus 明确拆成 `grid_spill` 与
 `pv_curtailment`，并能生成现有 `IntervalResult`；该归属是建模假设，不写成题面事实。
 
-2026-09-13真实附件导入后，2025-02-01单日审计在05:40（slot 34）按预期显式
-失败：计划放电559.900448 kWh，而合同电为0、实际负荷为531.227400 kWh、实际PV
-为0.046233 kWh，留下28.673048 kWh无法吸收。证据表明“计划放电不得向下调整”
-在真实预测误差下可能造成物理不可行。是否允许仅向下削减计划放电属于新的人工
-口径，未经确认不得实现或绕过；详见 `docs/q3_real_data_audit.md`。
+2026-09-13真实附件单日审计曾在05:40暴露固定计划放电不可行。C成员确认
+`DISCHARGE-CURTAIL-PV-FIRST` 后，真实1日完整通过；随后真实连续7日也完整通过，
+跨午夜SOC连续。详见 `docs/q3_real_data_audit.md`。7日审计另发现HiGHS默认整数
+容差经833.33 kWh big-M放大后会产生0.000222 kWh反向放电尾数；生产求解器只收紧
+HiGHS整数可行性容差，不放宽共享物理验证阈值。
 
 ## 3. 已提前补强的绿色测试
 
@@ -89,8 +89,8 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 ## 4. 最短实施路径
 
 ```text
-1. 人工处理真实1日审计暴露的固定放电回放口径
-2. 口径确认并实现后重跑真实1日，再依次做7日、1月、全年
+1. 真实1日、7日审计已通过
+2. 继续真实1月审计，再运行全年
 3. 全年稳定后才进入正式selected run与Excel导出
 ```
 
@@ -106,8 +106,7 @@ runner；这不代表真实数据验证或正式结果导出已经完成：
 - [x] PV/负载生产预测器及因果、缺失历史、provenance 测试通过；
 - [x] 计划版本、冻结和逐版调整费用的内存 contract 与手算测试通过；
 - [x] HORIZON-B snapshot/window 接口已冻结并通过切片、补尾范围和禁止重采样测试；
-- [x] charge curtailment recourse 已由队长与 C 成员冻结；
-- [x] charge curtailment 生产 contract 与公式级测试已实现，不做 spill 来源归属；
+- [x] DISCHARGE-CURTAIL-PV-FIRST 已由C成员确认并实现公式级测试；
 - [x] `D_PV_TAIL_BASELINE` 已批准为 `TAIL-EXP2` 并有生产实现与证据；
 - [x] LOAD-HORIZON-A 已由队长确认并实现30 h版本/24 h切片 contract；
 - [x] shared ledger/provenance 采用结构化 sidecar；
@@ -116,7 +115,7 @@ runner；这不代表真实数据验证或正式结果导出已经完成：
 - [x] 不含未来 actual 的 `Q3WindowInput` 已通过对齐、版本、ledger和年末contract test；
 - [x] 单窗口 Q3 MILP 与独立 validator 已通过1格和完整144格合成测试；
 - [x] 单步计划版本更新、第一格回放和紧急结算 sidecar 已通过合成测试；
-- [x] `ATTR-PV-FIRST` 已由C成员确认，单步回放可生成 `IntervalResult`；
+- [x] `ATTR-PV-FIRST` 与计划放电向下削减顺序已由C成员确认；
 - [x] 合成一日滚动driver覆盖144格、四版计划、冻结引用和紧急结算；
 - [x] window factory只选择最近已发布的不可变snapshot，并保留tail provenance；
 - [x] release builder先过滤InfoSet，再生成LOAD-A与组合/线性重采样PV snapshot；
@@ -126,5 +125,5 @@ runner；这不代表真实数据验证或正式结果导出已经完成：
 - [x] runtime input总线校验附件1/2/3全年网格、四次发布和来源哈希；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-正式runner已实现，原始附件及哈希已经就位；但真实1日审计仍被固定放电回放口径
-阻断。在人工确认并通过1日、7日、1月、全年验证前，不得选择为正式run。
+正式runner已实现，原始附件及哈希已经就位，真实1日和连续7日审计已经通过。
+在继续通过1月、全年验证前，不得选择为正式run。

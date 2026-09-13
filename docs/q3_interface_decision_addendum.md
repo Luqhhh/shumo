@@ -24,10 +24,13 @@ baseline 补齐最新附件3 snapshot 无法覆盖的窗口尾部：
 调用附件3 combiner/resampler。获批 baseline 缺少任一日滞后时显式失败，不静默
 切换算法；`D_PV_TAIL_BASELINE` 继续保留在 Q3 与 final gate 中防止状态回退。
 
-## 2. 实际短缺：charge curtailment recourse
+## 2. 实际偏差：DISCHARGE-CURTAIL-PV-FIRST
 
-实际回放只允许削减直至取消计划充电，不允许增加放电、把充电反转为放电，或
-对整格电池动作重新求解。令本格正常可用能量为
+2026-09-13真实单日审计证明固定计划放电在负荷预测偏高时可能造成无法吸收的
+供给。C成员随后明确确认 `DISCHARGE-CURTAIL-PV-FIRST`。实际回放只允许向下
+削减计划充电或计划放电，不允许增加任一动作、反转方向或重新求解。
+
+供给不足时：
 
 ```text
 available = q_final + PV_actual + D_plan
@@ -35,16 +38,21 @@ C_exec = min(C_plan, max(available - Load_actual, 0))
 q_emergency = max(Load_actual + C_exec - available, 0)
 ```
 
-因此运行顺序固定为：先削减 `C_plan`，当 `C_exec=0` 后仍有真实负荷缺口时才
-使用紧急购电。继续满足：
+先削减 `C_plan`，当 `C_exec=0` 后仍有真实负荷缺口时才使用紧急购电。
+
+供给过剩时按以下顺序消除 surplus：
 
 ```text
-q_emergency > 0 => C_exec=0, S_grid=0, S_PV=0
-D_exec = D_plan
+1. S_grid = min(q_final, surplus)
+2. D_curtail = min(D_plan, surplus - S_grid)
+3. D_exec = D_plan - D_curtail
+4. 剩余部分才记为 S_PV
 ```
 
-该机制称为 `charge curtailment recourse`，不能在代码或论文中泛称“任意实时
-redispatch”。它不允许利用本格结束后才知道的 actual 反向优化已经执行的动作。
+始终满足 `0<=C_exec<=C_plan`、`0<=D_exec<=D_plan`，且
+`q_emergency>0 => C_exec=0, S_grid=0, S_PV=0`。该机制仍是受限的最小响应，
+不能泛称“任意实时redispatch”；它只保证真实区间的物理可行，不利用未来 actual
+优化后续动作。执行后的真实SOC传给下一次10分钟MPC。
 
 ## 3. 一对多审计记录：结构化 sidecar
 

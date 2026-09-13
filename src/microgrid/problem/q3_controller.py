@@ -9,7 +9,7 @@ from ..schemas import InputError
 from .contracts import ENERGY_ABS_TOL_KWH, BatteryAction, IntervalResult
 from .q2_inputs import ActualInterval
 from .q3_plan_ledger import Q3EmergencySettlementEntry, Q3PlanLedger
-from .q3_replay import ChargeCurtailmentResult, apply_charge_curtailment
+from .q3_replay import MinimumCurtailmentResult, apply_minimum_curtailment_recourse
 from .q3_solver import Q3WindowSolution, validate_q3_window_solution
 from .q3_window import Q3WindowInput
 
@@ -23,7 +23,7 @@ class Q3ExecutedStep:
     ledger_after: Q3PlanLedger
     actual: ActualInterval
     planned_action: BatteryAction
-    replay: ChargeCurtailmentResult
+    replay: MinimumCurtailmentResult
     planned_purchase_kwh: float
     confirmed_purchase_kwh: float
     emergency_settlement: Q3EmergencySettlementEntry | None
@@ -148,7 +148,7 @@ def execute_q3_window_step(
         charge_kwh=solution.charge_kwh[0],
         discharge_kwh=solution.discharge_kwh[0],
     )
-    replay = apply_charge_curtailment(
+    replay = apply_minimum_curtailment_recourse(
         state_start=window.battery_state,
         planned_action=action,
         confirmed_purchase_kwh=confirmed,

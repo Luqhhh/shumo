@@ -72,11 +72,12 @@ q_emergency > 0 => C = 0, S_grid = 0, S_PV = 0
 实时可行性检查必须验证以上约束，不能仅依赖高价格期待互斥自然成立。
 实际量不得返回计划器重写过去的决策；不可行回放必须报告失败。
 
-2026-09-13，C成员明确选择 `ATTR-PV-FIRST` 作为Q3结果归属的
-`MODELING_ASSUMPTION`。若实际回放产生总剩余供给，先令
-`S_grid=min(q_final, surplus)`，再将剩余部分记为 `S_PV`，因此优先保留光伏
-用于本地消纳。若 `q_final` 与 `PV_actual` 全部归属后仍有 surplus，说明固定的
-计划放电本身造成过供；基线回放必须显式失败，不能把电池放电伪装成弃光。
+2026-09-13，C成员明确选择 `ATTR-PV-FIRST`，并在真实单日审计暴露固定计划放电
+不可行后确认 `DISCHARGE-CURTAIL-PV-FIRST`，两者均为
+`MODELING_ASSUMPTION`。实际供给不足时只向下削减计划充电；实际供给过剩时先令
+`S_grid=min(q_final, surplus)`，随后只向下削减计划放电，最后才将仍有的剩余部分
+记为 `S_PV`。因此优先保留实际光伏用于本地消纳。始终满足
+`0<=C_exec<=C_plan`、`0<=D_exec<=D_plan`，禁止增加动作、反转方向或重新优化。
 `ATTR-GRID-FIRST` 仅可作为后续敏感性对照，不进入当前主方案。
 
 ## 优化、行动与年度边界
