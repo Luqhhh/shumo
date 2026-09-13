@@ -24,7 +24,7 @@
 | Forecast release builder | 已实现因果InfoSet生成 | `problem/q3_release_snapshots.py` | runner提供实际/预报archive |
 | Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | 完成 |
 | Q3 滚动 driver | 一日/跨日连续版已实现 | `problem/q3_rolling.py` | 接正式runner |
-| Q3 年度 runner | 未实现 | `problem/q3.py` 明确报错 | 组装跨日、sidecars和artifacts |
+| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 待本地原始附件做真实分段验证 |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
 ## 2. 剩余的 P0 阻断
@@ -77,22 +77,21 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - 一日滚动driver严格按144格执行“先构造预测窗口并求解、后传入当格actual回放”，
   保留四版计划、冻结格的原预测引用、紧急账本、连续SOC和统一IntervalResult。
 
-以下测试将在对应生产 contract 出现后立即加入，不使用 `xfail` 掩盖：
-
-- 紧急购电、合同电未利用与完整实际费用总计；
-- 求解器可行解、独立残差检查、两日 SOC 连续和年末条件。
+上述能力均已有合成 contract tests。原始附件就位后仍须依次执行真实1日、7日、
+1月和全年审计；真实数据验证失败必须保留失败证据，不使用 `xfail` 掩盖。
 
 ## 4. 最短实施路径
 
 ```text
-1. 完成正式runner的manifest/失败证据
-2. 导入本地原始附件后做真实1日审计
-3. 再依次做7日、1月、全年
+1. 导入本地原始附件后做真实1日审计
+2. 再依次做7日、1月、全年
+3. 全年稳定后才进入正式selected run与Excel导出
 ```
 
-## 5. 求解器开工验收
+## 5. 正式 runner 实现验收
 
-只有以下项目全部成立，才把 `problem/q3.py` 从明确报错改成正式 runner：
+以下项目均已成立，因此 `problem/q3.py` 已由明确报错的占位实现升级为正式
+runner；这不代表真实数据验证或正式结果导出已经完成：
 
 - [x] 当前分支已同步队长批准 Q3 decision 的 main；
 - [x] `D_LOAD_FORECAST/D_SETTLE/D_MODEL_Q3` approved 且确认字段完整；
@@ -121,4 +120,4 @@ validator 和单步计划/回放控制器均已完成。C成员于2026-09-13选�
 - [x] runtime input总线校验附件1/2/3全年网格、四次发布和来源哈希；
 - [x] 全量质量检查、synthetic smoke 和 Q3 gate 测试通过。
 
-在真实forecast factory、跨日运行和年度runner完成前，正式年度runner仍不能返回成功。
+正式runner已实现，但在当前工作区原始附件未就位且真实分段验证未完成前，不得选择为正式run。

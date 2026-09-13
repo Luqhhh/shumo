@@ -1,9 +1,9 @@
 """Stage 1 problem runner registry.
 
 The dispatcher in :mod:`microgrid.cases` selects a case runner only after all
-required decisions are approved.  Every runner currently raises
-``ModelNotImplementedError``; this is intentional and prevents placeholder
-models from being mistaken for results.
+required decisions are approved. Unimplemented cases still raise
+``ModelNotImplementedError``; implemented cases retain decision, input,
+validation and artifact gates.
 """
 
 from __future__ import annotations

@@ -150,9 +150,9 @@ def test_q3_load_approval_blocks_dispatch_and_final_release(tmp_path: Path, monk
     assert any("D-LOAD-FORECAST" in blocker for blocker in collect_blockers(tmp_path, mode="final"))
 
 
-def test_q3_complete_approval_reaches_unimplemented_runner(tmp_path: Path):
+def test_q3_complete_approval_reaches_implemented_runner_input_check(tmp_path: Path):
     from microgrid.cases import required_decisions, run_case
-    from microgrid.schemas import ModelNotImplementedError
+    from microgrid.schemas import InputError
 
     lines = []
     for decision_id in required_decisions("q3"):
@@ -162,9 +162,10 @@ def test_q3_complete_approval_reaches_unimplemented_runner(tmp_path: Path):
             )
         )
     _write_decisions(tmp_path, lines)
-    with pytest.raises(ModelNotImplementedError):
+    with pytest.raises(InputError, match="input provenance"):
         run_case("q3", tmp_path)
-    assert not (tmp_path / "outputs").exists()
+    failures = tuple((tmp_path / "outputs" / "runs" / "q3").glob("*/failure.json"))
+    assert len(failures) == 1
 
 
 def test_q3_tail_baseline_pending_blocks_before_runner(tmp_path: Path, monkeypatch) -> None:
