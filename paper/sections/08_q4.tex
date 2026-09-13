@@ -1,79 +1,170 @@
-\section{问题4：波动电价下的连续购电与储能调度}
+\section{问题四：波动电价下的情景采购与连续储能调度}
+\label{sec:q4}
+\subsection{信息条件与购电权限}
+波动电价下，仅按点预测购电可能低估供电缺口，而紧急电价为正常电价的5倍，缺口造成的费用与余电损失并不对称。因此，先建立点预测滚动方案作为基准，再利用已实现的负载、光伏与价格联合误差构造采购情景，在正常购电和缺口风险之间作出权衡。
 
-\subsection{信息条件与合同权限}
-完整十分钟实际负载、光伏和附件4电价在区间结束后进入历史，未来价格用可见历史预测。2025年1月作为历史初始化期，2月1日以6\,000 kWh开始连续运行，直至2026年1月1日，不每日重置SOC。
+本节采用2025年1月作为点预测的历史初始化期，自2月1日以6\,000 kWh连续运行至2026年1月1日，储电量不按日重置。区间实际负载、光伏和电价在区间结束后进入历史；计划中的未来量由当时可用数据预测。情景误差库自2月1日空初始化，前七个完整运行日采用原点预测方案，随后使用已经实现的预测误差。
 
-Q4-2使用历史负载与光伏，每日0:00提交全天144格初始合同$G_k^0$，此后当日冻结。Q4-3增加当时已发布的官方光伏预报，在6:00、12:00、18:00允许调整当日尚未开始区间的合同。次日购电变量仅作预期调度，次日0:00才提交，不提前计入实际账本。
+将题目要求的两类条件分别记为问题四（2）和问题四（3）。前者每日0:00提交144个区间的初始合同$G_k^0$，当日不再调整；后者增加已发布光伏预报，并在6、12、18时调整当日尚未开始区间的合同。跨日窗口内的次日购电量只用于预期调度，次日0:00才形成实际合同。
 
-\subsection{因果预测与窗口}
-设$t$为最近已结束区间右端点，$h$为未来十分钟步数。负载功率及价格基线为
+整体求解流程见图\ref{fig:q4-workflow}。发布时更新点预测与情景，执行时只采用当前共同动作；实际状态和已实现误差分别传递至后续调度和情景学习。
+\begin{figure}[H]
+\centering
+\PaperGraphic[width=0.98\linewidth]{figures/q4_scenario_workflow.pdf}
+\caption{问题四的情景采购与实际反馈流程}
+\label{fig:q4-workflow}
+\end{figure}
+
+\subsection{点预测与滚动窗口}
+\subsubsection{历史基线与残差修正}
+设$t$为当前决策时刻，也是最近已结束区间的右端点，$s$为连续十分钟序列的索引。利用历史同刻数据构造负载与价格基线：
 \begin{align}
- b_s^{\mathrm L}&=(8P_{s-1008}^{\mathrm L}+4P_{s-2016}^{\mathrm L}+2P_{s-3024}^{\mathrm L}+P_{s-4032}^{\mathrm L})/15,\\
+ b_s^{\mathrm L}&=\frac{8P_{s-1008}^{\mathrm L}+4P_{s-2016}^{\mathrm L}+2P_{s-3024}^{\mathrm L}+P_{s-4032}^{\mathrm L}}{15},\\
  b_s^p&=0.5p_{s-144}+0.3p_{s-1008}+0.2p_{s-2016}.
 \end{align}
-对序列$x$构造完整滞后残差$e_s^x=x_s-b_s^x$，对截至$t$的有效连续残差对拟合
+其中144格为一日、1008格为一周。负载基线综合过去四周同刻值，价格基线综合前一日及前两周同刻值。对序列$x$定义残差$e_s^x=x_s-b_s^x$，以截至刷新时刻的有效连续残差对估计
 \begin{equation}
- \phi_x=\operatorname{clip}\left(\frac{\sum_s e_{s-1}^xe_s^x}{\sum_s(e_{s-1}^x)^2},0,0.999\right),\qquad
- \widehat x_{t+h}=\max(0,b_{t+h}^x+\phi_x^he_t^x).
+ \phi_x=\operatorname{clip}\!\left(\frac{\sum_s e_{s-1}^xe_s^x}{\sum_s(e_{s-1}^x)^2},0,0.999\right),\qquad
+ \widehat x_{t+h}=\max\{0,b_{t+h}^x+\phi_x^he_t^x\}.
 \end{equation}
-分母为零取$\phi_x=0$；缺少必要滞后、最新残差或连续记录时停止，不跨缺口连接样本。负载残差从满足四周滞后时才开始构造。权重为固定经验参数，不以全年误差反向调参。
+这里$h$为未来十分钟步数。衰减项描述近期偏离历史基线的持续性，非负截断用于功率与价格预测。分母为零时取$\phi_x=0$；所需滞后或连续残差不足时停止预测，不跨数据缺口拼接样本。基线权重固定，不依据回放期误差或费用反向调参。
 
-Q4-2采用过去七日同slot光伏均值。Q4-3组合同一目标整点的全部可见官方版本，按原始提前小时数$j(v)$的已实现历史误差赋权
+\subsubsection{光伏预报组合与时间细化}
+问题四（2）采用过去七日同刻实际光伏均值。问题四（3）对同一目标整点组合全部已发布的官方预报。设版本$v$在发布时的原始提前小时数为$j(v)$，截至刷新时刻$r$的已实现历史误差为$\mathrm{MAE}_{j(v)}(r)$，则版本权重为
 \begin{equation}
- w_v(t)=\frac{[\mathrm{MAE}_{j(v)}(t)+1\,\mathrm{kW}]^{-2}}
- {\sum_a[\mathrm{MAE}_{j(a)}(t)+1\,\mathrm{kW}]^{-2}}.
+ w_v(r)=\frac{[\mathrm{MAE}_{j(v)}(r)+1\,\mathrm{kW}]^{-2}}
+ {\sum_a[\mathrm{MAE}_{j(a)}(r)+1\,\mathrm{kW}]^{-2}}.
 \end{equation}
-历史截止当前刷新时刻，误差桶为空时报错。唯一小时预测经线性插值生成十分钟右端点功率，左端代理为最近结束区间实际光伏均值，统一乘$1/6$转电量。
+提前小时数使用原版本属性，历史误差只计已观测目标；误差桶为空时不生成预测。得到每个目标整点的唯一预测后，用线性插值细化为十分钟右端点功率，左端代理取最近结束区间的实际光伏均值，最后乘$1/6$换算为电量。
 
-三变量在0:00、6:00、12:00、18:00刷新，发布间冻结预测、权重和代理值。最近刷新时刻为$r$时，窗口为$[t,\min(r+24\mathrm h,T))$，其中$T$为年度终点。覆盖不足时显式停止，不缩短0:00窗口漏交全天合同，年末只预测必要目标。
+负载、价格与光伏均在0、6、12、18时刷新，发布间固定预测版本及相关参数。最近刷新时刻为$r$时，时刻$t$的滚动窗口为
+\begin{equation}
+ \mathcal H_t=[t,\min\{r+24\,\mathrm h,T\}),\qquad T=\text{2026年1月1日0:00}.
+\end{equation}
+0:00窗口须覆盖完整当日合同；年末窗口截至$T$，仅预测必要目标。点预测和后述情景均在发布间保持不变，窗口随时间推进取剩余部分，不重新划分原始预测时距。
 
-\subsection{共享滚动MILP}
-本节以$U_k$表示紧急电量，$V_k$表示光伏利用量，$S_k^{\mathrm{PV}},S_k^{\mathrm{grid}}$表示弃光及未用合同。设$M=5000/6$、$z_k,y_k\in\{0,1\}$，全部流量非负，约束为
+\subsection{联合误差情景的构造}
+\subsubsection{已实现误差与时距分组}
+设$a$为原预测发布时间，$u$为目标区间右端点，将当时保存的原始点预测与目标实现后的观测值对应，得到联合误差
+\begin{equation}
+ \boldsymbol\varepsilon_{a,u}=\left(
+ P_u^{\mathrm{L,actual}}-\widehat P_{a,u}^{\mathrm L},\,
+ P_u^{\mathrm{PV,actual}}-\widehat P_{a,u}^{\mathrm{PV}},\,
+ p_u^{\mathrm{actual}}-\widehat p_{a,u}\right).
+\end{equation}
+仅当$u\le r$且三类实际序列均已观测时，误差行才进入刷新时刻$r$的样本库。按原始时距$u-a$划分$(0,6]$、$(6,12]$、$(12,18]$、$(18,24]$小时四组，每组仅保留$r-28\,\mathrm d<u\le r$的已实现样本。同一目标对应不同发布时间时，各发布--目标对分别计数并等权；不事后回算旧预测。
+
+对第$b$组样本定义净需求误差
+\begin{equation}
+ \varepsilon_{a,u}^{\mathrm{net}}
+ =\frac{\varepsilon_{a,u}^{\mathrm L}-\varepsilon_{a,u}^{\mathrm{PV}}}{6}
+ \quad (\mathrm{kWh}).
+\end{equation}
+计算其经验20\%和80\%分位数$q_{b,0.2},q_{b,0.8}$，分位数采用线性插值。分别选取净需求误差最接近相应分位数的\emph{完整联合误差行}：
+\begin{equation}
+ \boldsymbol\varepsilon_b^{(\alpha)}
+ =\boldsymbol\varepsilon_{a^*,u^*},\qquad
+ (a^*,u^*)\in\arg\min_{(a,u)\in\mathcal B_b(r)}
+ \left|\varepsilon_{a,u}^{\mathrm{net}}-q_{b,\alpha}\right|,
+ \quad\alpha\in\{0.2,0.8\}.
+\end{equation}
+并列时依次按目标时刻、发布时间取较早样本。三类误差取自同一历史行，以保留该样本中的负载、光伏与价格关系，避免分别取分位数后拼成未出现过的组合。
+
+\subsubsection{三情景输入}
+取情景集合$\Omega=\{-,0,+\}$，分别对应低净需求、名义及高净需求情景，令$\boldsymbol\varepsilon_b^-=\boldsymbol\varepsilon_b^{(0.2)}$、$\boldsymbol\varepsilon_b^+=\boldsymbol\varepsilon_b^{(0.8)}$，权重固定为
+\begin{equation}
+ (\rho_-,\rho_0,\rho_+)=(0.25,0.50,0.25),\qquad
+ \boldsymbol\varepsilon_b^0=\boldsymbol0.
+\end{equation}
+将各时距组的代表误差加至原点预测，并作非负截断：
 \begin{align}
- G_k+V_k+D_k+U_k&=\widehat\ell_k+C_k+S_k^{\mathrm{grid}},\\
- V_k+S_k^{\mathrm{PV}}&=\widehat v_k,\quad0\le S_k^{\mathrm{grid}}\le G_k,\\
- E_{k+1}&=E_k+0.9C_k-D_k/0.9,\quad1200\le E_k\le10800,\\
- C_k&\le Mz_k,\quad D_k\le M(1-z_k),\quad D_k\le\widehat\ell_k,\\
- U_k&\le\widehat\ell_k y_k,\quad C_k\le M(1-y_k),\\
- S_k^{\mathrm{grid}}&\le G_k^{\max}(1-y_k),\quad S_k^{\mathrm{PV}}\le\widehat v_k(1-y_k).
+ \ell_k^\omega&=\frac{\max\{0,\widehat P_k^{\mathrm L}+\varepsilon_b^{\mathrm{L},\omega}\}}{6},\\
+ v_k^\omega&=\frac{\max\{0,\widehat P_k^{\mathrm{PV}}+\varepsilon_b^{\mathrm{PV},\omega}\}}{6},\qquad
+ p_k^\omega=\max\{0,\widehat p_k+\varepsilon_b^{p,\omega}\}.
 \end{align}
-新增及次日虚拟合同的优化上界为$\widehat\ell_k+M$，可调整合同采用$\max(G_k^{\mathrm{prev}},\widehat\ell_k+M)$，冻结合同直接取确认量。该界利用非负价格与余电免费弃置条件，不是外网物理容量。
+这里$b$由目标相对原发布时间的时距确定，发布间不重选代表样本。冷启动期或空组取零误差；全部情景相同时直接求解原点预测问题。28日窗口、七日冷启动、两处分位数与三情景权重均在候选试验前固定。该构造是对历史联合误差的有限情景近似，不将情景权重解释为经验证的真实发生概率，也不改变原点预测及其误差报表。
 
-调整量满足$G_k=G_k^{\mathrm{prev}}+\delta_k^+-\delta_k^-$，用$w_k\in\{0,1\}$约束$\delta_k^+\le G_k^{\max}w_k$、$\delta_k^-\le G_k^{\mathrm{prev}}(1-w_k)$。当前模型不免费实施未来调整。新增及虚拟合同区间集合为$\mathcal N_t$，当前可调整集合为$\mathcal A_t$，目标为
-\begin{equation}
- \min J_t=\sum_{k\in\mathcal N_t}\widehat p_kG_k
- +\widehat p_t\sum_{k\in\mathcal A_t}(1.5\delta_k^++0.5\delta_k^-)
- +\sum_{k\in\mathcal H_t}5\widehat p_kU_k-v_rE_{\mathrm{end}}.
-\end{equation}
-交易使用当前第一预测区间价；过去费用视为常数。普通窗口$v_r$为0.9倍刷新时完整144格预测价均值，窗口触及$T$时去残值并约束$E_T=6000$。年度剩余$n$步还需满足必要可达界$6000-0.9nM\le E\le6000+nM/0.9$，与SOC边界相交。
-
-最后一天采用保守储能预留：对所有状态边界增加
-\begin{equation}
- E(\tau)\ge6000\ \mathrm{kWh},\qquad T-24\mathrm h\le\tau\le T.
-\end{equation}
-提前跨入该日期的预测窗口同样施加此界，实际反馈后逐步检查；此前下界1200及上界10800保持原值。该选择减少最后一天先放电、再依赖冻结合同与有误差的预测充回目标的风险，可能增加费用。它不保证任意实际序列可行；仍要求实际末态$E_T=6000$，不满足$10^{-6}$ kWh绝对容差时保留失败并阻断正式导出。
-
-\subsection{实际反馈与逐版结算}
-每次仅执行当前合法意图$(\overline C,\overline D)$。在区间平均功率恒定、本地控制器及时限幅的附加假设下，实际负载$L$、光伏$P$和合同$G$形成固定保护
+\subsection{情景采购与储能优化模型}
+\subsubsection{供需、储能及紧急购电约束}
+三个情景共享窗口内全部合同$G_k$、交易增减量及充放电量$C_k,D_k$，因此储能状态$E_k$也相同；光伏利用、弃光、合同余电和紧急购电则允许随情景变化。对每个$\omega\in\Omega$建立供需关系：
 \begin{align}
- C&=\min(\overline C,\max(G+P-L,0)),\quad D=\min(\overline D,L),\\
- U&=\max(L+C-G-P-D,0),\quad V=\min(P,L+C-D),\\
- G_{\mathrm{use}}&=L+C-D-U-V,\quad S^{\mathrm{grid}}=G-G_{\mathrm{use}},\quad S^{\mathrm{PV}}=P-V.
+ G_k+V_k^\omega+D_k+U_k^\omega&=\ell_k^\omega+C_k+S_k^{\mathrm{grid},\omega},\\
+ V_k^\omega+S_k^{\mathrm{PV},\omega}&=v_k^\omega,\qquad
+ 0\le S_k^{\mathrm{grid},\omega}\le G_k.
 \end{align}
-保护只减少原动作，不用实际量重选经济动作，也不修补非法SOC或功率意图。控制不能及时响应时保留原动作与违规证据；实际后继SOC推进下一次求解。
+各电量非负，共同储能动作满足
+\begin{align}
+ E_{k+1}&=E_k+0.9C_k-D_k/0.9,\qquad1200\le E_k\le10800,\\
+ C_k&\le Mz_k,\qquad D_k\le M(1-z_k),\qquad D_k\le\ell_k^\omega\quad(\forall\omega).
+\end{align}
+取$M=5000/6$，$z_k\in\{0,1\}$。对每个情景引入紧急购电许可变量$y_k^\omega\in\{0,1\}$，约束
+\begin{align}
+ U_k^\omega&\le\ell_k^\omega y_k^\omega,\qquad C_k\le M(1-y_k^\omega),\\
+ S_k^{\mathrm{grid},\omega}&\le G_k^{\max,\omega}(1-y_k^\omega),\qquad
+ S_k^{\mathrm{PV},\omega}\le v_k^\omega(1-y_k^\omega).
+\end{align}
+紧急电量仅补充负载缺口，不能用于充电，也不能与弃置可用供电同时发生。每个情景沿用原合同上界：新增及次日预期合同取$G_k^{\max,\omega}=\ell_k^\omega+M$，可调整合同取$\max\{G_k^{\mathrm{prev}},\ell_k^\omega+M\}$，冻结合同固定为已确认值。共同$G_k$必须同时满足各情景上界，不为提高可行性放宽购电边界。这些上界为规划模型边界，并非外网物理容量。
 
-全年费用按实际账本重算：
+全窗口充放电动作共享，使该模型属于受限的情景优化：它允许供需分配随情景变化，但未允许未来电池动作依情景重新决策。因此，不能将所得解称为具有完整未来追索决策的随机规划最优策略。
+
+\subsubsection{合同调整与目标函数}
+合同相对上一确认版本的变化写为
+\begin{align}
+ G_k&=G_k^{\mathrm{prev}}+\delta_k^+-\delta_k^-,\notag\\
+ &\delta_k^+\le G_k^{\max,\omega}w_k\quad(\forall\omega),\quad
+ \delta_k^-\le G_k^{\mathrm{prev}}(1-w_k),\quad w_k\in\{0,1\}.
+\end{align}
+由共同方向变量$w_k$限制同时增减购。记$\mathcal N_t$为当前新增及次日预期合同区间集合，$\mathcal A_t$为当前可调整集合，按三情景权重最小化规划费用：
+\begin{align}
+ \min J_t={}&\sum_{\omega\in\Omega}\rho_\omega\Bigg[
+ \sum_{k\in\mathcal N_t}p_k^\omega G_k
+ +p_t^\omega\sum_{k\in\mathcal A_t}(1.5\delta_k^++0.5\delta_k^-)\notag\\
+ &\hspace{4.5em}+\sum_{k\in\mathcal H_t}5p_k^\omega U_k^\omega\Bigg]
+ -v_rE_{\mathrm{end}}.
+ \label{eq:q4-scenario-objective}
+\end{align}
+过去已支付费用为常数，未来调整不提前免费执行。$p_t^\omega$取各情景窗口首区间价格；普通窗口的$v_r$仍取刷新时完整144格\emph{名义}预测价均值的0.9倍，不叠加其他残值候选。模型在各情景均满足设备和合同约束后，权衡新增合同费、当前调整费、情景缺口费与末态储能价值。
+
+\subsubsection{年度末态与储能预留}
+窗口触及回放终点$T$时去除末态价值项，改用$E_T=6000$。若距终点剩余$n$步，还须满足必要可达界
+\begin{equation}
+ 6000-0.9nM\le E\le6000+\frac{nM}{0.9},
+\end{equation}
+并与设备运行范围相交。考虑到冻结合同和预测误差可能限制后续充电，最后24小时在全部状态边界增加预留下界：
+\begin{equation}
+ E(\tau)\ge6000\ \mathrm{kWh},\qquad T-24\,\mathrm h\le\tau\le T.
+\end{equation}
+提前跨入该日期的预测窗口也施加此界。该安排减少年末先放电、再依赖有误差预测充回目标的风险，可能增加购电费用；实际末态仍须满足6\,000 kWh等式，不能以预测可达代替实际闭合。
+
+\subsection{实际反馈与费用结算}
+每次求解后仅执行当前区间的共同意图$(\overline C,\overline D)$，其余动作留待后续滚动更新。记实际负载、光伏和合同电量为$L,P,G$，根据及时响应假设，本地保护只减少原动作：
+\begin{align}
+ C&=\min\{\overline C,\max(G+P-L,0)\},\qquad D=\min\{\overline D,L\},\\
+ U&=\max\{L+C-G-P-D,0\},\qquad V=\min\{P,L+C-D\},\\
+ G_{\mathrm{use}}&=L+C-D-U-V,\qquad
+ S^{\mathrm{grid}}=G-G_{\mathrm{use}},\quad S^{\mathrm{PV}}=P-V.
+\end{align}
+实际供需用于限充、限放及缺口补电，不据此重选经济动作。以实际$C,D$推进储电量，作为下一次滚动优化的初态；非法储能意图或不能及时响应的违规保留，不通过截断储电量修正。
+
+回放期费用按实际合同和交易记录计算：
 \begin{align}
  F_{\mathrm{plan}}&=\sum_kp_k^{\mathrm{actual}}G_k^0,\\
  F_{\mathrm{adjust}}&=\sum_vp_v^{\mathrm{trade,actual}}\sum_k(1.5\Delta_{v,k}^++0.5\Delta_{v,k}^-),\\
- F_{\mathrm{emergency}}&=\sum_k5p_k^{\mathrm{actual}}U_k,\quad
- F_{\mathrm{total}}=F_{\mathrm{plan}}+F_{\mathrm{adjust}}+F_{\mathrm{emergency}}.
+ F_{\mathrm{emergency}}&=\sum_k5p_k^{\mathrm{actual}}U_k,\\
+ F_{\mathrm{total}}&=F_{\mathrm{plan}}+F_{\mathrm{adjust}}+F_{\mathrm{emergency}}.
 \end{align}
-增减量取相邻确认版本差额，交易价取交易时刻所在实际区间价，到区间结束才结算。未用合同付费，减购无退款，不以最终合同重复全额收费，不累计窗口目标冒充年费。Q4-2调整费为零。合同$10\to8\to9$、执行价2、交易价1和3、紧急量1的手例总费为$20+5.5+10=35.5$元。
+增减购量取相邻确认版本差额，交易价取该交易时刻所在实际区间价，于区间结束后结算。未用合同仍付费，减购无退款，最终合同不再重复全额计费，滚动窗口目标也不累加为实际总费。问题四（2）的调整费为零。
 
-\subsection{求解、检验与比较}
-采用稀疏约束和SciPy/HiGHS，开启预处理，相对间隙阈值$10^{-4}$，10秒限制及超时最多60秒重试。只有求解成功且独立约束验证通过才接受。复用后缀必须满足同一预测版本和窗口终点、无合同事件、实际SOC精确一致及后缀完整可行；扣除已付合同和过去费用后，用绝对误差界重新判断尾问题间隙，不继承母问题相对间隙。
+例如合同依次为$10\to8\to9$ kWh，执行价为2元/kWh，两次调整交易价为1、3元/kWh，紧急购电1 kWh，则总费为$20+5.5+10=35.5$元。该例用于说明逐版结算方式。
 
-Q4-2和Q4-3各自对比主价格预测与前一日同slot预测，形成四条独立连续实际SOC轨迹。报告6小时、24小时预测误差和重叠样本口径，以及实际费用、紧急量、弃光、未用合同、吞吐、初末SOC。预测误差下降不预设为费用下降，不将不同价格制度间成本差称为策略节省。
+\subsection{求解与比较设置}
+采用稀疏约束矩阵和SciPy/HiGHS求解，相对间隙阈值为$10^{-4}$，单次限制10秒，超时最多以60秒重试；仅接受求解成功且各情景独立约束复核通过的解。若预测与情景版本、窗口终点、合同和实际储电量与原计划后继条件一致，且不涉及当前新提交或调整合同，可复用可行后缀；扣除已付合同及过去费用后，以原绝对误差界重新核对剩余加权问题的间隙。情景生成或约束不可行时保留失败，不静默改变权重与边界。
 
-\IfFileExists{tables/q4_results.tex}{\input{tables/q4_results}}{全年回放与实际末态正在核验，当前不报告全年费用结论。}
+各合同条件下，将情景采购与原点预测基准进行单因素比较：实际输入、原负载/光伏/价格预测、合同权限、实际反馈、收费、末态价值及年末边界均相同，仅改变规划中的情景机制。两方案均从同一初态连续运行334日，不分月拼接。另将长窗光伏处理、显式采购余量和普通窗口残值作为独立候选，分别留存完整回放结果，不把未经联合回放的机制叠加成新方案。
+
+记录实际总费及各费用分项、紧急量、弃光、合同余电、保护次数和储能吞吐，并分别评价6小时、24小时点预测误差。以完整可行回放中的实际总费选择本轮方案。该年份已经用于开发诊断，时间因果检验保证决策未读取未来数据，不能代替独立年份验证。
+
+\IfFileExists{tables/q4_results_paper.tex}{\input{tables/q4_results_paper}}{
+  \IfFileExists{tables/q4_results.tex}{\input{tables/q4_results}}{回放结果待补充。}
+}
+\FloatBarrier
