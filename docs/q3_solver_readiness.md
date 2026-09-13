@@ -19,12 +19,13 @@
 | 结算账本 | 计划/调整/紧急事件已实现 | `q3_plan_ledger.py`、`q3_sidecars.py` | 汇总进年度 artifacts |
 | 结构化 sidecar/CaseResult | 一日/跨日artifact封装已实现 | `q3_sidecars.py`、`q3_artifacts.py` | 完成 |
 | Q3 gate | tail decision 已批准 | `D_PV_TAIL_BASELINE=approved` | 保留 gate 防回退 |
-| 实际回放 | DISCHARGE-CURTAIL-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 真实7日已通过 |
+| 实际回放 | DISCHARGE-CURTAIL-PV-FIRST已接入 | `q3_replay.py`、`q3_controller.py` | 完整2月通过；年末charge curtailment已独立复算 |
 | 单窗口 Q3 MILP | 已实现并独立验证 | `problem/q3_solver.py` | 接入滚动控制器 |
 | Forecast release builder | 已实现因果InfoSet生成 | `problem/q3_release_snapshots.py` | runner提供实际/预报archive |
 | Forecast window factory | 已接不可变真实domain snapshot | `problem/q3_window_factory.py` | 完成 |
 | Q3 滚动 driver | 一日/跨日连续版已实现 | `problem/q3_rolling.py` | 接正式runner |
-| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 真实1日、7日审计已通过 |
+| 窗口失败上下文 | 已实现并验证失败文件留存 | `q3_rolling.py`、`tests/test_q3_rolling.py` | 本地复现定位到12月31日22:10、slot 133 |
+| Q3 年度 runner | 已实现并保留输入/失败/manifest gate | `problem/q3.py` | 年末递归可达性阻断，待团队讨论 |
 | result3.xlsx 导出 | 未批准/未实现 | 当前模板 decision 只覆盖 Q1 | 不阻塞 solver，但阻塞最终交付 |
 
 ## 2. 剩余的 P0 阻断
@@ -88,13 +89,37 @@ HiGHS整数可行性容差，不放宽共享物理验证阈值。
 decision time。失败 manifest、failure.json 和日志已经保留。不得使用 `xfail`、放宽
 物理阈值或更改已批准口径来掩盖该问题。
 
+接手后已为`run_q3_day`的`Q3WindowSolveError`增加`decision_time/day/slot/soc_kwh/
+terminal_mode/window_length`，保留原异常类型及原因链，并验证现有runner会将全部
+上下文写入failure和manifest的error message。该补丁仅涉及异常包装，MILP、预测、
+实际回放、decision和物理/整数容差均未改变。质量检查为ruff lint/format通过、
+`265 passed, 1 skipped`；新增测试覆盖普通144格与年末1格失败窗口。
+另以`MICROGRID_RUN_SOLVER_TESTS=1 uv run --locked pytest -q`启用可选Q1 MILP测试，
+全量`266 passed`，无跳过。
+
+原失败ZIP、manifest、failure与日志均已按原始字节保全在本地忽略目录，哈希及
+跨设备输入/配置核对结果见`docs/q3_real_data_audit.md`第5.1节。完整2月原诊断没有
+独立月度run目录；已记录的汇总数值不能冒充逐格artifacts。
+
+本地从2月1日SOC=6000连续复现，在12月31日22:10（slot 133）返回不可行；当前SOC
+为2657.079008047366 kWh，剩11格为18:00版本的冻结合同，年度6000硬等式及残值0
+设置正确。22:00实际负载高于预测，获批recourse削减充电，真实格末SOC低于上一
+窗口预测。独立重建窗口、重复MILP及单格回放全部复核，剩余格可充电量上界证明
+年末SOC至多5957.055995045398 kWh，必然达不到6000；详见审计文档第5.2节。
+
+因此P0现为年末合同冻结、预测等式与受限实际响应之间的递归可达性问题，而非输入
+缺失或该窗口HiGHS误报。须将证据交团队讨论；不得自行新增储能储备、额外交易、
+紧急充电、放宽年度等式或修改其他获批语义。原Windows失败时刻仍未知，不倒填原
+记录。本地复现的失败文件、窗口/ledger/前格解、可达性证书和日志完整保留，均未
+登记为正式结果，亦未伪造缺失的成功sidecar。
+
 ## 4. 最短实施路径
 
 ```text
 1. 真实1日、7日和完整2月审计已通过
-2. 先给窗口求解失败补充decision time/SOC/terminal mode诊断上下文
-3. 复现并判断是实现错误还是需要团队重新讨论的模型边界
-4. 全年稳定且经团队复核后才进入正式selected run与Excel导出
+2. 窗口求解失败上下文已补充且通过失败文件留存测试
+3. 本地复现已证实年末递归可达性缺口，提交团队讨论，不自动改变decision
+4. 经团队批准必要的后续动作、全年成功并复核后，再另行审批selected run与Excel导出
 ```
 
 ## 5. 正式 runner 实现验收

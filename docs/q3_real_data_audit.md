@@ -118,5 +118,105 @@ C成员于2026-09-13明确确认 `DISCHARGE-CURTAIL-PV-FIRST`：实际过供依�
 时刻、当前SOC、窗口终端模式和剩余格数，再复现定位；在证据明确前不得改变已批准
 口径、放宽约束或把该失败run登记为正式结果。
 
+### 5.1 跨设备证据保全与诊断补强
+
+已接收并解压 `q3-c-handoff-20260913-failed-v2.zip`，全部文件保存在本地忽略目录
+`outputs/evidence/q3-failed-handoff-v2/q3-c-handoff-20260913-failed/`，不提交Git。
+以下SHA-256按原始文件字节计算，未转换Windows换行或重写原失败文件：
+
+| 文件 | SHA-256 |
+|---|---|
+| 证据包ZIP | `1a36180b09038fa73a5366c330ce5cfcc9ebb384122be5d5b1c19bf7062363b9` |
+| `run/failure.json` | `98f0e50bb552d96d2256e6870d20622035b85e3406df29b6577d21ff1c9719c2` |
+| `run/manifest.json` | `3a212fa90161458725bc7cfa0762dd66e177a800637b02e8589b8686a800c0f3` |
+| `logs/q3-full-validation-20260913.log` | `2cbea069f50a97ae75f2a831451112f94844c15aacb8509c6cf12202341f7100` |
+
+本地附件1/2/3与原manifest的输入哈希一致，完整config snapshot也一致。
+NumPy、SciPy等主要依赖版本与原运行一致；操作系统及Python补丁版本不同
+（原Windows/Python 3.11.4，本地Linux/Python 3.11.9），复现轨迹不预先宣称逐位相同。
+
+`run_q3_day`现在仅在`Q3WindowSolveError`处包装`decision_time/day/slot/soc_kwh/
+terminal_mode/window_length`，保留原异常类型、退出码和原因链。现有runner会将完整
+错误文本写入`failure.json`与`manifest.json`；测试覆盖普通144格窗口及年末1格窗口的
+诊断信息和两份失败文件。未修改MILP、预测器、回放、decision、共享物理容差或
+HiGHS整数容差。
+
+完整2月原诊断仅持久化上述审计数值，没有独立月度run目录或逐格artifacts。
+不得将该表补造成月度manifest或sidecar；若需要逐格证据，必须由相同哈希输入重跑。
+
+### 5.2 本地连续复现与年末不可达证据
+
+以`584b66c`加上述异常包装补丁，从2025-02-01、SOC=6000 kWh重新连续执行，
+本地诊断ID为`q3-context-repro-20260913`。复用原生产loader、release builder、window
+factory、MILP与`run_q3_day`；仅将catalog按每天四个不可变发布版本分批构建，最新
+发布版本的查找规则、24小时窗口、年度终点和跨日SOC传递均不变。没有从checkpoint
+跳过前段，也未替换预测算法或实际回放。该本地诊断不是正式run。
+
+本地完整2月期末SOC为`10745.301616126822` kWh，与原汇总记录一致；没有据此补造
+原月度artifacts。连续复现完成至12月30日，其期末SOC为`10740.506741045345` kWh。
+12月31日的窗口失败位置为：
+
+| 项目 | 本地复现记录 |
+|---|---|
+| `decision_time` | `2025-12-31T22:10:00` |
+| day / slot | `2025-12-31` / `133` |
+| 当前SOC | `2657.079008047366` kWh |
+| terminal mode | `year_end_equality`，目标6000 kWh，残值系数0 |
+| 窗口长度 | 11个十分钟区间，止于`2026-01-01T00:00:00` |
+| 当时合同 | 18:00版本3；11格全部`fixed_commitment`，与完整ledger逐格一致 |
+| 求解状态 | SciPy status 2 / HiGHS status 8，infeasible |
+
+该时刻属于本地复现；原Windows失败记录仍没有decision time，不能倒填原失败文件
+或宣称两台机器的轨迹逐位相同。
+
+独立验证步骤已经执行：从相同哈希输入重新生成18:00生产预测，用保存的ledger和
+真实SOC重建窗口，所得`Q3WindowInput`与失败窗口完全相等；单独再次求解该窗口仍
+返回status 2 / HiGHS status 8。22:00保存的上一窗口解通过独立validator，供需及
+SOC方程最大残差分别为`1.1368683772161603e-13`、`9.094947017729282e-13` kWh。
+该解预测年末SOC为6000 kWh，但执行第一格后的实际SOC与预测不同：
+
+| 22:00—22:10量 | kWh |
+|---|---:|
+| 预测负载 | 524.116389616332 |
+| 实际负载 / 实际PV | 571.865150000000 / 0 |
+| 冻结合同 | 1357.434428889642 |
+| 计划 / 实际充电 | 833.318039273310 / 785.569278889642 |
+| 预测 / 实际格末SOC | 2700.052892392668 / 2657.079008047366 |
+
+使用原生产recourse单独回放上述已结束区间，格末SOC与失败窗口的初态完全相等。
+实际负载比预测高`47.748760383668` kWh，获批charge curtailment因此减少同量充电，
+使SOC较上一窗口预测少`42.973884345301` kWh。这不是提前读取未来actual得到的调整。
+
+对剩余固定合同格，若`C_k>0`，充放电互斥强制`D_k=0`，禁止紧急充电又强制
+`q_emergency=0`。供需等式、非负grid spill及`PV_use<=PV_forecast`给出必要上界：
+
+```text
+C_k <= max(0, min(5000/6, q_fixed[k] + PV_forecast[k] - Load_forecast[k]))
+E_end <= E_current + 0.9 * sum_k C_max[k]
+      = 2657.079008047366 + 0.9 * 3666.641096664480
+      = 5957.055995045398 kWh < 6000 kWh
+```
+
+即使忽略所有放电的储能损失，期末仍至少缺`42.944004954602` kWh。因此这次本地
+失败具有独立物理不可达证据，不是通过调大容差、重试求解或接受非最优解能解决的
+HiGHS误报。它暴露的是“预测年末等式 + 18:00后合同冻结 + 仅向下削减实际动作”
+未保证偏差回放后的递归可达性。对年度边界、合同权限、响应或额外可达性保证的
+任何实质变更须先交团队讨论和批准；本补丁不作这些变更。
+
+本地失败证据目录为`outputs/runs/q3/q3-context-repro-20260913/`，含failure、manifest、
+失败窗口、完整当日ledger、上一窗口解和独立`reachability_certificate.json`；日志与
+本地诊断脚本在`outputs/evidence/q3-context-repro-20260913/`，均不提交Git。未生成
+summary、domain result或三份成功sidecar，manifest中诊断文件哈希已逐份核对通过。
+
+| 本地证据文件 | SHA-256 |
+|---|---|
+| `failure.json` | `62c511a7422ba070d3b03bf24075c6b0ed28c4c30566f5faedef5cec5414ddbd` |
+| `manifest.json` | `409188c9740be724a86eb0fa41055c1723a68a45794183c5e4f9719a18113854` |
+| `failed_window.json` | `fd1f10ac1c7a0674462049e00ac12f03793f99688d21520247dc6e967c18cb11` |
+| `failed_ledger.json` | `3f31bfc32e594c9df6a9bf2781ab1cfbf3da328fa30a520b8c7cef41d14f9943` |
+| `previous_successful_solve.json` | `b48adb0e6785160f706bc1a8a799ca8ca1a41645a5efa6a4aad483ca4a3a0d66` |
+| `reachability_certificate.json` | `739a3599f12a6f64941f76954285997c83d8cc6fa7ef476a79de13bfbc9879b6` |
+| `reproduce.log` | `0996c97cfde5aebedb409618f89a3bec70dc688b637bc9dab5174d8d50e955bd` |
+
 以上数值和失败记录都只是诊断证据，不是正式Q3结果。正式Excel导出继续受独立模板
 口径约束。
